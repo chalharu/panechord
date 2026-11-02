@@ -221,6 +221,322 @@ mod fake {
             }
         }
     }
+
+    // Shared-contract implementation: the generated screen bounds on
+    // abstractions (`Backend::View` + the `View` contract), exactly like a
+    // real backend. Inherent methods above keep their shape; each trait
+    // method delegates to the inherent one where the fixture records state,
+    // and stubs the rest (never called by these fixtures).
+    #[derive(Clone)]
+    pub struct Weak(std::rc::Weak<RefCell<State>>);
+    impl WeakViewHandle for Weak {
+        type View = View;
+        fn upgrade(&self) -> Option<View> {
+            self.0.upgrade().map(View)
+        }
+    }
+
+    impl ViewCore for View {
+        type Parent = Parent;
+        type Weak = Weak;
+        fn new(title: Binding<String>) -> Self {
+            View::new(title)
+        }
+        fn root(&self) -> Parent {
+            View::root(self)
+        }
+        fn title(&self) -> String {
+            self.0
+                .borrow()
+                .title
+                .clone()
+                .map(|title| title.get())
+                .unwrap_or_default()
+        }
+        fn present(&self) {}
+        fn close(&self) {
+            View::close(self)
+        }
+        fn request_close(&self) {
+            View::close(self)
+        }
+        fn on_close(&self, close: Rc<dyn Fn()>) {
+            View::on_close(self, close)
+        }
+        fn on_close_request(&self, _: Rc<dyn Fn()>) {}
+        fn downgrade(&self) -> Weak {
+            Weak(Rc::downgrade(&self.0))
+        }
+        fn keep(&self, token: Subscription) {
+            View::keep(self, token)
+        }
+        fn visible(&self, _: &str, _: Binding<bool>) {}
+        fn enabled(&self, _: &str, _: Binding<bool>) {}
+        fn style_binding(&self, _: &str, _: Binding<Style>) {}
+        fn error(&self) -> Option<String> {
+            None
+        }
+        fn report_error(&self, error: String) {
+            View::report_error(self, error)
+        }
+    }
+
+    impl LayoutView for View {
+        fn layout(&self, parent: &Parent, id: &str, value: Layout) -> Parent {
+            View::layout(self, parent, id, value)
+        }
+        fn try_layout(&self, parent: &Parent, id: &str, value: Layout) -> Result<Parent, String> {
+            View::try_layout(self, parent, id, value)
+        }
+        fn try_scroll(&self, _: &Parent, _: &str, _: bool) -> Result<Parent, String> {
+            Ok(Parent)
+        }
+        fn style(&self, id: &str, value: Style) {
+            View::style(self, id, value)
+        }
+        fn try_style(&self, id: &str, value: Style) -> Result<(), String> {
+            View::style(self, id, value);
+            Ok(())
+        }
+        fn separator(&self, _: &Parent, _: &str, _: bool) {}
+    }
+
+    impl TextView for View {
+        fn label(&self, parent: &Parent, id: &str, text: Binding<String>) {
+            View::label(self, parent, id, text)
+        }
+        fn entry(&self, parent: &Parent, id: &str, text: Binding<String>) {
+            View::entry(self, parent, id, text)
+        }
+        fn entry_with_placeholder(
+            &self,
+            parent: &Parent,
+            id: &str,
+            text: Binding<String>,
+            _: Binding<String>,
+        ) {
+            View::entry(self, parent, id, text)
+        }
+    }
+
+    impl ButtonView for View {
+        fn button(&self, parent: &Parent, id: &str, text: Binding<String>, command: Command) {
+            View::button(self, parent, id, text, command)
+        }
+        fn dialog_footer(&self, _: &Parent, _: &str, _: DialogFooter) {}
+    }
+
+    impl SelectView for View {
+        fn checkbox(&self, _: &Parent, _: &str, _: Binding<String>, _: Binding<bool>) {}
+        fn radio(&self, _: &Parent, _: &str, _: Binding<String>, _: Binding<String>, _: &str) {}
+        fn slider(&self, _: &Parent, _: &str, _: Binding<f64>, _: SliderRange) {}
+        fn combo(
+            &self,
+            _: &Parent,
+            _: &str,
+            _: Binding<Vec<panechord_runtime::Choice>>,
+            _: Binding<String>,
+        ) {
+        }
+        fn slider_value(&self, _: &str) -> Option<f64> {
+            None
+        }
+    }
+
+    impl MediaView for View {
+        fn image(&self, _: &Parent, _: &str, _: Binding<Option<ImageFrame>>) {}
+        fn image_with_pointer(
+            &self,
+            _: &Parent,
+            _: &str,
+            _: Binding<Option<ImageFrame>>,
+            _: Binding<Option<PointerPosition>>,
+        ) {
+        }
+        fn image_update_count(&self) -> usize {
+            0
+        }
+        fn meter(&self, parent: &Parent, id: &str, value: Binding<f64>) {
+            View::meter(self, parent, id, value)
+        }
+    }
+
+    impl ContainerView for View {
+        fn tab(&self, _: &Parent, _: &str, _: Binding<String>) -> Parent {
+            Parent
+        }
+        fn navigation(&self, _: &Parent, _: &str, _: Binding<String>) -> Parent {
+            Parent
+        }
+        fn tab_position(&self, id: &str, position: TabPosition) -> Result<(), String> {
+            View::tab_position(self, id, position)
+        }
+        fn tab_page(&self, _: &Parent, _: &str, _: Binding<String>, _: &str) -> Parent {
+            Parent
+        }
+        fn try_tab_page(
+            &self,
+            _: &Parent,
+            _: &str,
+            _: Binding<String>,
+            _: &str,
+        ) -> Result<Parent, String> {
+            Ok(Parent)
+        }
+        fn finish_tab(&self, _: &Parent) -> Result<(), String> {
+            Ok(())
+        }
+        fn tab_items<T: Clone + 'static>(
+            &self,
+            parent: &Parent,
+            id: &str,
+            items: Binding<Vec<Keyed<T>>>,
+            selected: Binding<String>,
+            title: Rc<dyn Fn(Store<T>) -> Binding<String>>,
+            template: Rc<dyn Fn(&View, &Parent, &str, Store<T>)>,
+        ) -> Parent {
+            View::tab_items(self, parent, id, items, selected, title, template)
+        }
+        fn repeat<T: Clone + 'static>(
+            &self,
+            parent: &Parent,
+            id: &str,
+            items: Binding<Vec<Keyed<T>>>,
+            _: f32,
+            template: Template<T>,
+        ) {
+            for item in items.get() {
+                template(self, parent, &format!("{id}/{}", item.key), item.model);
+            }
+        }
+        fn items<T: Clone + 'static>(
+            &self,
+            parent: &Parent,
+            id: &str,
+            items: Binding<Vec<Keyed<T>>>,
+            viewport: Binding<Viewport>,
+            template: Template<T>,
+        ) {
+            View::items(self, parent, id, items, viewport, template)
+        }
+        fn content<T: Clone + 'static>(
+            &self,
+            parent: &Parent,
+            id: &str,
+            item: Binding<Option<Keyed<T>>>,
+            template: Template<T>,
+        ) {
+            View::content(self, parent, id, item, template)
+        }
+        fn dialog(&self, _: &Parent, _: &str, _: Binding<String>, _: Binding<bool>) -> Parent {
+            Parent
+        }
+        fn table(&self, _: &Parent, _: &str, _: Binding<Table>) {}
+        fn table_with_selection(
+            &self,
+            _: &Parent,
+            _: &str,
+            _: Binding<Table>,
+            _: Binding<Option<TableSelection>>,
+        ) {
+        }
+        fn item_keys(&self, _: &str) -> Vec<String> {
+            Vec::new()
+        }
+        fn mounted_count(&self, _: &str) -> usize {
+            0
+        }
+        fn viewport(&self, _: &str, _: usize) {}
+        fn items_error(&self, _: &str) -> Option<String> {
+            None
+        }
+    }
+
+    impl MenuView for View {
+        fn typed_menu<A: Clone + 'static>(
+            &self,
+            _: &str,
+            _: Binding<String>,
+            _: Binding<Vec<MenuItem<A>>>,
+            _: Rc<dyn Fn(A) -> bool>,
+        ) {
+        }
+        fn hierarchical_menu<A: Clone + PartialEq + 'static>(
+            &self,
+            _: &str,
+            _: Binding<String>,
+            _: Binding<Vec<MenuNode<A>>>,
+            _: Rc<dyn Fn(A) -> bool>,
+        ) {
+        }
+        fn activate_menu(&self, _: &str) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    impl AutomationView for View {
+        fn edit(&self, _: &str, _: &str) -> Result<(), String> {
+            Err("fixture has no automation".into())
+        }
+        fn click(&self, _: &str) -> Result<(), String> {
+            Err("fixture has no automation".into())
+        }
+        fn toggle(&self, _: &str, _: bool) -> Result<(), String> {
+            Err("fixture has no automation".into())
+        }
+        fn slide(&self, _: &str, _: f64) -> Result<(), String> {
+            Err("fixture has no automation".into())
+        }
+        fn select(&self, _: &str, _: &str) -> Result<(), String> {
+            Err("fixture has no automation".into())
+        }
+        fn set_open(&self, _: &str, _: bool) -> Result<(), String> {
+            Err("fixture has no automation".into())
+        }
+        fn text(&self, id: &str) -> Option<String> {
+            self.0.borrow().texts.get(id).map(|text| text.get())
+        }
+    }
+
+    pub struct Host(Rc<dyn Executor>);
+    impl UiHost for Host {
+        fn executor(&self) -> Rc<dyn Executor> {
+            self.0.clone()
+        }
+        fn attach(&self, _: Session) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    impl WindowHost<View> for Host {
+        fn register_view(
+            &self,
+            _: &Session,
+            _: &str,
+            _: &View,
+            _: WindowHooks,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    pub struct Backend;
+    impl panechord_runtime::Backend for Backend {
+        type View = View;
+        type Host = Host;
+        fn runner_config() -> RunnerConfig {
+            RunnerConfig {
+                application_menu: false,
+                menu_quit_in_file: true,
+            }
+        }
+        fn run_host(
+            _: impl FnOnce(Rc<Host>) -> Result<(), String> + 'static,
+        ) -> Result<(), String> {
+            Err("fixture has no native loop".into())
+        }
+        fn set_allows_automatic_window_tabbing(_: bool) {}
+        fn set_initial_window_size(_: u32, _: u32) {}
+    }
 }
 struct Exec(futures::executor::LocalSpawner);
 impl Executor for Exec {

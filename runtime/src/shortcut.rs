@@ -38,24 +38,25 @@ impl fmt::Display for ShortcutError {
 }
 impl std::error::Error for ShortcutError {}
 
-// canonical, GTK keyval name, muda Code name
-const KEYS: &[(&str, &str, &str)] = &[
-    ("Comma", "comma", "Comma"),
-    ("Enter", "Return", "Enter"),
-    ("Tab", "Tab", "Tab"),
-    ("Space", "space", "Space"),
-    ("Escape", "Escape", "Escape"),
-    ("Backspace", "BackSpace", "Backspace"),
-    ("Delete", "Delete", "Delete"),
-    ("Insert", "Insert", "Insert"),
-    ("Home", "Home", "Home"),
-    ("End", "End", "End"),
-    ("PageUp", "Page_Up", "PageUp"),
-    ("PageDown", "Page_Down", "PageDown"),
-    ("Left", "Left", "ArrowLeft"),
-    ("Right", "Right", "ArrowRight"),
-    ("Up", "Up", "ArrowUp"),
-    ("Down", "Down", "ArrowDown"),
+// Canonical key names only. Native renderings (GTK keyvals, muda Codes,
+// AppKit equivalents) are backend-owned; the runtime never names them.
+const KEYS: &[&str] = &[
+    "Comma",
+    "Enter",
+    "Tab",
+    "Space",
+    "Escape",
+    "Backspace",
+    "Delete",
+    "Insert",
+    "Home",
+    "End",
+    "PageUp",
+    "PageDown",
+    "Left",
+    "Right",
+    "Up",
+    "Down",
 ];
 
 impl FromStr for Shortcut {
@@ -84,10 +85,7 @@ impl FromStr for Shortcut {
         let raw = tokens[tokens.len() - 1];
         let key = if raw.len() == 1 && raw.as_bytes()[0].is_ascii_alphanumeric() {
             raw.to_ascii_uppercase()
-        } else if let Some((name, _, _)) = KEYS
-            .iter()
-            .find(|(name, _, _)| name.eq_ignore_ascii_case(raw))
-        {
+        } else if let Some(name) = KEYS.iter().find(|name| name.eq_ignore_ascii_case(raw)) {
             (*name).into()
         } else {
             let upper = raw.to_ascii_uppercase();
@@ -108,123 +106,25 @@ impl Shortcut {
     pub fn parse(value: &str) -> Result<Self, ShortcutError> {
         value.parse()
     }
-    pub fn to_gtk(&self) -> String {
-        self.to_gtk_for(ShortcutTarget::current())
+    /// Raw modifier bitmap for backend renderers: bit 0 Primary, 1 Ctrl,
+    /// 2 Cmd, 3 Alt, 4 Shift. Backends resolve Primary to Cmd on macOS and
+    /// Ctrl elsewhere.
+    pub fn modifiers(&self) -> u8 {
+        self.modifiers
     }
-    pub fn to_muda(&self) -> String {
-        self.to_muda_for(ShortcutTarget::current())
-    }
-    fn resolved(&self, target: ShortcutTarget) -> u8 {
-        (self.modifiers & !1)
-            | if self.modifiers & 1 == 0 {
-                0
-            } else if target == ShortcutTarget::MacOS {
-                4
-            } else {
-                2
-            }
-    }
-    pub fn to_gtk_for(&self, target: ShortcutTarget) -> String {
-        let mods = self.resolved(target);
-        let mut out = String::new();
-        for (bit, name) in [(2, "Control"), (4, "Meta"), (8, "Alt"), (16, "Shift")] {
-            if mods & bit != 0 {
-                out.push_str(&format!("<{name}>"));
-            }
-        }
-        if let Some((_, gtk, _)) = KEYS.iter().find(|(key, _, _)| *key == self.key) {
-            out.push_str(gtk);
-        } else if self.key.len() == 1 {
-            out.push_str(&self.key.to_ascii_lowercase());
-        } else {
-            out.push_str(&self.key);
-        }
-        out
-    }
-    /// AppKit key equivalent for `NSMenuItem`: `(modifierFlags, key)`.
-    /// Returns `None` for keys AppKit cannot express as an equivalent
-    /// (navigation/editing keys); those items still work, they just show no
-    /// shortcut. NSEventModifierFlags values: Shift 1<<17, Control 1<<18,
-    /// Option 1<<19, Command 1<<20.
-    pub fn to_appkit(&self) -> Option<(u64, String)> {
-        let mut flags = 0u64;
-        // Bits match FromStr: 1 Primary, 2 Ctrl, 4 Cmd, 8 Alt, 16 Shift.
-        // Primary resolves to Command on macOS (rejected mixed with Ctrl/Cmd
-        // at parse time), mirroring resolved().
-        if self.modifiers & 1 != 0 {
-            flags |= 1 << 20;
-        }
-        if self.modifiers & 2 != 0 {
-            flags |= 1 << 18;
-        }
-        if self.modifiers & 4 != 0 {
-            flags |= 1 << 20;
-        }
-        if self.modifiers & 8 != 0 {
-            flags |= 1 << 19;
-        }
-        if self.modifiers & 16 != 0 {
-            flags |= 1 << 17;
-        }
-        if self.modifiers & !31 != 0 {
-            return None;
-        }
-        let key = if self.key.len() == 1 {
-            self.key.to_ascii_lowercase()
-        } else if let Some(n) = self
-            .key
-            .strip_prefix('F')
-            .and_then(|n| n.parse::<u32>().ok())
-            && (1..=12).contains(&n)
-        {
-            // NSF1FunctionKey..NSF12FunctionKey (U+F704..U+F70F).
-            char::from_u32(0xF704 + n - 1)?.to_string()
-        } else {
-            match self.key.as_str() {
-                "Comma" => ",".into(),
-                "Enter" => "\r".into(),
-                "Tab" => "\t".into(),
-                "Space" => " ".into(),
-                "Escape" => "\u{1b}".into(),
-                "Backspace" => "\u{7f}".into(),
-                "Delete" => "\u{F728}".into(),
-                "Left" => "\u{F702}".into(),
-                "Right" => "\u{F703}".into(),
-                "Up" => "\u{F700}".into(),
-                "Down" => "\u{F701}".into(),
-                _ => return None,
-            }
-        };
-        Some((flags, key))
-    }
-    pub fn to_muda_for(&self, target: ShortcutTarget) -> String {
-        let mods = self.resolved(target);
-        let mut parts = Vec::new();
-        for (bit, name) in [(2, "Ctrl"), (4, "Cmd"), (8, "Alt"), (16, "Shift")] {
-            if mods & bit != 0 {
-                parts.push(name.to_owned());
-            }
-        }
-        parts.push(
-            if let Some((_, _, muda)) = KEYS.iter().find(|(key, _, _)| *key == self.key) {
-                (*muda).into()
-            } else if self.key.len() == 1 && self.key.as_bytes()[0].is_ascii_alphabetic() {
-                format!("Key{}", self.key)
-            } else if self.key.len() == 1 {
-                format!("Digit{}", self.key)
-            } else {
-                self.key.clone()
-            },
-        );
-        parts.join("+")
+    /// Canonical key name: one ASCII letter/digit, `F1`..`F12`, or an
+    /// editing/navigation key such as `Comma`, `Enter`, `Left`.
+    pub fn key(&self) -> &str {
+        &self.key
     }
 }
 
 /// Canonical grammar first, raw value as the backend-native fallback: renders
 /// the canonical form when `value` parses, otherwise borrows `value` so the
-/// backend parser can try its own legacy syntax. Both GTK (`to_gtk`) and Tao
-/// (`to_muda`) sequence the same two attempts through this helper instead of
-/// duplicating the fallback.
+/// backend parser can try its own legacy syntax. Each backend passes its own
+/// renderer (`panechord_gtk::shortcut::to_gtk`,
+/// `panechord_tao::shortcut::to_muda`), so the fallback is sequenced in one
+/// shared place without the runtime naming backend vocabulary.
 pub fn canonical_or_raw(value: &str, render: impl FnOnce(&Shortcut) -> String) -> Cow<'_, str> {
     match Shortcut::parse(value) {
         Ok(shortcut) => Cow::Owned(render(&shortcut)),
@@ -236,76 +136,31 @@ pub fn canonical_or_raw(value: &str, render: impl FnOnce(&Shortcut) -> String) -
 mod tests {
     use super::*;
     #[test]
-    fn primary_resolves_for_target_not_build_host() {
+    fn primary_is_canonical_and_target_independent() {
+        // Resolution to Cmd/Ctrl is backend rendering, not parsing: the
+        // canonical form keeps Primary so each backend lowers it per target.
         for key in ["S", "Q"] {
             let shortcut = Shortcut::parse(&format!("Primary+{key}")).unwrap();
-            assert_eq!(
-                shortcut.to_gtk_for(ShortcutTarget::MacOS),
-                format!("<Meta>{}", key.to_lowercase())
-            );
-            assert_eq!(
-                shortcut.to_muda_for(ShortcutTarget::MacOS),
-                format!("Cmd+Key{key}")
-            );
-            assert_eq!(
-                shortcut.to_gtk_for(ShortcutTarget::Other),
-                format!("<Control>{}", key.to_lowercase())
-            );
-            assert_eq!(
-                shortcut.to_muda_for(ShortcutTarget::Other),
-                format!("Ctrl+Key{key}")
-            );
+            assert_eq!(shortcut.modifiers() & 1, 1);
+            assert_eq!(shortcut.modifiers() & 6, 0);
+            assert_eq!(shortcut.key(), key);
         }
     }
     #[test]
-    fn preferences_shortcut_resolves_comma_for_both_targets() {
-        let shortcut = Shortcut::parse("Primary+Comma").unwrap();
-        assert_eq!(shortcut.to_gtk_for(ShortcutTarget::MacOS), "<Meta>comma");
-        assert_eq!(shortcut.to_gtk_for(ShortcutTarget::Other), "<Control>comma");
-        assert_eq!(shortcut.to_muda_for(ShortcutTarget::MacOS), "Cmd+Comma");
-        assert_eq!(shortcut.to_muda_for(ShortcutTarget::Other), "Ctrl+Comma");
-    }
-    #[test]
-    fn appkit_equivalent_maps_primary_to_command() {
-        let shortcut = Shortcut::parse("Primary+O").unwrap();
-        assert_eq!(shortcut.to_appkit(), Some(((1 << 20), "o".into())));
-        let shortcut = Shortcut::parse("Primary+Shift+S").unwrap();
-        assert_eq!(
-            shortcut.to_appkit(),
-            Some(((1 << 20) | (1 << 17), "s".into()))
-        );
-        let shortcut = Shortcut::parse("Primary+Comma").unwrap();
-        assert_eq!(shortcut.to_appkit(), Some(((1 << 20), ",".into())));
-        let shortcut = Shortcut::parse("Primary+F5").unwrap();
-        assert_eq!(shortcut.to_appkit().map(|(flags, _)| flags), Some(1 << 20));
-        assert!(
-            shortcut
-                .to_appkit()
-                .is_some_and(|(_, key)| key.chars().count() == 1)
-        );
-        assert_eq!(Shortcut::parse("Primary+Home").unwrap().to_appkit(), None);
-    }
-    #[test]
-    fn modifiers_are_normalized_without_implicit_shift() {
+    fn canonical_names_normalize_case_and_spacing() {
         let shortcut = Shortcut::parse(" shift + CTRL + s ").unwrap();
-        assert_eq!(shortcut.to_gtk(), "<Control><Shift>s");
-        assert_eq!(shortcut.to_muda(), "Ctrl+Shift+KeyS");
+        assert_eq!(shortcut.modifiers(), 2 | 16);
+        assert_eq!(shortcut.key(), "S");
         assert_eq!(Shortcut::parse("S"), Shortcut::parse("s"));
-        assert_eq!(
-            Shortcut::parse("Cmd+Alt+9").unwrap().to_muda(),
-            "Cmd+Alt+Digit9"
-        );
+        assert_eq!(Shortcut::parse("Primary+Comma").unwrap().key(), "Comma");
     }
     #[test]
-    fn supported_keys_convert() {
-        for (name, gtk, muda) in KEYS {
-            let shortcut = Shortcut::parse(name).unwrap();
-            assert_eq!(shortcut.to_gtk(), *gtk);
-            assert_eq!(shortcut.to_muda(), *muda);
+    fn supported_keys_parse() {
+        for name in KEYS {
+            assert!(Shortcut::parse(name).is_ok(), "{name}");
         }
         for n in 1..=12 {
-            let key = format!("F{n}");
-            assert_eq!(Shortcut::parse(&key).unwrap().to_gtk(), key);
+            assert!(Shortcut::parse(&format!("F{n}")).is_ok());
         }
         for key in '0'..='9' {
             assert!(Shortcut::parse(&key.to_string()).is_ok());

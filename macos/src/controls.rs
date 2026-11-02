@@ -25,7 +25,7 @@ impl View {
             loop {
                 let next = pending.borrow_mut().take();
                 let Some(item) = next else { break };
-                if view.0.closed.get() {
+                if view.0.lifecycle.is_closed() {
                     break;
                 }
                 if item.as_ref().is_some_and(|item| {
@@ -41,7 +41,7 @@ impl View {
                 if let Some(previous) = previous {
                     view.remove(&format!("{key}/{}", previous.key));
                 }
-                if view.0.closed.get() {
+                if view.0.lifecycle.is_closed() {
                     return;
                 }
                 if let Some(item) = item {
@@ -84,7 +84,7 @@ impl View {
             loop {
                 let next = pending.borrow_mut().take();
                 let Some(items) = next else { break };
-                if view.0.closed.get() {
+                if view.0.lifecycle.is_closed() {
                     break;
                 }
                 if let Err(error) = panechord_runtime::validate_repeat_items(&items) {
@@ -98,7 +98,7 @@ impl View {
                     }
                 }
                 for item in &items {
-                    if view.0.closed.get() {
+                    if view.0.lifecycle.is_closed() {
                         return;
                     }
                     if !previous.iter().any(|candidate| candidate == item) {
@@ -110,7 +110,7 @@ impl View {
                         );
                     }
                 }
-                if view.0.closed.get() {
+                if view.0.lifecycle.is_closed() {
                     return;
                 }
                 let ordered: Vec<_> = items
@@ -205,7 +205,7 @@ impl View {
         self.bind(id, binding, move |view, value| view.style(&key, value));
     }
     pub fn slider_value(&self, id: &str) -> Option<f64> {
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return None;
         }
         let mut value = 0.0;
@@ -216,7 +216,7 @@ impl View {
         self.0.error.borrow().clone()
     }
     pub fn report_error(&self, error: String) {
-        if !self.0.closed.get() {
+        if !self.0.lifecycle.is_closed() {
             self.0.error.replace(Some(error));
         }
     }
@@ -499,7 +499,7 @@ impl View {
         id: &str,
         position: panechord_runtime::TabPosition,
     ) -> Result<(), String> {
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return Err("view is closed".into());
         }
         if !self.0.tabs.borrow().contains_key(id) {
@@ -546,7 +546,7 @@ impl View {
             loop {
                 let next = pending.borrow_mut().take();
                 let Some(next) = next else { break };
-                if view.0.closed.get() || !view.0.nodes.borrow().contains(&target.0) {
+                if view.0.lifecycle.is_closed() || !view.0.nodes.borrow().contains(&target.0) {
                     break;
                 }
                 let previous = source.borrow().clone();
@@ -626,7 +626,7 @@ impl View {
         title: Binding<String>,
         key: &str,
     ) -> Result<Parent, String> {
-        if self.0.closed.get()
+        if self.0.lifecycle.is_closed()
             || !parent.1.ptr_eq(&Rc::downgrade(&self.0))
             || !self.0.nodes.borrow().contains(&parent.0)
             || id.is_empty()
@@ -673,7 +673,7 @@ impl View {
     }
 
     pub fn finish_tab(&self, parent: &Parent) -> Result<(), String> {
-        if self.0.closed.get() || !parent.1.ptr_eq(&Rc::downgrade(&self.0)) {
+        if self.0.lifecycle.is_closed() || !parent.1.ptr_eq(&Rc::downgrade(&self.0)) {
             return Err("view is closed".into());
         }
         let (selected, pages) = self

@@ -72,8 +72,8 @@ Menu snapshots and titles are reactive. Shortcuts first parse shared runtime
 Primary/Ctrl/Cmd/Alt/Shift before one ASCII letter/digit, F1..F12, or
 Enter/Tab/Space/Escape/Backspace/Delete/Insert/Home/End/PageUp/PageDown/Left/Right/Up/Down.
 Tokens are case-insensitive and trimmed; Shift is explicit. Primary is Cmd on
-macOS, Ctrl elsewhere. `to_gtk`/`to_muda` and the explicit-target `*_for` variants
-produce backend syntax. If common parsing fails, existing muda accelerator input
+macOS, Ctrl elsewhere. `panechord_tao::shortcut::{to_muda,to_muda_for}` lowers
+the parsed form (the runtime only parses). If common parsing fails, existing muda accelerator input
 (e.g. `Ctrl+KeyS`) is accepted as **legacy backend-specific syntax**; its broader
 accepted vocabulary is not common grammar. GTK keyvals and muda Code accelerators
 do not establish physical-key equivalence for all keyboard layouts.

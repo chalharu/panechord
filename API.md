@@ -31,7 +31,7 @@ and `panechord-library`.
 - `Layout { Stack {horizontal:bool,gap:f32}, Grid {columns:u32,gap:f32}, Flex {gap:f32}, Absolute }` Clone/Copy/PartialEq.
 - `MenuRole {Normal,Copy,Cut,Paste,SelectAll,About,Quit,Separator}` Clone/PartialEq.
 - `MenuItem<A=String> { id:String,label:String,argument:A,shortcut:Option<String>,role:MenuRole,enabled:bool }` Clone/PartialEq when A supports them.
-- `Shortcut::parse` accepts shared shortcut syntax, including `Primary+S` and `Primary+Q`; `to_gtk`/`to_muda` lower it for the native adapter. Primary is Cmd on macOS and Ctrl elsewhere. Existing native syntax remains a legacy adapter fallback.
+- `Shortcut::parse` accepts shared shortcut syntax, including `Primary+S` and `Primary+Q`. Each backend lowers the parsed form with its own renderer (`panechord_gtk::shortcut::to_gtk`, `panechord_tao::shortcut::to_muda`, `panechord_macos::shortcut::{to_bridge,to_appkit}`); the runtime only parses and exposes `modifiers()`/`key()`, never backend vocabulary. Primary is Cmd on macOS and Ctrl elsewhere. Existing native syntax remains a legacy adapter fallback via `canonical_or_raw`.
 
 Reads and initial subscriptions project from a retained `Rc<S>` outside internal
 borrows, without cloning all of S. `snapshot()` still returns an owned clone;
@@ -68,6 +68,34 @@ backend-specific. This does not unify other layout/style/menu error policies.
 ## Identical GTK/Tao View API
 
 `View` Clone, `Parent` Clone. `run(make: impl FnOnce(Rc<dyn Executor>)->View+'static)->Result<(),String>` native loop.
+
+### Shared capability traits and backend abstraction
+
+The three concrete `View` types each satisfied the whole screen API, so every
+client depended on every method. The shared contract is now capability traits
+in `panechord_runtime` — `ViewCore`, `LayoutView`, `TextView`, `ButtonView`,
+`SelectView`, `MediaView`, `ContainerView`, `MenuView`, `AutomationView` — with
+`View` as the umbrella (blanket-impl'd) and `WeakViewHandle` for weak handles.
+Generic code bounds on what it uses (`fn show<V: TextView + ButtonView>`);
+codegen asserts `V: View`. Each backend implements all nine (including Tao's
+`items_error`, which previously existed only on GTK/macOS) plus its own
+inherent extensions (`mount_native`/`bind_native`, Tao `mount`/`mount_bound`,
+AppKit `surface`/probes): extension without touching the contract.
+
+`panechord_runtime::Backend` is the host-side shape (`runner_config`,
+`run_host`, option setters; `View`/`Host` assoc types with
+`Host: WindowHost<View>`). `panechord::Runner` drives the feature-selected
+backend through the trait, so new backends/options extend the trait instead of
+editing dispatch. All three `GtkHost`/`TaoHost`/`MacHost` implement
+`WindowHost<View>`; all `WeakView`s implement `WeakViewHandle`.
+
+Teardown lifecycle (`Lifecycle`: closed flag, close hooks, request handler,
+reentrancy gate) is a dedicated component per backend, not fields mixed into
+the content registries; host coordination slots stay in `Inner`. Generated
+screens construct through `<Backend as panechord_runtime::Backend>::View::new`
+and import the capability traits, so codegen depends on the contract, not on
+backend concretions (`RuntimePaths` rewrites the runtime path for
+facade/renamed-dependency builds, including `use` prefixes).
 
 - `View::new(title:Binding<String>)->Self`, `root()->Parent`.
 - `layout(&Parent,id:&str,layout:Layout)->Parent`; `try_layout` returns `Result<Parent,String>` and rejects invalid sizes, unavailable/foreign parents and duplicate IDs before mutation. The infallible wrapper panics on rejection.

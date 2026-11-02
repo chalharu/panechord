@@ -317,7 +317,7 @@ impl Painter {
 fn dispatch(view: &View, messages: Vec<Message>) {
     for message in messages {
         let _ = view.dispatch(message);
-        if view.0.closed.get() {
+        if view.0.lifecycle.is_closed() {
             break;
         }
     }
@@ -425,7 +425,7 @@ impl Desktop {
             let out = painter.clone();
             let owner = view.clone();
             let draw = area.connect_draw(move |area, context| {
-                if owner.0.closed.get() {
+                if owner.0.lifecycle.is_closed() {
                     return gtk::glib::Propagation::Stop;
                 }
                 let result = catch_unwind(AssertUnwindSafe(|| -> Result<(), String> {
@@ -649,7 +649,7 @@ impl Desktop {
             self.window.set_title(&title);
             self.titled.replace(title);
         }
-        let shown = self.view.0.visible.get() && !self.view.0.closed.get();
+        let shown = self.view.0.visible.get() && !self.view.0.lifecycle.is_closed();
         if self.shown.get() != shown {
             self.window.set_visible(shown);
             self.shown.set(shown);
@@ -827,7 +827,7 @@ pub(super) fn run(
             let hook = owner.clone();
             builder.with_msg_hook(move |message| {
                 let inner = hook.borrow().upgrade();
-                let Some(inner) = inner.filter(|i| !i.closed.get()) else {
+                let Some(inner) = inner.filter(|i| !i.lifecycle.is_closed()) else {
                     return false;
                 };
                 // Query each time: dynamic menu snapshots may replace the HACCEL.
@@ -876,7 +876,7 @@ pub(super) fn run(
         let status = event_loop.run_return(|event, target, flow| {
             let pending = host.views.borrow().clone();
             for (id, view) in pending {
-                if view.0.closed.get() || desktops.contains_key(&id) {
+                if view.0.lifecycle.is_closed() || desktops.contains_key(&id) {
                     continue;
                 }
                 match Desktop::open(target, &view, proxy.clone()) {
@@ -969,7 +969,7 @@ pub(super) fn run(
                 }
             }
             desktops.retain(|_, desktop| {
-                if desktop.view.0.closed.get() {
+                if desktop.view.0.lifecycle.is_closed() {
                     if error.is_none() {
                         error = desktop.view.0.fatal_error.borrow().clone();
                     }
@@ -980,7 +980,7 @@ pub(super) fn run(
             });
             host.views
                 .borrow_mut()
-                .retain(|(_, view)| !view.0.closed.get());
+                .retain(|(_, view)| !view.0.lifecycle.is_closed());
             if active.is_none_or(|id| !desktops.contains_key(&id)) {
                 active = desktops.keys().next().copied();
                 if let Some(desktop) = active.and_then(|id| desktops.get(&id)) {

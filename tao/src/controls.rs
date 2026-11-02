@@ -151,7 +151,7 @@ impl View {
             loop {
                 let next = pending.borrow_mut().take();
                 let Some(items) = next else { break };
-                if view.0.closed.get() {
+                if view.0.lifecycle.is_closed() {
                     break;
                 }
                 if let Err(error) = panechord_runtime::validate_repeat_items(&items) {
@@ -172,7 +172,7 @@ impl View {
                     }
                 }
                 for item in &items {
-                    if view.0.closed.get() {
+                    if view.0.lifecycle.is_closed() {
                         return;
                     }
                     if !previous.iter().any(|candidate| candidate == item) {
@@ -184,7 +184,7 @@ impl View {
                         );
                     }
                 }
-                if view.0.closed.get() {
+                if view.0.lifecycle.is_closed() {
                     return;
                 }
                 let ordered = items
@@ -539,7 +539,7 @@ impl View {
         id: &str,
         position: panechord_runtime::TabPosition,
     ) -> Result<(), String> {
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return Err("view is closed".into());
         }
         let node = self.find(id).ok_or("missing Tab")?;
@@ -588,7 +588,7 @@ impl View {
                 let (Some(view), Some(node)) = (weak.upgrade(), target.upgrade()) else {
                     break;
                 };
-                if view.0.closed.get() || !node.mounted.get() {
+                if view.0.lifecycle.is_closed() || !node.mounted.get() {
                     break;
                 }
                 let previous = source.borrow().clone();
@@ -663,7 +663,7 @@ impl View {
         title: Binding<String>,
         key: &str,
     ) -> Result<Parent, String> {
-        if self.0.closed.get()
+        if self.0.lifecycle.is_closed()
             || !parent.0.mounted.get()
             || !parent.0.owner.ptr_eq(&Rc::downgrade(&self.0))
             || id.is_empty()
@@ -695,7 +695,7 @@ impl View {
         Ok(Parent(node))
     }
     pub fn finish_tab(&self, parent: &Parent) -> Result<(), String> {
-        if self.0.closed.get()
+        if self.0.lifecycle.is_closed()
             || !parent.0.mounted.get()
             || !parent.0.owner.ptr_eq(&Rc::downgrade(&self.0))
         {

@@ -176,6 +176,7 @@ fn native_style_late_close_contract() {
 
 use super::*;
 use futures::{FutureExt, channel::oneshot};
+use panechord_runtime::Shortcut;
 use panechord_runtime::{Edges, Placement, Policy, ShutdownOutcome, run_async};
 use std::time::Duration;
 
@@ -1132,7 +1133,7 @@ fn native_close_requests_weak_and_reentrant() {
     let default = View::new(Binding::constant("default".into()));
     default.present();
     default.request_close();
-    assert!(default.0.closed.get());
+    assert!(default.0.lifecycle.is_closed());
     assert!(!default.native_window().is_mapped());
 }
 
@@ -1219,7 +1220,7 @@ fn native_close_request_handler_precedes_coordinator_and_menu_falls_back() {
     reap_all(&host.executor);
     assert_eq!(probe.confirms.get(), 1);
     assert!(
-        !view.0.closed.get(),
+        !view.0.lifecycle.is_closed(),
         "denial leaves menu-requested View open"
     );
     view.close();
@@ -1249,10 +1250,11 @@ fn native_canonical_shortcut_semantics() {
     ] {
         for target in [ShortcutTarget::MacOS, ShortcutTarget::Other] {
             let shortcut = Shortcut::parse(input).unwrap();
-            let trigger = gtk4::ShortcutTrigger::parse_string(&shortcut.to_gtk_for(target))
-                .unwrap()
-                .downcast::<gtk4::KeyvalTrigger>()
-                .unwrap();
+            let trigger =
+                gtk4::ShortcutTrigger::parse_string(&shortcut::to_gtk_for(&shortcut, target))
+                    .unwrap()
+                    .downcast::<gtk4::KeyvalTrigger>()
+                    .unwrap();
             let primary = if target == ShortcutTarget::MacOS {
                 gtk4::gdk::ModifierType::META_MASK
             } else {
@@ -1263,9 +1265,11 @@ fn native_canonical_shortcut_semantics() {
         }
         assert_eq!(
             parse_shortcut(input).unwrap().to_string(),
-            gtk4::ShortcutTrigger::parse_string(&Shortcut::parse(input).unwrap().to_gtk())
-                .unwrap()
-                .to_string()
+            gtk4::ShortcutTrigger::parse_string(&shortcut::to_gtk(
+                &Shortcut::parse(input).unwrap()
+            ))
+            .unwrap()
+            .to_string()
         );
     }
     for key in [
@@ -1329,7 +1333,7 @@ fn native_canonical_shortcut_semantics() {
     }
     assert_eq!(calls.get(), 1);
     assert_eq!(requests.get(), 1);
-    assert!(!view.0.closed.get());
+    assert!(!view.0.lifecycle.is_closed());
     view.close();
 }
 
@@ -1514,7 +1518,7 @@ fn native_coordinated_multiwindow_close() {
     assert!(
         views
             .iter()
-            .all(|v| !v.0.closed.get() && v.native_window().is_mapped())
+            .all(|v| !v.0.lifecycle.is_closed() && v.native_window().is_mapped())
     );
 
     probe.allow.set(true);
@@ -1545,7 +1549,7 @@ fn native_coordinated_multiwindow_close() {
     glib::idle_add_local_once(move || {
         for view in live {
             let view = view.upgrade().unwrap();
-            assert!(!view.closed.get());
+            assert!(!view.lifecycle.is_closed());
             assert!(view.window.is_mapped());
         }
         flag.set(true);
@@ -1564,7 +1568,7 @@ fn native_coordinated_multiwindow_close() {
     assert!(host.windows.borrow().is_empty());
     assert!(host.sessions.borrow().is_empty());
     for view in &views {
-        assert!(view.0.closed.get());
+        assert!(view.0.lifecycle.is_closed());
         assert!(!view.native_window().is_mapped());
         view.close();
     }
@@ -1619,7 +1623,7 @@ fn native_coordinated_close_timeout() {
     assert!(
         views
             .iter()
-            .all(|view| view.0.closed.get() && !view.native_window().is_mapped())
+            .all(|view| view.0.lifecycle.is_closed() && !view.native_window().is_mapped())
     );
     assert_eq!(session.window_count(), 0);
     session.shutdown().close_now();
@@ -1656,7 +1660,7 @@ fn native_coordinated_close_cancel() {
     assert!(
         views
             .iter()
-            .all(|v| !v.0.closed.get() && v.native_window().is_mapped())
+            .all(|v| !v.0.lifecycle.is_closed() && v.native_window().is_mapped())
     );
 
     let (release, drained) = oneshot::channel::<()>();
@@ -1673,14 +1677,14 @@ fn native_coordinated_close_cancel() {
     assert!(
         views
             .iter()
-            .all(|v| !v.0.closed.get() && v.native_window().is_mapped())
+            .all(|v| !v.0.lifecycle.is_closed() && v.native_window().is_mapped())
     );
     views[0].native_window().close();
     drive_until(|| shutdown.phase() == ShutdownPhase::Closed);
     reap_all(&host.executor);
     assert_eq!(probe.confirms.get(), 3);
     assert_eq!((probe.cancels.get(), probe.closes.get()), (2, 1));
-    assert!(views.iter().all(|v| v.0.closed.get()));
+    assert!(views.iter().all(|v| v.0.lifecycle.is_closed()));
 }
 
 #[test]
@@ -1715,7 +1719,7 @@ fn native_coordinated_close_weak_teardown() {
             assert_eq!(session.shutdown().phase(), ShutdownPhase::Running);
             assert!(send.is_canceled());
             native.close(); // A closed executor rejects gracefully, not synchronously.
-            assert!(!view.0.closed.get());
+            assert!(!view.0.lifecycle.is_closed());
             assert!(native.is_mapped());
             view.close();
             drop(view);
@@ -3085,7 +3089,7 @@ fn native_contract() {
     let session = result.take().unwrap();
     assert_eq!(session.window_count(), 1);
     session.shutdown().close_now();
-    assert!(window.0.closed.get());
+    assert!(window.0.lifecycle.is_closed());
     assert!(attached.windows.borrow().is_empty());
     settle();
     assert!(attached.sessions.borrow().is_empty());

@@ -39,7 +39,7 @@ define_class!(
                     .get(&addr)
                     .and_then(|weak| weak.upgrade());
                 let Some(view) = view else { return };
-                if view.closed.get() {
+                if view.lifecycle.is_closed() {
                     return;
                 }
                 if let Some(action) = view
@@ -216,7 +216,7 @@ fn append_model(
         }
         if let Some(text) = shortcut.as_deref()
             && let Ok(parsed) = panechord_runtime::Shortcut::parse(text)
-            && let Some((flags, key)) = parsed.to_appkit()
+            && let Some((flags, key)) = crate::shortcut::to_appkit(&parsed)
         {
             item.setKeyEquivalent(&NSString::from_str(&key));
             item.setKeyEquivalentModifierMask(NSEventModifierFlags(flags as usize));

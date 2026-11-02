@@ -66,6 +66,21 @@ impl VisitMut for RuntimePaths {
         self.visit_path_mut(&mut node.path);
         node.tokens = self.macro_tokens(node.tokens.clone());
     }
+    /// `use` prefixes are `UseTree::Path`, not `Path`: without this, a generated
+    /// capability-trait import would keep pointing at `::panechord_runtime`
+    /// after facade/renamed-dependency rewriting.
+    fn visit_item_use_mut(&mut self, node: &mut syn::ItemUse) {
+        if node.leading_colon.is_some()
+            && let syn::UseTree::Path(prefix) = &mut node.tree
+            && prefix.ident == "panechord_runtime"
+            && self.0.leading_colon.is_some()
+            && self.0.segments.len() == 1
+            && let Some(segment) = self.0.segments.last()
+        {
+            prefix.ident = segment.ident.clone();
+        }
+        syn::visit_mut::visit_item_use_mut(self, node);
+    }
     fn visit_path_mut(&mut self, path: &mut Path) {
         if path.leading_colon.is_some()
             && path
@@ -257,6 +272,35 @@ mod tests {
             }
         });
         assert_eq!(quote!(#expression).to_string(), expected.to_string());
+    }
+    #[test]
+    fn runtime_alias_rewriting_covers_generated_capability_imports() {
+        let mut expression: syn::Expr = syn::parse_quote!({
+            use ::panechord_runtime::{TextView as _, ViewCore as _};
+            let view = <<fake::Backend as ::panechord_runtime::Backend>::View
+                as ::panechord_runtime::ViewCore>::new(title);
+            fn assert<V: ::panechord_runtime::View>(_: &V) {}
+        });
+        RuntimePaths(syn::parse_quote!(::surface)).visit_expr_mut(&mut expression);
+        let expected = quote!({
+            use ::surface::{TextView as _, ViewCore as _};
+            let view =
+                <<fake::Backend as ::surface::Backend>::View as ::surface::ViewCore>::new(title);
+            fn assert<V: ::surface::View>(_: &V) {}
+        });
+        // Normalize joint/spaced punctuation before comparing.
+        let normalize = |tokens: proc_macro2::TokenStream| {
+            use quote::ToTokens;
+            syn::parse2::<syn::Expr>(tokens)
+                .unwrap()
+                .to_token_stream()
+                .to_string()
+        };
+        assert_eq!(
+            quote!(#expression).to_string(),
+            normalize(expected),
+            "normalized comparison"
+        );
     }
     #[test]
     fn direct_expansion_tracks_absolute_fixture() {

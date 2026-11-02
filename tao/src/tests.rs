@@ -664,7 +664,7 @@ fn quit_role_requests_close_without_dispatching_or_recursing() {
     }));
     view.activate_menu("quit").unwrap();
     assert_eq!(calls.get(), 1);
-    assert!(!view.0.closed.get());
+    assert!(!view.0.lifecycle.is_closed());
     view.close();
 }
 
@@ -1808,5 +1808,60 @@ fn dialog_footer_destructive_accept_is_never_a_return_target() {
         view.dialog_key_action(KeyCode::Escape),
         Some(Message::Click(key)) if key == "actions/cancel"
     ));
+    view.close();
+}
+
+#[test]
+fn items_error_reports_rejections_per_list_and_clears_on_accept() {
+    let h = Harness::new();
+    let rows = h.store(
+        (0..3)
+            .map(|index| Keyed::new(index.to_string(), h.store(index.to_string())))
+            .collect::<Vec<_>>(),
+    );
+    let viewport = h.store(Viewport::default());
+    let view = View::new(Binding::constant("items error".into()));
+    view.items(
+        &view.root(),
+        "rows",
+        rows.bind(Clone::clone, Some(|state, value| *state = value)),
+        viewport.bind(Clone::clone, Some(|state, value| *state = value)),
+        Rc::new(|view, parent, scope, model: Store<String>| {
+            view.label(
+                parent,
+                &format!("{scope}/text"),
+                model.bind(Clone::clone, None),
+            );
+        }),
+    );
+    h.pump();
+    assert_eq!(view.items_error("rows"), None);
+    assert_eq!(view.items_error("missing"), None);
+    // Empty keys bypass `Keyed::new`, so build the rejected snapshot by hand.
+    let mut rejected = rows.snapshot();
+    rejected[1].key.clear();
+    assert!(rows.update(|state| *state = rejected));
+    h.pump();
+    assert!(
+        view.items_error("rows")
+            .is_some_and(|error| error.contains("invalid key")),
+        "per-list rejection, not just the global diagnostic"
+    );
+    let valid = (0..3)
+        .map(|index| Keyed::new(index.to_string(), h.store(index.to_string())))
+        .collect::<Vec<_>>();
+    assert!(rows.update(|state| *state = valid));
+    h.pump();
+    assert_eq!(view.items_error("rows"), None);
+    assert!(viewport.update(|state| state.count = 0));
+    h.pump();
+    assert!(
+        view.items_error("rows")
+            .is_some_and(|error| error.contains("invalid viewport")),
+        "viewport rejections land on the same per-list slot"
+    );
+    assert!(viewport.update(|state| *state = Viewport::default()));
+    h.pump();
+    assert_eq!(view.items_error("rows"), None);
     view.close();
 }

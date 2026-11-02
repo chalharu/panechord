@@ -87,8 +87,21 @@ pub fn generate(doc: &Document, backend: &Path, owned: bool) -> syn::Result<Toke
         quote!(let _ = &__close_model;)
     };
     Ok(quote!(
+        // The generated screen depends on abstractions, not on the backend
+        // concretion: construction goes through `Backend::View`, and the
+        // assertion below pins the full `View` capability contract (LSP).
+        // Method calls resolve through the imported capability traits.
+        use ::panechord_runtime::{
+            AutomationView as _, ButtonView as _, ContainerView as _, LayoutView as _,
+            MediaView as _, MenuView as _, SelectView as _, TextView as _, ViewCore as _,
+        };
         let __panechord_external = || __panechord_model.clone();
-        let __panechord_view = #backend::View::new(#title);
+        let __panechord_view = <<#backend::Backend as ::panechord_runtime::Backend>::View
+            as ::panechord_runtime::ViewCore>::new(#title);
+        {
+            fn __panechord_assert_view<V: ::panechord_runtime::View>(_: &V) {}
+            __panechord_assert_view(&__panechord_view);
+        }
         let __panechord_parent = __panechord_view.root();
         __panechord_view.style("__root",#style);
         #body

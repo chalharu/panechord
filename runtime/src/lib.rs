@@ -6,15 +6,22 @@
 //! RefCell borrows. Executors may poll immediately inside `spawn`.
 mod key;
 mod window;
+pub use backend::Backend;
 pub use key::KeyCode;
+pub use view::{
+    AutomationView, ButtonView, ContainerView, LayoutView, MediaView, MenuView, SelectView,
+    Template, TextView, View, ViewCore, WeakViewHandle,
+};
 #[doc(hidden)]
 pub mod native_keys;
 pub use window::{RunnerConfig, WindowEvent, WindowHost, WindowSurface};
+mod backend;
 mod blocking;
 mod controls;
 mod session;
 mod shortcut;
 mod store;
+mod view;
 
 pub use blocking::{BlockingPool, TaskError};
 pub use controls::{

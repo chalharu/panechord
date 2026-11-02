@@ -3,6 +3,11 @@
 #![cfg(target_os = "macos")]
 mod controls;
 mod input;
+pub mod lifecycle;
+pub mod shortcut;
+mod view;
+
+pub use view::Backend;
 
 use futures::future::LocalBoxFuture;
 use panechord_runtime::{
@@ -195,24 +200,20 @@ struct Inner {
     parents: RefCell<HashMap<String, String>>,
     grid_index: RefCell<HashMap<String, usize>>,
     next_index: RefCell<HashMap<String, usize>>,
-    close_handlers: RefCell<Vec<Rc<dyn Fn()>>>,
-    close_request: RefCell<Option<Rc<dyn Fn()>>>,
+    lifecycle: lifecycle::Lifecycle,
     surface_event: RefCell<Option<SurfaceEventHandler>>,
     surface_viewport: RefCell<Option<ViewportHook>>,
     surface_size: Cell<(f32, f32)>,
     quit_request: RefCell<Option<Rc<dyn Fn()>>>,
-    requesting: Cell<bool>,
-    closed: Cell<bool>,
     image_updates: Cell<usize>,
     error: RefCell<Option<String>>,
 }
 
 impl Inner {
     fn shutdown(&self) {
-        if self.closed.replace(true) {
+        if !self.lifecycle.begin_shutdown() {
             return;
         }
-        drop(self.close_request.take());
         drop(self.surface_event.take());
         drop(self.quit_request.take());
         drop(self.scopes.take());
@@ -225,11 +226,8 @@ impl Inner {
         unsafe {
             w3_close(self.native.get());
         }
-        for callback in self.close_handlers.take() {
-            if let Err(panic) = catch_unwind(AssertUnwindSafe(|| callback())) {
-                self.error.replace(Some(panic_error(panic)));
-            }
-        }
+        self.lifecycle
+            .finish_shutdown(|error| _ = self.error.replace(Some(error)));
     }
 }
 
@@ -252,7 +250,7 @@ impl WeakView {
     pub fn upgrade(&self) -> Option<View> {
         self.0
             .upgrade()
-            .filter(|inner| !inner.closed.get())
+            .filter(|inner| !inner.lifecycle.is_closed())
             .map(View)
     }
 }
@@ -285,14 +283,14 @@ impl HasWindowHandle for MacSurface {
 
 impl WindowSurface for MacSurface {
     fn scale_factor(&self) -> f64 {
-        if self.inner.closed.get() {
+        if self.inner.lifecycle.is_closed() {
             return 1.0;
         }
         unsafe { w3_surface_scale(self.inner.native.get()) }
     }
 
     fn toggle_fullscreen(&self) {
-        if !self.inner.closed.get() {
+        if !self.inner.lifecycle.is_closed() {
             unsafe { w3_toggle_fullscreen(self.inner.native.get()) };
         }
     }
@@ -307,7 +305,7 @@ unsafe extern "C" fn dispatch(
     text_len: usize,
 ) {
     let inner = unsafe { &*context.cast::<Inner>() };
-    if inner.closed.get() {
+    if inner.lifecycle.is_closed() {
         return;
     }
     let result = catch_unwind(AssertUnwindSafe(|| {
@@ -324,25 +322,23 @@ unsafe extern "C" fn dispatch(
                 callback(&event);
             }
         } else if kind == 1 || kind == 3 {
-            if inner.requesting.replace(true) {
+            let Some(_gate) = inner.lifecycle.enter_request() else {
                 return;
-            }
-            let _request = RequestFlag(&inner.requesting);
+            };
             let callback = if kind == 3 {
                 inner
                     .quit_request
                     .borrow()
                     .clone()
-                    .or_else(|| inner.close_request.borrow().clone())
+                    .or_else(|| inner.lifecycle.close_request())
             } else {
-                inner.close_request.borrow().clone()
+                inner.lifecycle.close_request()
             };
             if let Some(callback) = callback {
                 callback();
             } else {
                 inner.shutdown();
             }
-            inner.requesting.set(false);
         } else if kind == 8 {
             // Window content resize from `windowDidResize`: track the game
             // bounds and notify the render viewport hook.
@@ -374,12 +370,6 @@ unsafe extern "C" fn dispatch(
     }
 }
 
-struct RequestFlag<'a>(&'a Cell<bool>);
-impl Drop for RequestFlag<'_> {
-    fn drop(&mut self) {
-        self.0.set(false);
-    }
-}
 fn panic_error(panic: Box<dyn std::any::Any + Send>) -> String {
     let message = panic
         .downcast_ref::<String>()
@@ -453,14 +443,11 @@ impl View {
             parents: RefCell::new(HashMap::new()),
             grid_index: RefCell::new(HashMap::new()),
             next_index: RefCell::new(HashMap::new()),
-            close_handlers: RefCell::new(Vec::new()),
-            close_request: RefCell::new(None),
+            lifecycle: lifecycle::Lifecycle::default(),
             surface_event: RefCell::new(None),
             surface_viewport: RefCell::new(None),
             surface_size: Cell::new((0.0, 0.0)),
             quit_request: RefCell::new(None),
-            requesting: Cell::new(false),
-            closed: Cell::new(false),
             image_updates: Cell::new(0),
             error: RefCell::new(None),
         });
@@ -476,7 +463,7 @@ impl View {
         Parent("__root".into(), Rc::downgrade(&self.0))
     }
     pub fn on_surface_event(&self, callback: SurfaceEventHandler) {
-        if !self.0.closed.get() {
+        if !self.0.lifecycle.is_closed() {
             self.0.surface_event.replace(Some(callback));
         }
     }
@@ -484,7 +471,7 @@ impl View {
         &self,
         callback: impl FnOnce(Rc<dyn WindowSurface>) -> Result<(), String> + 'static,
     ) -> Result<(), String> {
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return Err("view is closed".into());
         }
         let ns_view = NonNull::new(unsafe { w3_surface_view(self.0.native.get()) })
@@ -511,10 +498,9 @@ impl View {
         }
     }
     pub fn request_quit(&self) {
-        if self.0.closed.get() || self.0.requesting.replace(true) {
+        let Some(_gate) = self.0.lifecycle.enter_request() else {
             return;
-        }
-        let _request = RequestFlag(&self.0.requesting);
+        };
         let callback = self.0.quit_request.borrow().clone();
         if let Err(panic) = catch_unwind(AssertUnwindSafe(|| {
             if let Some(callback) = callback {
@@ -585,7 +571,7 @@ impl View {
         build();
     }
     fn keep_at(&self, id: &str, token: Subscription) {
-        if !self.0.closed.get() {
+        if !self.0.lifecycle.is_closed() {
             self.0
                 .scopes
                 .borrow_mut()
@@ -610,7 +596,7 @@ impl View {
         self.keep_at(id, token);
     }
     fn set(&self, id: &str, text: &str, property: i32) {
-        if !self.0.closed.get() {
+        if !self.0.lifecycle.is_closed() {
             unsafe {
                 w3_set(
                     self.0.native.get(),
@@ -645,7 +631,7 @@ impl View {
     /// records parent/index links, and reports success. Callers issue
     /// their own native construction on success.
     fn mount(&self, parent: &Parent, id: &str) -> bool {
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return false;
         }
         if !self.0.nodes.borrow_mut().insert(id.into()) {
@@ -739,7 +725,7 @@ impl View {
     }
     pub fn try_layout(&self, parent: &Parent, id: &str, layout: Layout) -> Result<Parent, String> {
         layout.validate().map_err(str::to_owned)?;
-        if self.0.closed.get()
+        if self.0.lifecycle.is_closed()
             || !parent.1.ptr_eq(&Rc::downgrade(&self.0))
             || !self.0.nodes.borrow().contains(&parent.0)
         {
@@ -783,7 +769,7 @@ impl View {
         id: &str,
         horizontal: bool,
     ) -> Result<Parent, String> {
-        if self.0.closed.get()
+        if self.0.lifecycle.is_closed()
             || !parent.1.ptr_eq(&Rc::downgrade(&self.0))
             || !self.0.nodes.borrow().contains(&parent.0)
         {
@@ -806,7 +792,7 @@ impl View {
         }
     }
     pub fn try_style(&self, id: &str, style: Style) -> Result<(), String> {
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return Err("view is closed".into());
         }
         if id != "__root" && !self.0.nodes.borrow().contains(id) {
@@ -1267,7 +1253,7 @@ impl View {
             .map_or(0, |list| list.mounted.borrow().len())
     }
     pub fn frame_height(&self, id: &str) -> Option<f64> {
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return None;
         }
         let height = unsafe { w3_frame_height(self.0.native.get(), id.as_ptr(), id.len()) };
@@ -1316,7 +1302,7 @@ impl View {
                 }
                 let shortcut = match item.shortcut.as_deref().map(Shortcut::parse).transpose() {
                     Ok(shortcut) => shortcut
-                        .map(|shortcut| shortcut.to_muda())
+                        .map(|shortcut| shortcut::to_bridge(&shortcut))
                         .unwrap_or_default(),
                     Err(error) => {
                         view.0
@@ -1375,7 +1361,7 @@ impl View {
     }
 
     fn remove_menu(&self, id: &str) {
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return;
         }
         let prefix = format!("{id}/");
@@ -1398,21 +1384,16 @@ impl View {
     }
 
     pub fn on_close(&self, callback: Rc<dyn Fn()>) {
-        if self.0.closed.get() {
-            callback();
-        } else {
-            self.0.close_handlers.borrow_mut().push(callback);
-        }
+        self.0.lifecycle.on_close(callback);
     }
     pub fn on_close_request(&self, callback: Rc<dyn Fn()>) {
-        self.0.close_request.replace(Some(callback));
+        self.0.lifecycle.set_close_request(Some(callback));
     }
     pub fn request_close(&self) {
-        if self.0.closed.get() || self.0.requesting.replace(true) {
+        let Some(_gate) = self.0.lifecycle.enter_request() else {
             return;
-        }
-        let _request = RequestFlag(&self.0.requesting);
-        let callback = self.0.close_request.borrow().clone();
+        };
+        let callback = self.0.lifecycle.close_request();
         if let Err(panic) = catch_unwind(AssertUnwindSafe(|| {
             if let Some(callback) = callback {
                 callback();
@@ -1427,7 +1408,7 @@ impl View {
         self.0.shutdown();
     }
     pub fn present(&self) {
-        if !self.0.closed.get() {
+        if !self.0.lifecycle.is_closed() {
             unsafe {
                 w3_present(self.0.native.get());
             }
@@ -1437,10 +1418,10 @@ impl View {
         self.text("__root").unwrap_or_default()
     }
     pub fn is_key_window(&self) -> bool {
-        !self.0.closed.get() && unsafe { w3_focused(self.0.native.get()) } == 1
+        !self.0.lifecycle.is_closed() && unsafe { w3_focused(self.0.native.get()) } == 1
     }
     pub fn text(&self, id: &str) -> Option<String> {
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return None;
         }
         let size = unsafe {
@@ -1468,7 +1449,7 @@ impl View {
         String::from_utf8(buffer).ok()
     }
     fn action(&self, id: &str, value: &str, kind: i32) -> Result<(), String> {
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return Err("view is closed".into());
         }
         if unsafe {
@@ -1506,7 +1487,7 @@ impl View {
                     .into(),
             );
         }
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return Err("view is closed".into());
         }
         let code = unsafe { w3_input_probe(self.0.native.get(), id.as_ptr(), id.len()) };
@@ -1521,7 +1502,7 @@ impl View {
     }
     /// Begin/verify a synthetic marked-text editing session across row movement.
     pub fn probe_editing(&self, id: &str, begin: bool) -> Result<(), String> {
-        if self.0.closed.get()
+        if self.0.lifecycle.is_closed()
             || unsafe {
                 w3_editing_probe(self.0.native.get(), id.as_ptr(), id.len(), i32::from(begin))
             } != 1
@@ -1532,13 +1513,13 @@ impl View {
     }
     /// Posts a synthetic AppKit key event, without Accessibility permission.
     pub fn post_test_key(&self, id: &str) -> bool {
-        !self.0.closed.get()
+        !self.0.lifecycle.is_closed()
             && unsafe { w3_post_key(self.0.native.get(), id.as_ptr(), id.len()) } == 1
     }
     /// AppKit drawing CPU time, not compositor presentation or a frame fence.
     pub fn render(&self) -> Duration {
         let started = Instant::now();
-        if !self.0.closed.get() {
+        if !self.0.lifecycle.is_closed() {
             unsafe {
                 w3_render(self.0.native.get());
             }
@@ -1546,17 +1527,17 @@ impl View {
         started.elapsed()
     }
     pub fn perform_shortcut(&self, shortcut: &str) -> Result<bool, String> {
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return Err("view is closed".into());
         }
         let shortcut = Shortcut::parse(shortcut)
-            .map_err(|error| error.to_string())?
-            .to_muda();
+            .map_err(|error| error.to_string())
+            .map(|shortcut| shortcut::to_bridge(&shortcut))?;
         Ok(unsafe { w3_shortcut(self.0.native.get(), shortcut.as_ptr(), shortcut.len()) } == 1)
     }
     pub fn capture(&self, path: &std::path::Path, width: f64) -> Result<(), String> {
         let path = path.to_str().ok_or("capture path must be UTF-8")?;
-        if !self.0.closed.get()
+        if !self.0.lifecycle.is_closed()
             && unsafe { w3_capture(self.0.native.get(), path.as_ptr(), path.len(), width) } == 1
         {
             Ok(())
@@ -1644,9 +1625,9 @@ impl UiHost for MacHost {
 }
 impl MacHost {
     pub fn present(&self, view: &View) {
-        self.views
-            .borrow_mut()
-            .retain(|existing| !existing.0.closed.get() && !Rc::ptr_eq(&existing.0, &view.0));
+        self.views.borrow_mut().retain(|existing| {
+            !existing.0.lifecycle.is_closed() && !Rc::ptr_eq(&existing.0, &view.0)
+        });
         self.views.borrow_mut().push(view.clone());
         view.present();
     }
@@ -1657,7 +1638,7 @@ impl MacHost {
         view: &View,
         hooks: WindowHooks,
     ) -> Result<(), String> {
-        if view.0.closed.get() {
+        if view.0.lifecycle.is_closed() {
             return Err("cannot register a closed View".into());
         }
         self.attach(session.clone())?;
@@ -1720,7 +1701,13 @@ pub fn run_host(make: impl FnOnce(Rc<MacHost>) -> Result<(), String>) -> Result<
     let mut previous = started;
     let mut gaps = Vec::new();
     let result = catch_unwind(AssertUnwindSafe(|| {
-        while host.views.borrow().iter().any(|view| !view.0.closed.get()) || executor.has_ready() {
+        while host
+            .views
+            .borrow()
+            .iter()
+            .any(|view| !view.0.lifecycle.is_closed())
+            || executor.has_ready()
+        {
             if deadline.is_some_and(|seconds| started.elapsed() > Duration::from_secs(seconds)) {
                 return Err("macOS host deadline exceeded".to_owned());
             }

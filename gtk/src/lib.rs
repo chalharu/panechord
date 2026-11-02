@@ -5,9 +5,14 @@
 pub use panechord_runtime::Alignment;
 
 mod controls;
+mod lifecycle;
 #[cfg(target_os = "macos")]
 mod macos_menu;
+pub mod shortcut;
 mod table;
+mod view;
+
+pub use view::Backend;
 
 use std::{
     cell::{Cell, RefCell},
@@ -20,8 +25,8 @@ use std::{
 use futures::future::{AbortHandle, Abortable, LocalBoxFuture};
 use gtk4::{gio, glib, prelude::*};
 use panechord_runtime::{
-    Binding, Command, Executor, Keyed, Layout, MenuItem, MenuRole, Session, Shortcut,
-    ShutdownPhase, Store, Style, Subscription, UiHost, Viewport, WindowHooks, canonical_or_raw,
+    Binding, Command, Executor, Keyed, Layout, MenuItem, MenuRole, Session, ShutdownPhase, Store,
+    Style, Subscription, UiHost, Viewport, WindowHooks, canonical_or_raw,
 };
 
 /// A native container, not a second runtime parent descriptor.
@@ -197,11 +202,8 @@ struct Inner {
     actions: RefCell<HashMap<String, Action>>,
     control_actions: RefCell<HashMap<String, controls::Action>>,
     tabs: RefCell<HashMap<String, Rc<controls::Tab>>>,
-    on_close: RefCell<Vec<Rc<dyn Fn()>>>,
-    on_close_request: RefCell<Option<Rc<dyn Fn()>>>,
-    requesting_close: Cell<bool>,
+    lifecycle: lifecycle::Lifecycle,
     coordinated_close: RefCell<Option<Rc<CoordinatedClose>>>,
-    closed: Cell<bool>,
     image_updates: Cell<usize>,
     surface_viewport: RefCell<Option<surface::ViewportHook>>,
     surface_size: Cell<(f32, f32)>,
@@ -218,7 +220,7 @@ impl WeakView {
     pub fn upgrade(&self) -> Option<View> {
         self.0
             .upgrade()
-            .filter(|inner| !inner.closed.get())
+            .filter(|inner| !inner.lifecycle.is_closed())
             .map(View)
     }
 }
@@ -234,11 +236,10 @@ fn scoped(id: &str, prefix: &str) -> bool {
 
 impl Inner {
     fn shutdown(&self) {
-        if self.closed.replace(true) {
+        if !self.lifecycle.begin_shutdown() {
             return;
         }
         drop(self.coordinated_close.take());
-        drop(self.on_close_request.take());
         // Never run token, signal or application destructors under a registry borrow.
         drop(self.resources.take());
         drop(self.lists.take());
@@ -254,11 +255,8 @@ impl Inner {
         for (_, action) in self.actions.take() {
             self.group.remove_action(&action.name);
         }
-        for callback in self.on_close.take() {
-            if let Err(panic) = catch_unwind(AssertUnwindSafe(|| callback())) {
-                self.error.replace(Some(panic_error(panic)));
-            }
-        }
+        self.lifecycle
+            .finish_shutdown(|error| _ = self.error.replace(Some(error)));
     }
 }
 
@@ -402,11 +400,8 @@ impl View {
             control_actions: RefCell::default(),
             tabs: RefCell::default(),
             menu_states: RefCell::default(),
-            on_close: RefCell::default(),
-            on_close_request: RefCell::default(),
-            requesting_close: Cell::new(false),
+            lifecycle: lifecycle::Lifecycle::default(),
             coordinated_close: RefCell::default(),
-            closed: Cell::new(false),
             image_updates: Cell::new(0),
             surface_viewport: RefCell::default(),
             surface_size: Cell::new((0.0, 0.0)),
@@ -438,7 +433,10 @@ impl View {
     /// Construct custom GTK primitives in application code, then mount them here.
     /// The ID participates in style, automation and template-prefix cleanup.
     pub fn mount_native(&self, parent: &Parent, id: &str, widget: &impl IsA<gtk4::Widget>) {
-        assert!(!self.0.closed.get(), "cannot mount into a closed view");
+        assert!(
+            !self.0.lifecycle.is_closed(),
+            "cannot mount into a closed view"
+        );
         assert!(!id.is_empty(), "empty control ID is reserved");
         assert!(
             !self.0.nodes.borrow().contains_key(id),
@@ -482,7 +480,9 @@ impl View {
         let object = object.downgrade();
         let owner = Rc::downgrade(&self.0);
         let token = binding.subscribe(Rc::new(move |value| {
-            if owner.upgrade().is_some_and(|inner| !inner.closed.get())
+            if owner
+                .upgrade()
+                .is_some_and(|inner| !inner.lifecycle.is_closed())
                 && let Some(object) = object.upgrade()
             {
                 apply(&object, value);
@@ -492,7 +492,7 @@ impl View {
     }
 
     fn keep_at(&self, id: &str, token: Subscription) {
-        if !self.0.closed.get() {
+        if !self.0.lifecycle.is_closed() {
             self.0
                 .resources
                 .borrow_mut()
@@ -532,7 +532,7 @@ impl View {
 
     fn signal(&self, id: &str, object: &impl IsA<glib::Object>, signal: glib::SignalHandlerId) {
         let signal = Signal(object.as_ref().downgrade(), Some(signal));
-        if !self.0.closed.get() {
+        if !self.0.lifecycle.is_closed() {
             self.0
                 .resources
                 .borrow_mut()
@@ -616,7 +616,7 @@ impl View {
     }
     pub fn try_layout(&self, parent: &Parent, id: &str, layout: Layout) -> Result<Parent, String> {
         layout.validate().map_err(str::to_owned)?;
-        if self.0.closed.get() || id.is_empty() || self.0.nodes.borrow().contains_key(id) {
+        if self.0.lifecycle.is_closed() || id.is_empty() || self.0.nodes.borrow().contains_key(id) {
             return Err("closed view, empty or duplicate layout id".into());
         }
         if !parent
@@ -719,7 +719,7 @@ impl View {
         }
     }
     pub fn try_style(&self, id: &str, style: Style) -> Result<(), String> {
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return Err("view is closed".into());
         }
         let (frame, parent, css, grid_index) = {
@@ -1070,7 +1070,7 @@ impl View {
         let prefix = format!("{id}/");
         let current = RefCell::new(None::<Keyed<T>>);
         self.keep_at(id, item.subscribe(Rc::new(move |item| {
-            let Some(inner) = weak.upgrade().filter(|inner| !inner.closed.get()) else { return };
+            let Some(inner) = weak.upgrade().filter(|inner| !inner.lifecycle.is_closed()) else { return };
             if let Some(invalid) = item.as_ref().filter(|item| !valid_key(&item.key)) {
                 let error = format!("invalid content key {:?}: keys must be nonempty and contain no '/'; keeping last valid content", invalid.key);
                 container.widget.set_tooltip_text(Some(&error));
@@ -1143,7 +1143,7 @@ impl View {
         self.keep_at(
             id,
             title.subscribe(Rc::new(move |title| {
-                if let Some(inner) = weak.upgrade().filter(|inner| !inner.closed.get()) {
+                if let Some(inner) = weak.upgrade().filter(|inner| !inner.lifecycle.is_closed()) {
                     if let Some(state) = inner.menu_states.borrow().get(&menu_id) {
                         state.title.replace(title);
                         state
@@ -1159,7 +1159,7 @@ impl View {
         self.keep_at(
             id,
             items.subscribe(Rc::new(move |items| {
-                if let Some(inner) = weak.upgrade().filter(|inner| !inner.closed.get()) {
+                if let Some(inner) = weak.upgrade().filter(|inner| !inner.lifecycle.is_closed()) {
                     View(inner).apply_menu(&menu_id, items, dispatch.clone());
                 }
             })),
@@ -1171,7 +1171,7 @@ impl View {
     /// rebuilds the bar exactly on membership change. Label refreshes of
     /// attached menus ride the unconditional title-path rebuild instead.
     pub(crate) fn sync_menu_membership(&self, id: &str) {
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return;
         }
         let state = self.0.menu_states.borrow().get(id).cloned();
@@ -1311,7 +1311,7 @@ impl View {
             let role = item.role.clone();
             let argument = item.argument.clone();
             let signal = action.connect_activate(move |_, _| {
-                if let Some(inner) = weak.upgrade().filter(|inner| !inner.closed.get()) {
+                if let Some(inner) = weak.upgrade().filter(|inner| !inner.lifecycle.is_closed()) {
                     let view = View(inner);
                     if role == MenuRole::Normal {
                         dispatch(argument.clone());
@@ -1386,11 +1386,7 @@ impl View {
     }
 
     pub fn on_close(&self, callback: Rc<dyn Fn()>) {
-        if self.0.closed.get() {
-            callback();
-        } else {
-            self.0.on_close.borrow_mut().push(callback);
-        }
+        self.0.lifecycle.on_close(callback);
     }
     pub fn downgrade(&self) -> WeakView {
         WeakView(Rc::downgrade(&self.0))
@@ -1399,18 +1395,18 @@ impl View {
     /// this View strongly. A handler decides when to call forceful `close`.
     /// When installed it takes precedence over GtkHost coordinated shutdown.
     pub fn on_close_request(&self, callback: Rc<dyn Fn()>) {
-        if !self.0.closed.get() {
-            drop(self.0.on_close_request.replace(Some(callback)));
+        if !self.0.lifecycle.is_closed() {
+            self.0.lifecycle.set_close_request(Some(callback));
         }
     }
     /// Ordinary user close: app handler, else coordinator, else force teardown.
     /// Synchronous reentrant requests (including native/menu requests) are
     /// ignored, not queued. A later request retries after the callback returns.
     pub fn request_close(&self) {
-        if self.0.closed.get() || self.0.requesting_close.replace(true) {
+        let Some(_gate) = self.0.lifecycle.enter_request() else {
             return;
-        }
-        let callback = self.0.on_close_request.borrow().clone();
+        };
+        let callback = self.0.lifecycle.close_request();
         let coordinator = self.0.coordinated_close.borrow().clone();
         let result = catch_unwind(AssertUnwindSafe(|| {
             if let Some(callback) = callback {
@@ -1421,7 +1417,7 @@ impl View {
                 self.close();
             }
         }));
-        self.0.requesting_close.set(false);
+        drop(_gate);
         if let Err(panic) = result {
             self.0.error.replace(Some(panic_error(panic)));
         }
@@ -1433,7 +1429,7 @@ impl View {
         self.0.window.destroy();
     }
     pub fn present(&self) {
-        if !self.0.closed.get() {
+        if !self.0.lifecycle.is_closed() {
             self.0.window.present();
         }
     }
@@ -1446,7 +1442,7 @@ impl View {
     }
 
     fn widget<W: IsA<gtk4::Widget>>(&self, id: &str) -> Result<W, String> {
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return Err("view is closed".into());
         }
         self.0
@@ -1488,7 +1484,7 @@ impl View {
         Ok(())
     }
     pub fn activate_menu(&self, id: &str) -> Result<(), String> {
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return Err("view is closed".into());
         }
         let action = {
@@ -1531,7 +1527,7 @@ impl View {
 
 // Canonical grammar first; the raw value stays as the GTK-native fallback.
 fn parse_shortcut(value: &str) -> Option<gtk4::ShortcutTrigger> {
-    gtk4::ShortcutTrigger::parse_string(&canonical_or_raw(value, Shortcut::to_gtk))
+    gtk4::ShortcutTrigger::parse_string(&canonical_or_raw(value, shortcut::to_gtk))
 }
 
 fn pixels(value: f32) -> i32 {
@@ -1595,14 +1591,18 @@ impl<T: Clone + 'static> Rows<T> {
             self.queued.set(true);
             return;
         }
-        let Some(inner) = self.owner.upgrade().filter(|inner| !inner.closed.get()) else {
+        let Some(inner) = self
+            .owner
+            .upgrade()
+            .filter(|inner| !inner.lifecycle.is_closed())
+        else {
             self.applying.set(false);
             return;
         };
         let view = View(inner);
         loop {
             self.queued.set(false);
-            if view.0.closed.get() {
+            if view.0.lifecycle.is_closed() {
                 break;
             }
             let viewport = self.viewport.get();
@@ -1852,7 +1852,7 @@ impl GtkHost {
         session: &Session,
         timeout: Duration,
     ) -> Result<(), String> {
-        if self.executor.closed.get() || view.0.closed.get() {
+        if self.executor.closed.get() || view.0.lifecycle.is_closed() {
             return Err("host or view is closed".into());
         }
         if session.shutdown().phase() != ShutdownPhase::Running {
@@ -1900,7 +1900,7 @@ impl GtkHost {
         view: &View,
         hooks: WindowHooks,
     ) -> Result<(), String> {
-        if self.executor.closed.get() || view.0.closed.get() {
+        if self.executor.closed.get() || view.0.lifecycle.is_closed() {
             return Err("host or view is closed".into());
         }
         if self.windows.borrow().contains_key(id) {
@@ -2114,7 +2114,7 @@ pub fn run(make: impl FnOnce(Rc<dyn Executor>) -> View + 'static) -> Result<(), 
         };
         match catch_unwind(AssertUnwindSafe(|| make(host.executor()))) {
             Ok(view) => {
-                if view.0.closed.get() {
+                if view.0.lifecycle.is_closed() {
                     app.quit();
                 } else {
                     host.attach_view(app, &view);

@@ -4,9 +4,14 @@ mod controls;
 mod driver;
 mod input;
 mod layout;
+mod lifecycle;
 mod menu;
 mod scheduler;
+pub mod shortcut;
 mod surface;
+mod view;
+
+pub use view::Backend;
 #[cfg(test)]
 mod tests;
 
@@ -66,7 +71,7 @@ impl WeakView {
     pub fn upgrade(&self) -> Option<View> {
         self.0
             .upgrade()
-            .filter(|inner| !inner.closed.get())
+            .filter(|inner| !inner.lifecycle.is_closed())
             .map(View)
     }
 }
@@ -254,17 +259,14 @@ struct Inner {
     menu_attached: RefCell<Vec<(usize, muda::Submenu)>>,
     menu_order: Cell<usize>,
     subscriptions: RefCell<Vec<Subscription>>,
-    on_close: RefCell<Vec<Rc<dyn Fn()>>>,
-    on_close_request: RefCell<Option<Rc<dyn Fn()>>>,
+    lifecycle: lifecycle::Lifecycle,
     quit_request: RefCell<Option<Rc<dyn Fn()>>>,
-    requesting_close: Cell<bool>,
     /// HIG Return/Escape targets per open dialog node id: the footer accept
     /// and cancel click keys plus whether accept is destructive. The driver
     /// consults this when plain Return/Escape is pressed inside a dialog.
     footers: RefCell<HashMap<String, FooterKeys>>,
     invalidate: RefCell<Option<Rc<dyn Fn()>>>,
     visible: Cell<bool>,
-    closed: Cell<bool>,
     image_updates: Cell<usize>,
     error: RefCell<Option<String>>,
     fatal_error: RefCell<Option<String>>,
@@ -290,10 +292,9 @@ impl Inner {
         self.error.replace(Some(error));
     }
     fn shutdown(&self) {
-        if self.closed.replace(true) {
+        if !self.lifecycle.begin_shutdown() {
             return;
         }
-        drop(self.on_close_request.take());
         drop(self.native_ready.take());
         drop(self.native_event.take());
         drop(self.native_viewport.take());
@@ -313,11 +314,7 @@ impl Inner {
         self.menu_actions.borrow_mut().clear();
         self.refresh();
         self.invalidate.take();
-        for callback in self.on_close.take() {
-            if let Err(panic) = catch_unwind(AssertUnwindSafe(|| callback())) {
-                self.report(panic_error(panic));
-            }
-        }
+        self.lifecycle.finish_shutdown(|error| self.report(error));
     }
 }
 impl Drop for Inner {
@@ -402,14 +399,11 @@ impl View {
             menu_attached: RefCell::default(),
             menu_order: Cell::new(0),
             subscriptions: RefCell::default(),
-            on_close: RefCell::default(),
-            on_close_request: RefCell::default(),
+            lifecycle: lifecycle::Lifecycle::default(),
             quit_request: RefCell::default(),
-            requesting_close: Cell::new(false),
             footers: RefCell::default(),
             invalidate: RefCell::default(),
             visible: Cell::new(false),
-            closed: Cell::new(false),
             image_updates: Cell::new(0),
             error: RefCell::default(),
             fatal_error: RefCell::default(),
@@ -422,7 +416,7 @@ impl View {
             .insert("__root".into(), Rc::downgrade(&view.0.root.0));
         let weak = Rc::downgrade(&view.0);
         let token = title.subscribe(Rc::new(move |value| {
-            if let Some(inner) = weak.upgrade().filter(|i| !i.closed.get()) {
+            if let Some(inner) = weak.upgrade().filter(|i| !i.lifecycle.is_closed()) {
                 inner.title.replace(value);
                 inner.refresh();
             }
@@ -434,7 +428,7 @@ impl View {
         &self,
         callback: impl FnOnce(std::sync::Arc<NativeWindow>) -> Result<(), String> + 'static,
     ) -> Result<(), String> {
-        if self.0.closed.get() || self.0.native_published.get() {
+        if self.0.lifecycle.is_closed() || self.0.native_published.get() {
             return Err("native window callback must be registered before presentation".into());
         }
         if self.0.native_ready.borrow().is_some() {
@@ -445,12 +439,12 @@ impl View {
     }
 
     pub fn on_native_event(&self, callback: Rc<dyn Fn(&NativeWindowEvent<'_>)>) {
-        if !self.0.closed.get() {
+        if !self.0.lifecycle.is_closed() {
             self.0.native_event.replace(Some(callback));
         }
     }
     pub fn on_native_viewport(&self, callback: Rc<dyn Fn(f32, f32)>) {
-        if !self.0.closed.get() {
+        if !self.0.lifecycle.is_closed() {
             self.0.native_viewport.replace(Some(callback));
         }
     }
@@ -467,7 +461,7 @@ impl View {
         self.add_scoped(parent, id, kind, false)
     }
     fn add_scoped(&self, parent: &Parent, id: &str, kind: Kind, new_scope: bool) -> Rc<Node> {
-        assert!(!self.0.closed.get(), "closed view");
+        assert!(!self.0.lifecycle.is_closed(), "closed view");
         assert!(parent.0.mounted.get(), "evicted parent");
         assert!(
             Weak::ptr_eq(&parent.0.owner, &Rc::downgrade(&self.0)),
@@ -521,14 +515,14 @@ impl View {
         let target = Rc::downgrade(node);
         let token = binding.subscribe(Rc::new(move |value| {
             if let (Some(inner), Some(_node)) = (
-                weak.upgrade().filter(|i| !i.closed.get()),
+                weak.upgrade().filter(|i| !i.lifecycle.is_closed()),
                 target.upgrade().filter(|n| n.mounted.get()),
             ) {
                 apply(value);
                 inner.refresh();
             }
         }));
-        if !self.0.closed.get() {
+        if !self.0.lifecycle.is_closed() {
             node.subscriptions.borrow_mut().push(token);
         }
     }
@@ -549,7 +543,7 @@ impl View {
     }
     pub fn try_layout(&self, parent: &Parent, id: &str, layout: Layout) -> Result<Parent, String> {
         layout.validate().map_err(str::to_owned)?;
-        if self.0.closed.get() || !parent.0.mounted.get() || id.is_empty() {
+        if self.0.lifecycle.is_closed() || !parent.0.mounted.get() || id.is_empty() {
             return Err("closed view, unavailable parent or empty layout id".into());
         }
         if !parent.0.owner.ptr_eq(&Rc::downgrade(&self.0)) || self.find(id).is_some() {
@@ -581,7 +575,7 @@ impl View {
         }
     }
     pub fn try_style(&self, id: &str, style: Style) -> Result<(), String> {
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return Err("view is closed".into());
         }
         let node = self
@@ -1066,7 +1060,7 @@ impl View {
         })));
     }
     pub fn keep(&self, subscription: Subscription) {
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return;
         }
         let target = self
@@ -1100,11 +1094,7 @@ impl View {
         callback();
     }
     pub fn on_close(&self, callback: Rc<dyn Fn()>) {
-        if self.0.closed.get() {
-            callback();
-        } else {
-            self.0.on_close.borrow_mut().push(callback);
-        }
+        self.0.lifecycle.on_close(callback);
     }
     pub fn downgrade(&self) -> WeakView {
         WeakView(Rc::downgrade(&self.0))
@@ -1112,17 +1102,17 @@ impl View {
     /// Replace the single app handler. Capture Store or WeakView, not a strong
     /// View. The handler decides when to force-close after confirmation/drain.
     pub fn on_close_request(&self, callback: Rc<dyn Fn()>) {
-        if !self.0.closed.get() {
-            drop(self.0.on_close_request.replace(Some(callback)));
+        if !self.0.lifecycle.is_closed() {
+            self.0.lifecycle.set_close_request(Some(callback));
         }
     }
     /// Call the app handler, or close by default. Synchronous reentrant requests
     /// are ignored, not queued; later requests may retry. Closed Views do nothing.
     pub fn request_close(&self) {
-        if self.0.closed.get() || self.0.requesting_close.replace(true) {
+        let Some(_gate) = self.0.lifecycle.enter_request() else {
             return;
-        }
-        let callback = self.0.on_close_request.borrow().clone();
+        };
+        let callback = self.0.lifecycle.close_request();
         let result = catch_unwind(AssertUnwindSafe(|| {
             if let Some(callback) = callback {
                 callback();
@@ -1130,13 +1120,13 @@ impl View {
                 self.close();
             }
         }));
-        self.0.requesting_close.set(false);
+        drop(_gate);
         if let Err(panic) = result {
             self.0.report(panic_error(panic));
         }
     }
     pub fn request_quit(&self) {
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return;
         }
         let callback = self.0.quit_request.borrow().clone();
@@ -1144,11 +1134,11 @@ impl View {
             self.request_close();
             return;
         };
-        if self.0.requesting_close.replace(true) {
+        let Some(_gate) = self.0.lifecycle.enter_request() else {
             return;
-        }
+        };
         let result = catch_unwind(AssertUnwindSafe(|| callback()));
-        self.0.requesting_close.set(false);
+        drop(_gate);
         if let Err(panic) = result {
             self.0.report(panic_error(panic));
         }
@@ -1158,13 +1148,13 @@ impl View {
         self.0.shutdown();
     }
     pub fn present(&self) {
-        if !self.0.closed.get() {
+        if !self.0.lifecycle.is_closed() {
             self.0.visible.set(true);
             self.0.refresh();
         }
     }
     fn dispatch(&self, message: Message) -> Result<(), String> {
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return Err("view is closed".into());
         }
         let target = match &message {
@@ -1322,7 +1312,7 @@ impl View {
         self.0.error.borrow().clone()
     }
     pub fn report_error(&self, error: String) {
-        if !self.0.closed.get() {
+        if !self.0.lifecycle.is_closed() {
             self.0.report(error);
         }
     }
@@ -1369,6 +1359,10 @@ trait ItemHost {
     fn keys(&self) -> Vec<String>;
     fn viewport(&self, start: usize);
     fn scroll(&self, offset: f32);
+    /// Per-list rejection (invalid snapshot or viewport), cleared on the next
+    /// accepted update. Mirrors gtk/macos `items_error` so every backend
+    /// reports the same contract.
+    fn error(&self) -> Option<String>;
 }
 struct List<T: Clone + 'static> {
     owner: Weak<Inner>,
@@ -1382,6 +1376,7 @@ struct List<T: Clone + 'static> {
     busy: Cell<bool>,
     dirty: Cell<bool>,
     overscan: Cell<bool>,
+    error: RefCell<Option<String>>,
 }
 pub fn virtual_range(len: usize, viewport: Viewport) -> std::ops::Range<usize> {
     viewport.range(len).unwrap_or(0..0)
@@ -1431,7 +1426,7 @@ impl<T: Clone + 'static> List<T> {
         let (Some(inner), Some(node)) = (self.owner.upgrade(), self.node.upgrade()) else {
             return;
         };
-        if inner.closed.get() || !node.mounted.get() {
+        if inner.lifecycle.is_closed() || !node.mounted.get() {
             return;
         }
         if self.viewport_ready.get() {
@@ -1546,6 +1541,9 @@ impl<T: Clone + 'static> ItemHost for List<T> {
             .map(|(i, _)| i.key.clone())
             .collect()
     }
+    fn error(&self) -> Option<String> {
+        self.error.borrow().clone()
+    }
     fn viewport(&self, start: usize) {
         if !self.viewport_ready.get() {
             return;
@@ -1609,6 +1607,7 @@ impl View {
             busy: Cell::new(false),
             dirty: Cell::new(false),
             overscan: Cell::new(false),
+            error: RefCell::default(),
         });
         node.kind.replace(Kind::Items(host.clone()));
         let out = host.clone();
@@ -1616,35 +1615,42 @@ impl View {
         let key = node.id.clone();
         self.bind(&node, items, move |values| {
             if let Some(invalid) = values.iter().find(|i| !valid_item_key(&i.key)) {
+                let message = format!(
+                    "list {key}: invalid key {:?}; snapshot rejected",
+                    invalid.key
+                );
+                out.error.replace(Some(message.clone()));
                 if let Some(inner) = weak.upgrade() {
-                    inner.report(format!(
-                        "list {key}: invalid key {:?}; snapshot rejected",
-                        invalid.key
-                    ));
+                    inner.report(message);
                 }
                 return;
             }
             let mut keys = HashSet::new();
             if let Some(duplicate) = values.iter().find(|i| !keys.insert(i.key.clone())) {
+                let message = format!(
+                    "list {key}: duplicate key {:?}; snapshot rejected",
+                    duplicate.key
+                );
+                out.error.replace(Some(message.clone()));
                 if let Some(inner) = weak.upgrade() {
-                    inner.report(format!(
-                        "list {key}: duplicate key {:?}; snapshot rejected",
-                        duplicate.key
-                    ));
+                    inner.report(message);
                 }
                 return;
             }
+            out.error.replace(None);
             out.source.replace(values);
             out.reconcile();
         });
         let out = host.clone();
         self.bind(&node, viewport, move |vp| {
             if let Err(error) = vp.validate() {
+                out.error.replace(Some(error.into()));
                 if let Some(inner) = out.owner.upgrade() {
                     inner.report(error.into());
                 }
                 return;
             }
+            out.error.replace(None);
             let initialized = out.viewport_ready.replace(true);
             if out.current.replace(vp) != vp || !initialized {
                 out.overscan.set(false);
@@ -1717,6 +1723,14 @@ impl View {
     pub fn mounted_count(&self, id: &str) -> usize {
         self.item_keys(id).len()
     }
+    /// Per-list rejection for the last snapshot or viewport update, if any.
+    /// Cleared by the next accepted update. Matches the gtk/macos contract.
+    pub fn items_error(&self, id: &str) -> Option<String> {
+        self.find(id).and_then(|n| match &*n.kind.borrow() {
+            Kind::Items(h) => h.error(),
+            _ => None,
+        })
+    }
     pub fn viewport(&self, id: &str, start: usize) {
         let host = self.find(id).and_then(|n| match &*n.kind.borrow() {
             Kind::Items(h) => Some(h.clone()),
@@ -1776,7 +1790,7 @@ impl panechord_runtime::UiHost for TaoHost {
 }
 impl TaoHost {
     pub fn present(&self, view: &View) {
-        if view.0.closed.get() {
+        if view.0.lifecycle.is_closed() {
             return;
         }
         if !self
@@ -1801,7 +1815,7 @@ impl TaoHost {
         view: &View,
         hooks: panechord_runtime::WindowHooks,
     ) -> Result<(), String> {
-        if view.0.closed.get() {
+        if view.0.lifecycle.is_closed() {
             return Err("cannot register a closed View".into());
         }
         panechord_runtime::UiHost::attach(self, session.clone())?;

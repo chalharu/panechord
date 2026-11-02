@@ -1,6 +1,7 @@
+use super::shortcut::to_muda;
 use super::*;
 use muda::{IsMenuItem, PredefinedMenuItem, accelerator::Accelerator};
-use panechord_runtime::{MenuItem, MenuNode, MenuRole, Shortcut, canonical_or_raw, visible_tree};
+use panechord_runtime::{MenuItem, MenuNode, MenuRole, canonical_or_raw, visible_tree};
 
 #[derive(Clone)]
 pub(super) struct Action {
@@ -16,7 +17,7 @@ fn vetoed_quit(role: &MenuRole) -> bool {
 }
 pub fn parse_shortcut(value: &str) -> Result<Accelerator, String> {
     // Canonical grammar first; the raw value stays as the muda-native fallback.
-    canonical_or_raw(value, Shortcut::to_muda)
+    canonical_or_raw(value, to_muda)
         .parse::<Accelerator>()
         .map_err(|e| format!("invalid menu shortcut {value:?}: {e}"))
 }
@@ -175,7 +176,7 @@ impl View {
         items: Binding<Vec<MenuNode<A>>>,
         dispatch: Rc<dyn Fn(A) -> bool>,
     ) {
-        assert!(!self.0.closed.get(), "closed view");
+        assert!(!self.0.lifecycle.is_closed(), "closed view");
         // A retained node owns the two dynamic subscriptions, just like widget mounts.
         let node = self.add(&self.root(), id, Kind::Content);
         // Menus are not software controls in the content layout.
@@ -201,7 +202,7 @@ impl View {
         let menu = submenu.clone();
         let weak = Rc::downgrade(&self.0);
         let token = title.subscribe(Rc::new(move |text| {
-            if weak.upgrade().is_some_and(|i| !i.closed.get()) {
+            if weak.upgrade().is_some_and(|i| !i.lifecycle.is_closed()) {
                 menu.set_text(text);
             }
         }));
@@ -212,7 +213,7 @@ impl View {
         let old_native = RefCell::new(Vec::<muda::MenuId>::new());
         let old_accelerators = RefCell::new(Vec::<(muda::MenuItem, Option<Accelerator>)>::new());
         let token = items.subscribe(Rc::new(move |tree| {
-            let Some(inner) = weak.upgrade().filter(|i| !i.closed.get()) else {
+            let Some(inner) = weak.upgrade().filter(|i| !i.lifecycle.is_closed()) else {
                 return;
             };
             // Membership first: invisible leaves leave the tree before
@@ -400,7 +401,7 @@ impl View {
         self.keep(token);
     }
     pub fn activate_menu(&self, id: &str) -> Result<(), String> {
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return Err("view is closed".into());
         }
         let actions = self.0.menu_actions.borrow();
@@ -436,7 +437,7 @@ mod tests {
     #[test]
     fn canonical_shortcuts_match_native_modifier_and_key_semantics() {
         use muda::accelerator::{Code, Modifiers};
-        use panechord_runtime::ShortcutTarget;
+        use panechord_runtime::{Shortcut, ShortcutTarget};
         for (input, key, extra) in [
             ("Primary+S", Code::KeyS, Modifiers::empty()),
             ("Primary+Q", Code::KeyQ, Modifiers::empty()),
@@ -452,7 +453,9 @@ mod tests {
             assert_eq!(actual.key(), key);
             for target in [ShortcutTarget::MacOS, ShortcutTarget::Other] {
                 let shortcut = Shortcut::parse(input).unwrap();
-                let native: Accelerator = shortcut.to_muda_for(target).parse().unwrap();
+                let native: Accelerator = crate::shortcut::to_muda_for(&shortcut, target)
+                    .parse()
+                    .unwrap();
                 let primary = if target == ShortcutTarget::MacOS {
                     Modifiers::META
                 } else {

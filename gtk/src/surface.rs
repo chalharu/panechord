@@ -334,7 +334,7 @@ impl View {
         &self,
         callback: impl FnOnce(Rc<dyn WindowSurface>) -> Result<(), String> + 'static,
     ) -> Result<(), String> {
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return Err("view is closed".into());
         }
         gtk4::prelude::WidgetExt::realize(&self.0.window);

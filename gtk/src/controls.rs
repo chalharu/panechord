@@ -110,7 +110,7 @@ impl View {
                 loop {
                     let next = pending.borrow_mut().take();
                     let Some(items) = next else { break };
-                    if view.0.closed.get() {
+                    if view.0.lifecycle.is_closed() {
                         break;
                     }
                     if let Err(error) = panechord_runtime::validate_repeat_items(&items) {
@@ -124,7 +124,7 @@ impl View {
                         }
                     }
                     for item in &items {
-                        if view.0.closed.get() {
+                        if view.0.lifecycle.is_closed() {
                             return;
                         }
                         if !previous.iter().any(|candidate| candidate == item) {
@@ -138,7 +138,7 @@ impl View {
                     }
                     let mut after: Option<gtk4::Widget> = None;
                     for item in items {
-                        if view.0.closed.get() {
+                        if view.0.lifecycle.is_closed() {
                             return;
                         }
                         let frame = view
@@ -340,7 +340,7 @@ impl View {
         Ok(())
     }
     pub fn slider_value(&self, id: &str) -> Option<f64> {
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return None;
         }
         self.0.nodes.borrow().get(id).and_then(|node| {
@@ -353,7 +353,7 @@ impl View {
         self.0.error.borrow().clone()
     }
     pub fn report_error(&self, error: String) {
-        if !self.0.closed.get() {
+        if !self.0.lifecycle.is_closed() {
             self.0.error.replace(Some(error));
         }
     }
@@ -378,7 +378,7 @@ impl View {
         } else {
             self.require_interactive(id)?;
         }
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return Err("view is closed".into());
         }
         let action = self
@@ -695,7 +695,9 @@ impl View {
                 && y.is_finite()
                 && (x as f32).is_finite()
                 && (y as f32).is_finite()
-                && weak.upgrade().is_some_and(|view| !view.0.closed.get())
+                && weak
+                    .upgrade()
+                    .is_some_and(|view| !view.0.lifecycle.is_closed())
             {
                 panechord_runtime::ignore_write(writer.try_set(Some(
                     panechord_runtime::PointerPosition {
@@ -707,7 +709,10 @@ impl View {
         });
         let weak = self.downgrade();
         let exited = motion.connect_leave(move |_| {
-            if weak.upgrade().is_some_and(|view| !view.0.closed.get()) {
+            if weak
+                .upgrade()
+                .is_some_and(|view| !view.0.lifecycle.is_closed())
+            {
                 let _ = pointer.try_set(None);
             }
         });
@@ -894,7 +899,7 @@ impl View {
         id: &str,
         position: panechord_runtime::TabPosition,
     ) -> Result<(), String> {
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return Err("view is closed".into());
         }
         let state = self.0.tabs.borrow().get(id).cloned().ok_or("missing Tab")?;
@@ -969,7 +974,7 @@ impl View {
                     let next = pending.borrow_mut().take();
                     let Some(next) = next else { break };
                     let Some(view) = weak.upgrade() else { break };
-                    if view.0.closed.get() {
+                    if view.0.lifecycle.is_closed() {
                         break;
                     }
                     let previous = source.borrow().clone();
@@ -1039,7 +1044,7 @@ impl View {
         title: Binding<String>,
         key: &str,
     ) -> Result<Parent, String> {
-        if self.0.closed.get() || id.is_empty() || self.0.nodes.borrow().contains_key(id) {
+        if self.0.lifecycle.is_closed() || id.is_empty() || self.0.nodes.borrow().contains_key(id) {
             return Err("closed view, empty or duplicate page id".into());
         }
         let state = self
@@ -1091,7 +1096,7 @@ impl View {
     }
 
     pub fn finish_tab(&self, parent: &Parent) -> Result<(), String> {
-        if self.0.closed.get() {
+        if self.0.lifecycle.is_closed() {
             return Err("view is closed".into());
         }
         let state = self

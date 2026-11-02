@@ -107,6 +107,23 @@ impl RunnerBuilderExtMacOS for RunnerBuilder {
     }
 }
 
+/// Feature-selected backend. Adding a backend adds one alias here plus its
+/// [`panechord_runtime::Backend`] impl; startup policy below stays generic, so
+/// new backends and new builder options never touch the dispatch itself
+/// (Open/Closed). High-level code depends on the trait, not on each
+/// backend's free functions (Dependency Inversion).
+#[cfg(all(
+    feature = "native",
+    not(any(feature = "gtk", feature = "tao", feature = "macos"))
+))]
+type SelectedBackend = panechord_native::Backend;
+#[cfg(feature = "tao")]
+type SelectedBackend = panechord_tao::Backend;
+#[cfg(feature = "gtk")]
+type SelectedBackend = panechord_gtk::Backend;
+#[cfg(feature = "macos")]
+type SelectedBackend = panechord_macos::Backend;
+
 #[cfg(any(
     feature = "native",
     feature = "gtk",
@@ -123,56 +140,28 @@ impl RunnerBuilder {
 
     pub fn run(
         self,
-        make: impl FnOnce(std::rc::Rc<dyn WindowHost<View>>, &RunnerConfig) -> Result<(), String>
+        make: impl FnOnce(
+            std::rc::Rc<dyn WindowHost<<SelectedBackend as panechord_runtime::Backend>::View>>,
+            &RunnerConfig,
+        ) -> Result<(), String>
         + 'static,
     ) -> Result<(), String> {
-        // One dispatch shape for every backend: each exposes `runner_config`,
-        // `run_host` and the pre-build option setters. A new builder option
-        // only touches this macro; a new backend only adds one arm below.
-        macro_rules! run_with_backend {
-            ($backend:ident) => {{
-                let config = $backend::runner_config();
-                let tabbing = self.automatic_window_tabbing;
-                let size = self.initial_window_size;
-                $backend::run_host(move |host| {
-                    if let Some(enabled) = tabbing {
-                        $backend::set_allows_automatic_window_tabbing(enabled);
-                    }
-                    if let Some((width, height)) = size {
-                        $backend::set_initial_window_size(width, height);
-                    }
-                    make(host, &config)
-                })
-            }};
-        }
-        #[cfg(all(
-            feature = "native",
-            not(any(feature = "gtk", feature = "tao", feature = "macos"))
-        ))]
-        {
-            run_with_backend!(panechord_native)
-        }
-        #[cfg(feature = "tao")]
-        {
-            run_with_backend!(panechord_tao)
-        }
-        #[cfg(feature = "gtk")]
-        {
-            run_with_backend!(panechord_gtk)
-        }
-        #[cfg(feature = "macos")]
-        {
-            run_with_backend!(panechord_macos)
-        }
-        #[cfg(not(any(
-            feature = "native",
-            feature = "gtk",
-            feature = "tao",
-            feature = "macos"
-        )))]
-        {
-            let _ = make;
-            Err("no Panechord native backend selected".into())
-        }
+        // One dispatch shape for every backend, driven through the
+        // `panechord_runtime::Backend` trait: `runner_config`, `run_host`
+        // and the pre-build option setters. A new builder option extends
+        // the trait; a new backend implements it.
+        use panechord_runtime::Backend as _;
+        let config = SelectedBackend::runner_config();
+        let tabbing = self.automatic_window_tabbing;
+        let size = self.initial_window_size;
+        SelectedBackend::run_host(move |host| {
+            if let Some(enabled) = tabbing {
+                SelectedBackend::set_allows_automatic_window_tabbing(enabled);
+            }
+            if let Some((width, height)) = size {
+                SelectedBackend::set_initial_window_size(width, height);
+            }
+            make(host, &config)
+        })
     }
 }

@@ -74,8 +74,9 @@ ShortcutController/NamedAction shortcuts. Shortcuts first use the shared runtime
 or Enter/Tab/Space/Escape/Backspace/Delete/Insert/Home/End/PageUp/PageDown/
 Left/Right/Up/Down. Case and token-edge whitespace are normalized. Primary maps
 to Cmd (GTK Meta) on macOS, Ctrl elsewhere; Shift is always explicit.
-`Shortcut::parse`, `to_gtk`, `to_muda` share conversion; `*_for(ShortcutTarget)`
-allows explicit target conversion independently of the build host.
+`panechord_gtk::shortcut::{to_gtk,to_gtk_for}` lowers the parsed form (the
+runtime only parses); `*_for(ShortcutTarget)` allows explicit target lowering
+independently of the build host.
 If common parsing fails, existing GTK trigger syntax (`<Control>s`) is accepted
 as **legacy backend-specific input**, not portable grammar. The legacy parser
 may accept more keys/modifiers than the strict common parser. Invalid shortcuts

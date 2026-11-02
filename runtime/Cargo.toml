@@ -1,5 +1,8 @@
 [package]
 name = "panechord-runtime"
+description = "Shared-state core for Panechord declarative UI: Store, Binding, Command and effects"
+repository.workspace = true
+categories = ["gui"]
 version.workspace = true
 edition.workspace = true
 license.workspace = true

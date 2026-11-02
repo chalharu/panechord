@@ -1,5 +1,8 @@
 [package]
 name = "panechord-macros"
+description = "Declarative view!, owned_view! and commands macros for Panechord"
+repository.workspace = true
+categories = ["gui"]
 version.workspace = true
 edition.workspace = true
 license.workspace = true

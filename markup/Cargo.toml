@@ -1,5 +1,8 @@
 [package]
 name = "panechord-markup"
+description = "Strict schema-v2 YAML/JSON markup parser for Panechord"
+repository.workspace = true
+categories = ["gui"]
 version.workspace = true
 edition.workspace = true
 license.workspace = true

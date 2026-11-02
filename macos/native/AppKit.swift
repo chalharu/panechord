@@ -701,12 +701,32 @@ final class Tabs: NSStackView, NSTableViewDataSource, NSTableViewDelegate {
     func numberOfRows(in tableView: NSTableView) -> Int { labels.count }
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard let id = tableColumn?.identifier else { return nil }
-        let field = (tableView.makeView(withIdentifier: id, owner: self) as? NSTextField)
-            ?? NSTextField(labelWithString: "")
+        // Rows are 28pt while the label is ~16pt: center the text
+        // vertically in a reused container. Returning the label itself
+        // leaves it at its fitting height pinned to the row top.
+        let cell: NSTableCellView
+        let field: NSTextField
+        if let reused = tableView.makeView(withIdentifier: id, owner: self) as? NSTableCellView,
+           let reusedField = reused.textField {
+            cell = reused
+            field = reusedField
+        } else {
+            cell = NSTableCellView()
+            cell.identifier = id
+            field = NSTextField(labelWithString: "")
+            field.translatesAutoresizingMaskIntoConstraints = false
+            cell.addSubview(field)
+            NSLayoutConstraint.activate([
+                field.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
+                field.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -2),
+                field.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+            ])
+            cell.textField = field
+        }
         field.identifier = id
         field.stringValue = labels[row]
         field.font = .systemFont(ofSize: 13)
-        return field
+        return cell
     }
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { enabled }
     func tableViewSelectionDidChange(_ notification: Notification) {

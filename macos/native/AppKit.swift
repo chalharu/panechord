@@ -1091,6 +1091,16 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
         contentHeight.isActive = view is Tabs || view is Scrolling || view is TableControl
         contentWidths[id] = contentWidth
         contentHeights[id] = contentHeight
+        if view is NSProgressIndicator {
+            // Meters have no intrinsic width, so a row's spare width split
+            // between the flexible field and the meter is indeterminate: it
+            // usually collapses the meter to zero and, depending on mount
+            // history, can flip and collapse the field instead. Pin a
+            // readable minimum and keep the meter from stretching so the
+            // field deterministically absorbs the rest.
+            frame.widthAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
+            frame.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        }
     }
 
     /// Record a mounted control and wire it into the key-view loop.

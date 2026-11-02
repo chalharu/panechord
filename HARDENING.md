@@ -24,7 +24,7 @@ one WindowId-routed loop, per-window painter/clipboard/surface state and a share
 scheduler. Close/reopen and coordinated veto/drain are native-tested on Linux/macOS.
 Its legacy external-reactor entry still rejects instead of creating a nested loop.
 
-The schema has 19 control/layout variants. CheckBox, Radio, stepped Slider f64,
+The schema has 25 control/layout variants. CheckBox, Radio, stepped Slider f64,
 Combo Choice IDs, shared RGBA ImageFrame, retained Tab pages and nonblocking Dialog
 content are declarative. Display-only TwoWay properties reject at their markup mode
 location. Grid has equal-width columns, a gap, and explicit zero-based row/column

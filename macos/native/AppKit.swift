@@ -1503,7 +1503,7 @@ public func addGrid(_ pointer: UnsafeMutableRawPointer, _ parentBytes: UnsafePoi
     let grid = GridContainer()
     grid.columns = max(1, Int(columns))
     grid.gap = CGFloat(gap)
-    value.attach(view: grid, parent: string(parentBytes, parentCount), id: id)
+    value.attach(grid, parent: string(parentBytes, parentCount), id: id)
 }
 
 @_cdecl("w3_place") @MainActor

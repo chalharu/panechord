@@ -728,6 +728,11 @@ final class PointerImage: NSImageView {
     private var pointerArea: NSTrackingArea?
     private var aspect: CGFloat = 1.0
     private var aspectConstraint: NSLayoutConstraint?
+    /// An explicit style height suspends the aspect constraint (see
+    /// setExplicitHeight): aspect + fixed height + the width-filling
+    /// content link would otherwise pin the whole window width to
+    /// height/aspect, and every layout would snap user resizing back.
+    private var aspectSuspended = false
     private var lastEmittedSize = NSZeroSize
     override var isFlipped: Bool { true }
     // The rendered pixels must never drive layout: the view fills the stack
@@ -739,7 +744,17 @@ final class PointerImage: NSImageView {
         aspect = CGFloat(height) / CGFloat(max(width, 1))
         aspectConstraint?.isActive = false
         aspectConstraint = heightAnchor.constraint(equalTo: widthAnchor, multiplier: aspect)
-        aspectConstraint?.isActive = true
+        aspectConstraint?.priority = .defaultHigh
+        aspectConstraint?.isActive = !aspectSuspended
+    }
+
+    /// Toggle the aspect constraint for explicit style heights. Suspension
+    /// (not just a lower priority) is required: any live pull on the free
+    /// window-width variable lets the solver satisfy it by moving the
+    /// window, snapping user resizes back to height/aspect.
+    func setExplicitHeight(_ explicit: Bool) {
+        aspectSuspended = explicit
+        aspectConstraint?.isActive = !explicit
     }
 
     override func layout() {
@@ -1755,6 +1770,11 @@ public func style(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<U
     }
     if let constraints = value.dimensions[id] { NSLayoutConstraint.deactivate(constraints) }
     value.dimensions[id] = []
+    // An explicit style height takes the image out of aspect tracking (see
+    // PointerImage.setExplicitHeight); without this the aspect pull on the
+    // free window-width variable snaps user resizing back to
+    // height/aspect on every layout.
+    if let image = value.nodes[id] as? PointerImage { image.setExplicitHeight(height >= 0) }
     // Manually laid out children (Grid/Flex/Absolute) take no stack position
     // constraints: the container assigns frames from placements and the sizes
     // recorded here. Margins still fold into the frame insets; the view keeps

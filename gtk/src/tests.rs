@@ -3266,6 +3266,7 @@ fn native_dialog_footer_marks_destructive_without_default() {
 
 #[test]
 #[ignore = "isolated Xvfb, optional libXtst"]
+#[cfg(target_os = "linux")]
 fn native_dialog_footer_wires_default_and_escape_in_dialog_windows() {
     gtk4::init().unwrap();
     let Some(mut keys) = x11::X11::optional() else {
@@ -3353,6 +3354,7 @@ fn native_dialog_footer_wires_default_and_escape_in_dialog_windows() {
 
 #[test]
 #[ignore = "isolated Xvfb, optional libXtst"]
+#[cfg(target_os = "linux")]
 fn native_dialog_footer_destructive_accept_has_no_default_but_keeps_escape() {
     gtk4::init().unwrap();
     let Some(mut keys) = x11::X11::optional() else {

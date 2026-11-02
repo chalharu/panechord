@@ -6,8 +6,6 @@ pub use panechord_runtime::Alignment;
 
 mod controls;
 mod lifecycle;
-#[cfg(target_os = "macos")]
-mod macos_menu;
 pub mod shortcut;
 mod table;
 mod view;
@@ -181,10 +179,6 @@ struct MenuState {
 struct Action {
     action: gio::SimpleAction,
     name: String,
-    // macOS global-menu mirror only (`macos_menu` is Apple-gated); other
-    // platforms drive accelerators through `gtk4::Shortcut` triggers.
-    #[cfg(target_os = "macos")]
-    shortcut: Option<String>,
 }
 
 struct Inner {
@@ -1206,10 +1200,6 @@ impl View {
                 .menus
                 .append_submenu(Some(&state.title.borrow()), &state.menu);
         }
-        #[cfg(target_os = "macos")]
-        if let Some(mtm) = objc2::MainThreadMarker::new() {
-            macos_menu::sync_global_menu(self, mtm);
-        }
     }
 
     fn clear_menu(&self, id: &str) {
@@ -1327,8 +1317,6 @@ impl View {
                 Action {
                     action,
                     name,
-                    #[cfg(target_os = "macos")]
-                    shortcut: item.shortcut.clone(),
                 },
             );
             state.actions.borrow_mut().push(item.id);
@@ -1344,10 +1332,6 @@ impl View {
             state.menu.append_section(None, &section);
         }
         self.sync_menu_membership(id);
-        #[cfg(target_os = "macos")]
-        if let Some(mtm) = objc2::MainThreadMarker::new() {
-            macos_menu::sync_global_menu(self, mtm);
-        }
     }
 
     fn native_role(&self, role: &MenuRole) {

@@ -1835,6 +1835,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires the AppKit main thread (NSWindow); covered by the conformance dialog-footer scenario"]
     fn dialog_footer_binds_captions_enablement_and_dispatch() {
         // Native AppKit contract: this file is cfg'd out off macOS, so this
         // test only builds and runs on macOS (needs the AppKit host).

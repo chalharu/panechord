@@ -2,7 +2,8 @@
 use panechord_macos::View;
 #[cfg(target_os = "macos")]
 use panechord_runtime::{
-    Binding, Keyed, Layout, Limits, MenuItem, MenuRole, Store, Style, Viewport, validation,
+    Binding, DialogFooter, FooterButton, Keyed, Layout, Limits, MenuItem, MenuRole, Store, Style,
+    Viewport, validation,
 };
 #[cfg(target_os = "macos")]
 use std::{
@@ -131,6 +132,113 @@ fn main() -> Result<(), String> {
         println!(
             "MACOS3 PASS close-recovery panic-flag-restored conversion-noop-normalized grid-flex-absolute-meter-supported"
         );
+        // Dialog footer contract, on the AppKit main thread: captions are
+        // live bindings on scoped sub-ids, clicks dispatch to their own
+        // commands, and enablement rides the command like `button`.
+        // (Covers the unit test ignored off the main thread: libtest runs
+        // on background threads, but NSWindow requires the main thread.
+        // Enablement follows the same-store pattern as the tao suite: the
+        // command's can-execute reads the store that owns it, so updates
+        // propagate to the native button synchronously.)
+        let footer = View::new(Binding::constant("Footer".into()));
+        let accept_text = Store::new("Save".to_owned(), executor.clone());
+        let cancel_text = Store::new("Cancel".to_owned(), executor.clone());
+        let accept_on = Store::new(true, executor.clone());
+        let cancel_on = Store::new(true, executor.clone());
+        let accepted = Rc::new(Cell::new(0usize));
+        let cancelled = Rc::new(Cell::new(0usize));
+        let accept_count = accepted.clone();
+        let cancel_count = cancelled.clone();
+        let accept_command = accept_on.command(
+            |on| *on,
+            move |_, ()| {
+                accept_count.set(accept_count.get() + 1);
+            },
+            Binding::constant(()),
+        );
+        let cancel_command = cancel_on.command(
+            |on| *on,
+            move |_, ()| {
+                cancel_count.set(cancel_count.get() + 1);
+            },
+            Binding::constant(()),
+        );
+        footer.dialog_footer(
+            &footer.root(),
+            "footer",
+            DialogFooter {
+                accept: FooterButton {
+                    text: accept_text.bind(Clone::clone, None),
+                    command: accept_command,
+                },
+                cancel: FooterButton {
+                    text: cancel_text.bind(Clone::clone, None),
+                    command: cancel_command,
+                },
+                destructive: false,
+            },
+        );
+        assert_eq!(footer.text("footer/accept").as_deref(), Some("Save"));
+        assert_eq!(footer.text("footer/cancel").as_deref(), Some("Cancel"));
+        footer.click("footer/accept").unwrap();
+        footer.click("footer/cancel").unwrap();
+        assert_eq!(accepted.get(), 1);
+        assert_eq!(cancelled.get(), 1);
+        assert!(accept_text.update(|text| *text = "Apply".into()));
+        assert!(cancel_text.update(|text| *text = "Close".into()));
+        assert_eq!(footer.text("footer/accept").as_deref(), Some("Apply"));
+        assert_eq!(footer.text("footer/cancel").as_deref(), Some("Close"));
+        assert!(accept_on.update(|on| *on = false));
+        assert!(footer.click("footer/accept").is_err());
+        assert_eq!(accepted.get(), 1);
+        footer.click("footer/cancel").unwrap();
+        assert_eq!(cancelled.get(), 2);
+        assert!(accept_on.update(|on| *on = true));
+        footer.click("footer/accept").unwrap();
+        assert_eq!(accepted.get(), 2);
+        let flagged = Rc::new(Cell::new(0usize));
+        let flag_count = flagged.clone();
+        let destructive_command = accept_on.command(
+            |_| true,
+            move |_, ()| {
+                flag_count.set(flag_count.get() + 1);
+            },
+            Binding::constant(()),
+        );
+        footer.dialog_footer(
+            &footer.root(),
+            "destructive",
+            DialogFooter {
+                accept: FooterButton {
+                    text: Binding::constant("Discard".into()),
+                    command: destructive_command,
+                },
+                cancel: FooterButton {
+                    text: Binding::constant("Keep".into()),
+                    command: {
+                        let cancel_count = cancelled.clone();
+                        cancel_on.command(
+                            |on| *on,
+                            move |_, ()| {
+                                cancel_count.set(cancel_count.get() + 1);
+                            },
+                            Binding::constant(()),
+                        )
+                    },
+                },
+                destructive: true,
+            },
+        );
+        assert_eq!(
+            footer.text("destructive/accept").as_deref(),
+            Some("Discard")
+        );
+        assert_eq!(footer.text("destructive/cancel").as_deref(), Some("Keep"));
+        footer.click("destructive/accept").unwrap();
+        assert_eq!(flagged.get(), 1);
+        assert_eq!(cancelled.get(), 2);
+        footer.close();
+        println!("MACOS3 PASS dialog-footer captions enablement dispatch destructive");
         let model = Store::new(Model::default(), executor.clone());
         let view = View::new(Binding::constant("Panechord macOS conformance".into()));
         let parent = view.layout(

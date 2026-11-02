@@ -261,13 +261,14 @@ impl Drop for Inner {
     }
 }
 
-/// Backend-resolved run configuration for this host. GTK needs no application
-/// menu, except on macOS where the global menubar consumes the first submenu
-/// as the application menu (mirrored from the in-window models).
+/// Backend-resolved run configuration for this host. GTK builds no menubar
+/// application menu on any platform: menus render in the in-window bar, and
+/// macOS builds install no global menu (the former system-global mirror is
+/// removed), so the leading-submenu reservation does not apply.
 pub fn runner_config() -> panechord_runtime::RunnerConfig {
     panechord_runtime::RunnerConfig {
-        application_menu: cfg!(target_os = "macos"),
-        menu_quit_in_file: !cfg!(target_os = "macos"),
+        application_menu: false,
+        menu_quit_in_file: true,
     }
 }
 
@@ -346,9 +347,10 @@ impl View {
         root.set_vexpand(true);
         let menus = gio::Menu::new();
         let bar = gtk4::PopoverMenuBar::from_model(Some(&menus));
-        // macOS shows the mirrored system-global menu instead; the
-        // in-window bar would duplicate it. Menu logic still builds the
-        // gio models the global mirror reads from.
+        // macOS installs no global menu (the former system-global mirror
+        // is removed), so the in-window bar stays hidden and menus are
+        // unavailable on macOS builds. Menu logic still builds the gio
+        // models; hiding only affects presentation.
         #[cfg(target_os = "macos")]
         bar.set_visible(false);
         outer.append(&bar);
@@ -1312,13 +1314,10 @@ impl View {
             });
             self.signal(&format!("{id}/@actions"), &action, signal);
             self.0.group.add_action(&action);
-            self.0.actions.borrow_mut().insert(
-                item.id.clone(),
-                Action {
-                    action,
-                    name,
-                },
-            );
+            self.0
+                .actions
+                .borrow_mut()
+                .insert(item.id.clone(), Action { action, name });
             state.actions.borrow_mut().push(item.id);
             section.append(Some(&item.label), Some(&detailed));
             if let Some(trigger) = trigger {

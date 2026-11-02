@@ -157,12 +157,9 @@ pub fn expand(mut item: ItemImpl) -> syn::Result<TokenStream> {
             let FnArg::Receiver(r) = args[0] else {
                 unreachable!()
             };
-            let is_mut_ref = matches!(
-                &r.kind,
-                syn::ReceiverKind::Reference(_, _, Some(_))
-            ) && r.mutability.is_none();
-            if !is_mut_ref || args.len() > 2
-            {
+            let is_mut_ref = matches!(&r.kind, syn::ReceiverKind::Reference(_, _, Some(_)))
+                && r.mutability.is_none();
+            if !is_mut_ref || args.len() > 2 {
                 return Err(syn::Error::new(
                     sig.span(),
                     "expected &mut self with zero arguments or one typed argument",

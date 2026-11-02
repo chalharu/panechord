@@ -31,7 +31,7 @@ and `panechord-library`.
 - `Layout { Stack {horizontal:bool,gap:f32}, Grid {columns:u32,gap:f32}, Flex {gap:f32}, Absolute }` Clone/Copy/PartialEq.
 - `MenuRole {Normal,Copy,Cut,Paste,SelectAll,About,Quit,Separator}` Clone/PartialEq.
 - `MenuItem<A=String> { id:String,label:String,argument:A,shortcut:Option<String>,role:MenuRole,enabled:bool }` Clone/PartialEq when A supports them.
-- `Shortcut::parse` accepts shared shortcut syntax, including `Primary+S` and `Primary+Q`. Each backend lowers the parsed form with its own renderer (`panechord_gtk::shortcut::to_gtk`, `panechord_tao::shortcut::to_muda`, `panechord_macos::shortcut::{to_bridge,to_appkit}`); the runtime only parses and exposes `modifiers()`/`key()`, never backend vocabulary. Primary is Cmd on macOS and Ctrl elsewhere. Existing native syntax remains a legacy adapter fallback via `canonical_or_raw`.
+- `Shortcut::parse` accepts shared shortcut syntax, including `Primary+S` and `Primary+Q`. Each backend lowers the parsed form with its own renderer (`panechord_gtk::shortcut::to_gtk`, `panechord_tao::shortcut::to_muda`, `panechord_macos::shortcut::to_bridge`); the runtime only parses and exposes `modifiers()`/`key()`, never backend vocabulary. Primary is Cmd on macOS and Ctrl elsewhere. Existing native syntax remains a legacy adapter fallback via `canonical_or_raw`.
 
 Reads and initial subscriptions project from a retained `Rc<S>` outside internal
 borrows, without cloning all of S. `snapshot()` still returns an owned clone;

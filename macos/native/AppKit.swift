@@ -535,7 +535,7 @@ final class Tabs: NSStackView, NSTableViewDataSource, NSTableViewDelegate {
         // NSTabView reports no useful fitting height, so Top tab bodies
         // would collapse to zero: pin the body to the selected page height
         // instead (vertical tabs bind body to the Tabs height).
-        topBodyHeight = body.heightAnchor.constraint(equalToConstant: 0)
+        topBodyHeight = body.heightAnchor.constraint(greaterThanOrEqualToConstant: 0)
         setPosition("Top")
     }
     func setPosition(_ position: String) {
@@ -563,7 +563,10 @@ final class Tabs: NSStackView, NSTableViewDataSource, NSTableViewDelegate {
     }
     /// NSTabView has no intrinsic height: without this, Top tab bodies
     /// collapse to zero and their pages never paint. Tracks the selected
-    /// page's fitting height (change-guarded, so layout converges).
+    /// page's fitting height as a floor (change-guarded, so layout
+    /// converges): an exact height would steal the stack surplus that
+    /// belongs to the body, stretching the header instead and leaving
+    /// blank bands above and below the segments.
     func syncTopBodyHeight() {
         guard let height = topBodyHeight, height.isActive,
               let page = body.selectedTabViewItem?.view else { return }

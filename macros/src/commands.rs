@@ -131,7 +131,7 @@ pub fn expand(mut item: ItemImpl) -> syn::Result<TokenStream> {
         }
         let sig = &method.sig;
         if sig.asyncness.is_some()
-            || sig.unsafety.is_some()
+            || !matches!(sig.safety, syn::Safety::Default)
             || sig.constness.is_some()
             || sig.abi.is_some()
             || sig.variadic.is_some()
@@ -157,10 +157,11 @@ pub fn expand(mut item: ItemImpl) -> syn::Result<TokenStream> {
             let FnArg::Receiver(r) = args[0] else {
                 unreachable!()
             };
-            if r.reference.is_none()
-                || r.mutability.is_none()
-                || r.colon_token.is_some()
-                || args.len() > 2
+            let is_mut_ref = matches!(
+                &r.kind,
+                syn::ReceiverKind::Reference(_, _, Some(_))
+            ) && r.mutability.is_none();
+            if !is_mut_ref || args.len() > 2
             {
                 return Err(syn::Error::new(
                     sig.span(),

@@ -479,7 +479,7 @@ fn template(doc: &Document, name: &str, backend: &Path) -> syn::Result<TokenStre
     let body = control(doc, &t.root, backend, Some(name))?;
     Ok(quote!({
         let __template_root = __panechord_root.clone();
-        ::std::rc::Rc::new(move |__view: &#backend::View,__parent: &#backend::Parent,__scope: &str,__panechord_model: ::panechord_runtime::Store<_>| {
+        ::std::rc::Rc::new(move |__view: &<#backend::Backend as ::panechord_runtime::Backend>::View, __parent: &<<#backend::Backend as ::panechord_runtime::Backend>::View as ::panechord_runtime::ViewCore>::Parent, __scope: &str, __panechord_model: ::panechord_runtime::Store<_>| {
             let __panechord_root = __template_root.clone();
             let __panechord_external = || __panechord_model.snapshot();
             let __panechord_view = __view;

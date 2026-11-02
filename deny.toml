@@ -1,0 +1,42 @@
+[graph]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[advisories]
+ignore = [
+  # GTK3 support is intentionally retained; the GTK3 Rust bindings have no patched line.
+  "RUSTSEC-2024-0411",
+  "RUSTSEC-2024-0412",
+  "RUSTSEC-2024-0413",
+  "RUSTSEC-2024-0414",
+  "RUSTSEC-2024-0415",
+  "RUSTSEC-2024-0416",
+  "RUSTSEC-2024-0418",
+  "RUSTSEC-2024-0419",
+  "RUSTSEC-2024-0420",
+  "RUSTSEC-2026-0192",
+  # GTK3 macro dependencies have no patched release in the GTK3 line.
+  "RUSTSEC-2024-0370",
+  # quick-xml
+  "RUSTSEC-2026-0194",
+  "RUSTSEC-2026-0195",
+  # paste
+  "RUSTSEC-2024-0436",
+]
+
+[bans]
+multiple-versions = "warn"
+
+[licenses]
+allow = [
+  "Apache-2.0 WITH LLVM-exception",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "CC0-1.0",
+  "ISC",
+  "MIT",
+  "MPL-2.0",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+]

@@ -1,0 +1,56 @@
+name: Panechord
+
+on:
+  push:
+    paths:
+      - "**.rs"
+      - "**.yaml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/**"
+      - ".github/workflows/panechord.yml"
+  pull_request:
+    paths:
+      - "**.rs"
+      - "**.yaml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/**"
+      - ".github/workflows/panechord.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: panechord-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux GTK and Tao Formal Gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Native regressions and release CPU budgets
+        run: sh scripts/verify-docker.sh
+
+  windows:
+    name: Windows Tao Demo Gates
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Format check
+        run: cargo fmt -p panechord -p panechord-runtime -p panechord-markup -p panechord-macros -p panechord-tao -p panechord-demo -p panechord-library -- --check
+      - name: Headless framework tests
+        run: cargo test --locked -p panechord-runtime -p panechord-markup -p panechord-macros
+      - name: Tao demo build (Windows backend)
+        run: cargo build --locked -p panechord-demo --no-default-features --features backend-tao
+      - name: Tao demo clippy
+        run: cargo clippy --locked -p panechord-demo --all-targets --no-default-features --features backend-tao -- -D warnings

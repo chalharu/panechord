@@ -1,0 +1,90 @@
+[workspace]
+members = [
+  ".",
+  "runtime",
+  "markup",
+  "macros",
+  "native",
+  "gtk",
+  "tao",
+  "macos",
+  "demo",
+  "library",
+]
+resolver = "3"
+
+[package]
+name = "panechord"
+description = "Declarative Rust UI with shared state and native backends"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+panechord-runtime.workspace = true
+panechord-macros.workspace = true
+panechord-native = { workspace = true, optional = true }
+panechord-gtk = { workspace = true, optional = true }
+panechord-tao = { workspace = true, optional = true }
+panechord-macos = { workspace = true, optional = true }
+
+[features]
+default = []
+native = ["dep:panechord-native"]
+gtk = ["dep:panechord-gtk"]
+tao = ["dep:panechord-tao"]
+macos = ["dep:panechord-macos"]
+
+[profile.dev]
+opt-level = 3
+
+[profile.release]
+debug = "line-tables-only"
+lto = "thin"
+strip = "debuginfo"
+
+[workspace.package]
+authors = ["chalharu"]
+description = "Declarative Rust UI with shared state and native backends"
+edition = "2024"
+homepage = "https://github.com/chalharu/panechord"
+license = "MPL-2.0"
+repository = "https://github.com/chalharu/panechord"
+rust-version = "1.95"
+version = "0.1.0-dev"
+
+[workspace.dependencies]
+futures = { version = "=0.3.34" }
+panechord-native = { path = "native" }
+panechord-runtime = { path = "runtime" }
+panechord-markup = { path = "markup" }
+panechord-macros = { path = "macros" }
+panechord-gtk = { path = "gtk" }
+panechord-tao = { path = "tao" }
+panechord-macos = { path = "macos" }
+objc2 = { default-features = false, version = "=0.6.5" }
+objc2-app-kit = { default-features = false, features = [
+  "NSApplication",
+  "NSEvent",
+  "NSMenu",
+  "NSMenuItem",
+  "NSResponder",
+  "NSView",
+  "NSWindow",
+  "objc2-core-foundation",
+  "objc2-quartz-core",
+], version = "=0.3.2" }
+objc2-foundation = { default-features = false, features = ["NSString"], version = "=0.3.2" }
+raw-window-handle = { version = "=0.6.2" }
+# NOTE: do NOT enable rfd `gtk3` here (verified twice). Its backend
+# serves dialogs from its own thread: called from tao's GTK main loop
+# it deadlocked (no window, frozen loop), and with the call moved to a
+# worker thread it instead aborts the process when the icon theme is
+# broken (`Gtk:ERROR` loading the dialog icon — always fatal). The
+# default portal backend shells out to zenity: no dialog where zenity
+# is absent, but the app stays alive. Robust fix is an in-app dialog.
+rfd = { version = "=0.17.2" }
+serde = { default-features = false, version = "=1.0.229" }
+serde-saphyr = { version = "=2.0.0" }
+serde_json = { version = "=1.0.154" }

@@ -1032,6 +1032,88 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
         nodes[id] is GridContainer || nodes[id] is FlexContainer || nodes[id] is AbsoluteContainer
     }
 
+    /// Record an explicit size for a child of a manual container and
+    /// schedule its layout. Sizes use -1 for the natural dimension.
+    func recordManualSize(_ id: String, parent: String, width: Double, height: Double) {
+        let size = NSSize(width: width, height: height)
+        if let grid = nodes[parent] as? GridContainer {
+            grid.explicitSizes[id] = size
+            grid.needsLayout = true
+        } else if let flex = nodes[parent] as? FlexContainer {
+            flex.explicitSizes[id] = size
+            flex.needsLayout = true
+        } else if let absolute = nodes[parent] as? AbsoluteContainer {
+            absolute.explicitSizes[id] = size
+            absolute.needsLayout = true
+        }
+    }
+
+    /// Reorder a container's children to the requested key order: stack
+    /// containers re-append arranged subviews, manual containers re-append
+    /// plain subviews so `Repeat`/`ContentControl` order matches everywhere.
+    func reorderChildren(of id: String, to keys: [String]) {
+        if let stack = nodes[id] as? NSStackView {
+            for key in keys {
+                guard let frame = frames[key], stack.arrangedSubviews.contains(frame) else { continue }
+                stack.removeArrangedSubview(frame)
+                stack.addArrangedSubview(frame)
+            }
+        } else if isManualContainer(id), let container = nodes[id] as? NSView {
+            for key in keys {
+                guard let frame = frames[key], frame.superview === container else { continue }
+                frame.removeFromSuperview()
+                container.addSubview(frame)
+            }
+            container.needsLayout = true
+        }
+    }
+
+    /// A wrapper frame around a mounted control: vertical, leading-aligned,
+    /// no spacing. Position constraints are the caller's job.
+    func makeFrame(for view: NSView, id: String) -> NSStackView {
+        let frame = NSStackView()
+        frame.orientation = .vertical
+        frame.alignment = .leading
+        frame.spacing = 0
+        frame.identifier = NSUserInterfaceItemIdentifier("frame/" + id)
+        frame.addArrangedSubview(view)
+        return frame
+    }
+
+    /// Link a control to its wrapper frame: the control fills the frame
+    /// width (minus insets applied later), with height linked only for
+    /// expanding kinds. Shared by stack and manual mounts.
+    func linkContent(_ view: NSView, to frame: NSStackView, id: String) {
+        view.translatesAutoresizingMaskIntoConstraints = false
+        let contentWidth = view.widthAnchor.constraint(equalTo: frame.widthAnchor, constant: 0)
+        contentWidth.isActive = true
+        let contentHeight = view.heightAnchor.constraint(equalTo: frame.heightAnchor)
+        contentHeight.isActive = view is Tabs || view is Scrolling || view is TableControl
+        contentWidths[id] = contentWidth
+        contentHeights[id] = contentHeight
+    }
+
+    /// Record a mounted control and wire it into the key-view loop.
+    func registerNode(_ view: NSView, frame: NSStackView, parent: String, id: String) {
+        nodes[id] = view
+        parents[id] = parent
+        frames[id] = frame
+        view.identifier = NSUserInterfaceItemIdentifier(id)
+        view.setAccessibilityIdentifier(id)
+        if view is NSButton || (view as? NSTextField)?.isSelectable == true {
+            focusable.append(view)
+            keyLoop()
+        }
+    }
+
+    /// Fold margin/padding into the frame insets and update the content
+    /// size constants. Shared by stack and manual style paths.
+    func applyFrameInsets(_ id: String, top: Double, right: Double, bottom: Double, left: Double) {
+        frames[id]?.edgeInsets = NSEdgeInsets(top: top, left: left, bottom: bottom, right: right)
+        contentWidths[id]?.constant = -(left + right)
+        contentHeights[id]?.constant = -(top + bottom)
+    }
+
     func attach(_ view: NSView, parent: String, id: String, floating: Bool = false) {
         if !floating, isManualContainer(parent) {
             attachManualChild(view, parent: parent, id: id)
@@ -1040,12 +1122,7 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
         let container = (nodes[parent] as? Rows)?.body ?? (nodes[parent] as? Scrolling)?.body ?? nodes[parent] as? NSStackView
         let tab = (nodes[parent] as? Tabs)?.body
         guard floating || container != nil || tab != nil else { return }
-        let frame = NSStackView()
-        frame.orientation = .vertical
-        frame.alignment = .leading
-        frame.spacing = 0
-        frame.identifier = NSUserInterfaceItemIdentifier("frame/" + id)
-        frame.addArrangedSubview(view)
+        let frame = makeFrame(for: view, id: id)
         if floating {
             let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
                 styleMask: [.titled, .closable], backing: .buffered, defer: false)
@@ -1070,26 +1147,12 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
             frame.translatesAutoresizingMaskIntoConstraints = true
             frame.autoresizingMask = [.width, .height]
         }
-        view.translatesAutoresizingMaskIntoConstraints = false
-        let contentWidth = view.widthAnchor.constraint(equalTo: frame.widthAnchor, constant: 0)
-        contentWidth.isActive = true
-        let contentHeight = view.heightAnchor.constraint(equalTo: frame.heightAnchor)
-        contentHeight.isActive = view is Tabs || view is Scrolling || view is TableControl
-        contentWidths[id] = contentWidth
-        contentHeights[id] = contentHeight
+        linkContent(view, to: frame, id: id)
         if let container = container, container.orientation == .vertical, !floating, tab == nil {
             frame.widthAnchor.constraint(equalTo: container.widthAnchor,
                 constant: -(container.edgeInsets.left + container.edgeInsets.right)).isActive = true
         }
-        nodes[id] = view
-        parents[id] = parent
-        frames[id] = frame
-        view.identifier = NSUserInterfaceItemIdentifier(id)
-        view.setAccessibilityIdentifier(id)
-        if view is NSButton || (view as? NSTextField)?.isSelectable == true {
-            focusable.append(view)
-            keyLoop()
-        }
+        registerNode(view, frame: frame, parent: parent, id: id)
     }
 
     /// Mount into a manually laid out container: the wrapper frame keeps its
@@ -1098,30 +1161,11 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
     /// and explicit sizes instead.
     func attachManualChild(_ view: NSView, parent: String, id: String) {
         guard nodes[parent] != nil else { return }
-        let frame = NSStackView()
-        frame.orientation = .vertical
-        frame.alignment = .leading
-        frame.spacing = 0
-        frame.identifier = NSUserInterfaceItemIdentifier("frame/" + id)
-        frame.addArrangedSubview(view)
+        let frame = makeFrame(for: view, id: id)
         frame.translatesAutoresizingMaskIntoConstraints = true
-        view.translatesAutoresizingMaskIntoConstraints = false
-        let contentWidth = view.widthAnchor.constraint(equalTo: frame.widthAnchor, constant: 0)
-        contentWidth.isActive = true
-        let contentHeight = view.heightAnchor.constraint(equalTo: frame.heightAnchor)
-        contentHeight.isActive = view is Tabs || view is Scrolling || view is TableControl
-        contentWidths[id] = contentWidth
-        contentHeights[id] = contentHeight
+        linkContent(view, to: frame, id: id)
         nodes[parent]?.addSubview(frame)
-        nodes[id] = view
-        parents[id] = parent
-        frames[id] = frame
-        view.identifier = NSUserInterfaceItemIdentifier(id)
-        view.setAccessibilityIdentifier(id)
-        if view is NSButton || (view as? NSTextField)?.isSelectable == true {
-            focusable.append(view)
-            keyLoop()
-        }
+        registerNode(view, frame: frame, parent: parent, id: id)
         nodes[parent]?.needsLayout = true
     }
 
@@ -1497,23 +1541,7 @@ public func set(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<UIn
         table.setCursor(text)
     } else if property == 16,
        let data = text.data(using: .utf8), let keys = try? JSONDecoder().decode([String].self, from: data) {
-        if let stack = value.nodes[id] as? NSStackView {
-            for key in keys {
-                guard let frame = value.frames[key], stack.arrangedSubviews.contains(frame) else { continue }
-                stack.removeArrangedSubview(frame)
-                stack.addArrangedSubview(frame)
-            }
-        } else if value.isManualContainer(id), let container = value.nodes[id] as? NSView {
-            // Manually laid out children keep mount order in `subviews`:
-            // re-append in the requested order so Repeat/Content reorder
-            // matches the stack behavior above, then relay out.
-            for key in keys {
-                guard let frame = value.frames[key], frame.superview === container else { continue }
-                frame.removeFromSuperview()
-                container.addSubview(frame)
-            }
-            container.needsLayout = true
-        }
+        value.reorderChildren(of: id, to: keys)
     } else if property == 15, let image = value.nodes[id] as? PointerImage {
         image.pointerEnabled = text == "1"
     } else if property == 14, let field = value.nodes[id] as? NSTextField {
@@ -1727,28 +1755,14 @@ public func style(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<U
     if let parent = value.parents[id], value.isManualContainer(parent) {
         value.contentWidths[id]?.isActive = false
         value.contentHeights[id]?.isActive = false
-        frame.edgeInsets = NSEdgeInsets(top: top, left: left, bottom: bottom, right: right)
-        let size = NSSize(width: width, height: height)
-        if let grid = value.nodes[parent] as? GridContainer {
-            grid.explicitSizes[id] = size
-            grid.needsLayout = true
-        } else if let flex = value.nodes[parent] as? FlexContainer {
-            flex.explicitSizes[id] = size
-            flex.needsLayout = true
-        } else if let absolute = value.nodes[parent] as? AbsoluteContainer {
-            absolute.explicitSizes[id] = size
-            absolute.needsLayout = true
-        }
+        value.applyFrameInsets(id, top: top, right: right, bottom: bottom, left: left)
+        value.recordManualSize(id, parent: parent, width: width, height: height)
         value.contentWidths[id]?.isActive = true
-        value.contentWidths[id]?.constant = -(left + right)
-        value.contentHeights[id]?.constant = -(top + bottom)
         return
     }
     value.contentWidths[id]?.isActive = false
     value.contentHeights[id]?.isActive = false
-    frame.edgeInsets = NSEdgeInsets(top: top, left: left, bottom: bottom, right: right)
-    value.contentWidths[id]?.constant = -(left + right)
-    value.contentHeights[id]?.constant = -(top + bottom)
+    value.applyFrameInsets(id, top: top, right: right, bottom: bottom, left: left)
     if frame.orientation == .vertical {
         frame.alignment = horizontal == 2 ? .centerX : horizontal == 3 ? .trailing : .leading
     } else if horizontal == 3 {

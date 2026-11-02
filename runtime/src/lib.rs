@@ -390,6 +390,17 @@ pub enum Layout {
 pub const MAX_LAYOUT_SIZE: f32 = 1_000_000.0;
 pub const MAX_GRID_COLUMNS: u32 = 4096;
 
+impl Default for Layout {
+    /// Vertical gapless stack: the neutral container for roots, scroll
+    /// content, tab pages and dialogs.
+    fn default() -> Self {
+        Self::Stack {
+            horizontal: false,
+            gap: 0.0,
+        }
+    }
+}
+
 impl Layout {
     pub fn validate(self) -> Result<Self, &'static str> {
         let gap = match self {

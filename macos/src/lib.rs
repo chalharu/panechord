@@ -449,13 +449,7 @@ impl View {
             lists: RefCell::new(HashMap::new()),
             menu_errors: RefCell::new(HashMap::new()),
             tabs: RefCell::new(HashMap::new()),
-            layouts: RefCell::new(HashMap::from([(
-                "__root".to_owned(),
-                Layout::Stack {
-                    horizontal: false,
-                    gap: 0.0,
-                },
-            )])),
+            layouts: RefCell::new(HashMap::from([("__root".to_owned(), Layout::default())])),
             parents: RefCell::new(HashMap::new()),
             grid_index: RefCell::new(HashMap::new()),
             next_index: RefCell::new(HashMap::new()),
@@ -647,17 +641,26 @@ impl View {
             .borrow_mut()
             .insert(id.into(), parent.0.clone());
     }
-    fn add(&self, parent: &Parent, id: &str, kind: i32, number: f64) {
+    /// Shared mount bookkeeping: rejects closed views and duplicates,
+    /// records parent/index links, and reports success. Callers issue
+    /// their own native construction on success.
+    fn mount(&self, parent: &Parent, id: &str) -> bool {
         if self.0.closed.get() {
-            return;
+            return false;
         }
         if !self.0.nodes.borrow_mut().insert(id.into()) {
             self.0
                 .error
                 .replace(Some(format!("duplicate native node: {id}")));
-            return;
+            return false;
         }
         self.record(parent, id);
+        true
+    }
+    fn add(&self, parent: &Parent, id: &str, kind: i32, number: f64) {
+        if !self.mount(parent, id) {
+            return;
+        }
         unsafe {
             w3_add(
                 self.0.native.get(),
@@ -750,12 +753,7 @@ impl View {
                 self.add(parent, id, i32::from(horizontal), f64::from(gap));
             }
             Layout::Grid { columns, gap } => {
-                if !self.0.nodes.borrow_mut().insert(id.into()) {
-                    self.0
-                        .error
-                        .replace(Some(format!("duplicate native node: {id}")));
-                } else {
-                    self.record(parent, id);
+                if self.mount(parent, id) {
                     unsafe {
                         w3_add_grid(
                             self.0.native.get(),
@@ -795,13 +793,10 @@ impl View {
             return Err("empty or duplicate scroll id".into());
         }
         self.add(parent, id, 15, f64::from(horizontal));
-        self.0.layouts.borrow_mut().insert(
-            id.into(),
-            Layout::Stack {
-                horizontal: false,
-                gap: 0.0,
-            },
-        );
+        self.0
+            .layouts
+            .borrow_mut()
+            .insert(id.into(), Layout::default());
         Ok(Parent(id.into(), Rc::downgrade(&self.0)))
     }
 
@@ -824,10 +819,7 @@ impl View {
         let parent_layout = parent_id
             .as_ref()
             .and_then(|parent| self.0.layouts.borrow().get(parent).copied())
-            .unwrap_or(Layout::Stack {
-                horizontal: false,
-                gap: 0.0,
-            });
+            .unwrap_or_default();
         style.validate(parent_layout).map_err(str::to_owned)?;
         let padding = style.padding;
         let margin = style.margin;
@@ -1144,10 +1136,7 @@ impl View {
                     Some(view.layout(
                         &Parent(key.clone(), Rc::downgrade(&view.0)),
                         &scope,
-                        Layout::Stack {
-                            horizontal: false,
-                            gap: 0.0,
-                        },
+                        Layout::default(),
                     ))
                 } else {
                     None

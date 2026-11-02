@@ -20,6 +20,7 @@ templates:
           id: progress
           factory: crate::meter
           value: {bind: {path: progress}}
+          style: {placement: {width: 120}}
 root:
   type: Window
   id: main

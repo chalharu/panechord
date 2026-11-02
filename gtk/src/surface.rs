@@ -8,8 +8,8 @@ use crate::{GtkHost, Parent, View, gtk};
     target_os = "openbsd",
     target_os = "dragonfly"
 ))]
-use gtk::glib::translate::ToGlibPtr;
-use gtk::prelude::*;
+use gtk4::glib::translate::ToGlibPtr;
+use gtk4::prelude::*;
 use panechord_runtime::{
     Binding, ImageFrame, KeyCode, Session, WindowEvent, WindowHooks, WindowHost, WindowSurface,
 };
@@ -21,7 +21,7 @@ use std::{cell::RefCell, collections::HashSet, rc::Rc};
 pub(crate) type ViewportHook = Rc<dyn Fn(f32, f32)>;
 
 struct Surface {
-    window: gtk::Window,
+    window: gtk4::Window,
     #[cfg(target_os = "macos")]
     native_view: std::cell::OnceCell<objc2::rc::Retained<objc2_app_kit::NSView>>,
 }
@@ -29,14 +29,14 @@ struct Surface {
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
     fn gdk_macos_surface_get_native_window(
-        surface: *mut gtk::gdk::ffi::GdkSurface,
+        surface: *mut gtk4::gdk::ffi::GdkSurface,
     ) -> *mut std::ffi::c_void;
 }
 
 #[cfg(target_os = "windows")]
 unsafe extern "C" {
     fn gdk_win32_surface_get_handle(
-        surface: *mut gtk::gdk::ffi::GdkSurface,
+        surface: *mut gtk4::gdk::ffi::GdkSurface,
     ) -> *mut std::ffi::c_void;
 }
 
@@ -49,14 +49,14 @@ unsafe extern "C" {
 ))]
 unsafe extern "C" {
     fn gdk_x11_display_get_xdisplay(
-        display: *mut gtk::gdk::ffi::GdkDisplay,
+        display: *mut gtk4::gdk::ffi::GdkDisplay,
     ) -> *mut std::ffi::c_void;
-    fn gdk_x11_surface_get_xid(surface: *mut gtk::gdk::ffi::GdkSurface) -> std::ffi::c_ulong;
+    fn gdk_x11_surface_get_xid(surface: *mut gtk4::gdk::ffi::GdkSurface) -> std::ffi::c_ulong;
     fn gdk_wayland_display_get_wl_display(
-        display: *mut gtk::gdk::ffi::GdkDisplay,
+        display: *mut gtk4::gdk::ffi::GdkDisplay,
     ) -> *mut std::ffi::c_void;
     fn gdk_wayland_surface_get_wl_surface(
-        surface: *mut gtk::gdk::ffi::GdkSurface,
+        surface: *mut gtk4::gdk::ffi::GdkSurface,
     ) -> *mut std::ffi::c_void;
 }
 
@@ -71,7 +71,7 @@ impl HasDisplayHandle for Surface {
         ))]
         {
             use raw_window_handle::{RawDisplayHandle, WaylandDisplayHandle, XlibDisplayHandle};
-            let display = gtk::prelude::WidgetExt::display(&self.window);
+            let display = gtk4::prelude::WidgetExt::display(&self.window);
             let raw = if display.type_().name().contains("X11") {
                 let pointer = unsafe { gdk_x11_display_get_xdisplay(display.to_glib_none().0) };
                 RawDisplayHandle::Xlib(XlibDisplayHandle::new(
@@ -91,7 +91,7 @@ impl HasDisplayHandle for Surface {
         }
         #[cfg(target_os = "macos")]
         {
-            let display = gtk::prelude::WidgetExt::display(&self.window);
+            let display = gtk4::prelude::WidgetExt::display(&self.window);
             if !display.type_().name().contains("Macos") {
                 return Err(HandleError::NotSupported);
             }
@@ -99,7 +99,7 @@ impl HasDisplayHandle for Surface {
         }
         #[cfg(target_os = "windows")]
         {
-            let display = gtk::prelude::WidgetExt::display(&self.window);
+            let display = gtk4::prelude::WidgetExt::display(&self.window);
             if !display.type_().name().contains("Win32") {
                 return Err(HandleError::NotSupported);
             }
@@ -223,7 +223,7 @@ impl WindowHost<View> for GtkHost {
     }
 }
 
-fn key_code(_key: gtk::gdk::Key, hardware_code: u32) -> KeyCode {
+fn key_code(_key: gtk4::gdk::Key, hardware_code: u32) -> KeyCode {
     #[cfg(target_os = "macos")]
     {
         panechord_runtime::native_keys::macos(hardware_code)
@@ -273,7 +273,7 @@ fn key_code(_key: gtk::gdk::Key, hardware_code: u32) -> KeyCode {
     target_os = "openbsd",
     target_os = "dragonfly"
 )))]
-fn key_name(key: gtk::gdk::Key) -> KeyCode {
+fn key_name(key: gtk4::gdk::Key) -> KeyCode {
     if let Some(character) = key.to_unicode() {
         if character.is_ascii_alphabetic() {
             return KeyCode::from_name(&format!("Key{}", character.to_ascii_uppercase()));
@@ -337,7 +337,7 @@ impl View {
         if self.0.closed.get() {
             return Err("view is closed".into());
         }
-        gtk::prelude::WidgetExt::realize(&self.0.window);
+        gtk4::prelude::WidgetExt::realize(&self.0.window);
         callback(Rc::new(Surface {
             window: self.0.window.clone(),
             #[cfg(target_os = "macos")]
@@ -364,8 +364,8 @@ impl View {
             focused(&WindowEvent::Focused(window.is_active()));
         });
         self.signal("", &self.0.window, signal);
-        let controller = gtk::EventControllerKey::new();
-        controller.set_propagation_phase(gtk::PropagationPhase::Capture);
+        let controller = gtk4::EventControllerKey::new();
+        controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
         let pressed = keys.clone();
         let press = callback.clone();
         let signal = controller.connect_key_pressed(move |_, key, hardware_code, _| {
@@ -377,7 +377,7 @@ impl View {
                 repeat,
                 synthetic: false,
             });
-            gtk::glib::Propagation::Proceed
+            gtk4::glib::Propagation::Proceed
         });
         self.signal("", &controller, signal);
         let signal = controller.connect_key_released(move |_, key, hardware_code, _| {
@@ -399,7 +399,7 @@ impl View {
     }
 
     pub fn surface(&self, parent: &Parent, id: &str, source: Binding<Option<ImageFrame>>) {
-        let viewport = gtk::DrawingArea::new();
+        let viewport = gtk4::DrawingArea::new();
         viewport.set_hexpand(true);
         viewport.set_vexpand(true);
         viewport.set_draw_func(|_, context, _, _| {
@@ -417,21 +417,21 @@ impl View {
                 }
             }
         });
-        let picture = gtk::Picture::new();
+        let picture = gtk4::Picture::new();
         picture.set_can_shrink(true);
         picture.set_hexpand(true);
         picture.set_vexpand(true);
-        let overlay = gtk::Overlay::new();
+        let overlay = gtk4::Overlay::new();
         overlay.set_child(Some(&viewport));
         overlay.add_overlay(&picture);
         self.mount_native(parent, id, &overlay);
         self.bind_native(id, source, &picture, |picture, frame| {
             let texture = frame.map(|frame| {
-                gtk::gdk::MemoryTexture::new(
+                gtk4::gdk::MemoryTexture::new(
                     frame.width() as i32,
                     frame.height() as i32,
-                    gtk::gdk::MemoryFormat::R8g8b8a8,
-                    &gtk::glib::Bytes::from_owned(frame.pixels().clone()),
+                    gtk4::gdk::MemoryFormat::R8g8b8a8,
+                    &gtk4::glib::Bytes::from_owned(frame.pixels().clone()),
                     frame.width() as usize * 4,
                 )
             });

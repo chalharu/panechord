@@ -56,13 +56,13 @@ version = "0.1.0-dev"
 
 [workspace.dependencies]
 futures = { version = "=0.3.34" }
-panechord-native = { path = "native" }
-panechord-runtime = { path = "runtime" }
-panechord-markup = { path = "markup" }
-panechord-macros = { path = "macros" }
-panechord-gtk = { path = "gtk" }
-panechord-tao = { path = "tao" }
-panechord-macos = { path = "macos" }
+futures-timer = { version = "=3.0" }
+gtk = { version = "=0.18.2" }
+gtk4 = { version = "=0.11.5", features = ["v4_8"] }
+iced = { version = "=0.14.0", default-features = false, features = ["tiny-skia", "x11", "wayland", "advanced", "thread-pool", "image-without-codecs", "lazy"] }
+iced_tiny_skia = { version = "=0.14.1" }
+iced_winit = { version = "=0.14.1" }
+muda = { version = "=0.21.2" }
 objc2 = { default-features = false, version = "=0.6.5" }
 objc2-app-kit = { default-features = false, features = [
   "NSApplication",
@@ -76,15 +76,24 @@ objc2-app-kit = { default-features = false, features = [
   "objc2-quartz-core",
 ], version = "=0.3.2" }
 objc2-foundation = { default-features = false, features = ["NSString"], version = "=0.3.2" }
+panechord-gtk = { path = "gtk" }
+panechord-macos = { path = "macos" }
+panechord-macros = { path = "macros" }
+panechord-markup = { path = "markup" }
+panechord-native = { path = "native" }
+panechord-runtime = { path = "runtime" }
+panechord-tao = { path = "tao" }
+proc-macro2 = { version = "=1.0" }
+proc-macro-crate = { version = "=3.5.0" }
+quote = { version = "=1.0" }
 raw-window-handle = { version = "=0.6.2" }
-# NOTE: do NOT enable rfd `gtk3` here (verified twice). Its backend
-# serves dialogs from its own thread: called from tao's GTK main loop
-# it deadlocked (no window, frozen loop), and with the call moved to a
-# worker thread it instead aborts the process when the icon theme is
-# broken (`Gtk:ERROR` loading the dialog icon — always fatal). The
-# default portal backend shells out to zenity: no dialog where zenity
-# is absent, but the app stays alive. Robust fix is an in-app dialog.
 rfd = { version = "=0.17.2" }
+schemars = { version = "=1.0" }
 serde = { default-features = false, version = "=1.0.229" }
-serde-saphyr = { version = "=2.0.0" }
 serde_json = { version = "=1.0.154" }
+serde_path_to_error = { version = "=0.1" }
+serde-saphyr = { version = "=2.0.0" }
+syn = { version = "=2.0", features = ["full", "extra-traits", "visit-mut"] }
+tao = { version = "=0.37.2" }
+window_clipboard = { version = "=0.5.1" }
+windows-sys = { version = "=0.61.2" }

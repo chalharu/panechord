@@ -10,20 +10,20 @@ pub(super) enum Input {
 }
 pub(super) type Action = Rc<dyn Fn(Input) -> Result<(), String>>;
 enum TabContainer {
-    Notebook(gtk::Notebook),
+    Notebook(gtk4::Notebook),
     Sidebar {
-        stack: gtk::Stack,
-        sidebar: gtk::StackSidebar,
+        stack: gtk4::Stack,
+        sidebar: gtk4::StackSidebar,
     },
 }
 impl TabContainer {
-    fn widget(&self) -> &gtk::Widget {
+    fn widget(&self) -> &gtk4::Widget {
         match self {
             Self::Notebook(notebook) => notebook.upcast_ref(),
             Self::Sidebar { stack, .. } => stack.upcast_ref(),
         }
     }
-    fn notebook(&self) -> &gtk::Notebook {
+    fn notebook(&self) -> &gtk4::Notebook {
         match self {
             Self::Notebook(notebook) => notebook,
             Self::Sidebar { .. } => unreachable!("Notebook-only operation"),
@@ -93,7 +93,7 @@ impl View {
                 gap,
             },
         );
-        let native = self.widget::<gtk::Box>(id).unwrap();
+        let native = self.widget::<gtk4::Box>(id).unwrap();
         let current = Rc::new(RefCell::new(Vec::<Keyed<T>>::new()));
         let pending = Rc::new(RefCell::new(None));
         let busy = Rc::new(Cell::new(false));
@@ -136,7 +136,7 @@ impl View {
                             );
                         }
                     }
-                    let mut after: Option<gtk::Widget> = None;
+                    let mut after: Option<gtk4::Widget> = None;
                     for item in items {
                         if view.0.closed.get() {
                             return;
@@ -165,7 +165,7 @@ impl View {
         placeholder: Binding<String>,
     ) {
         self.entry(parent, id, text);
-        let entry = self.widget::<gtk::Entry>(id).unwrap();
+        let entry = self.widget::<gtk4::Entry>(id).unwrap();
         self.bind_native(id, placeholder, &entry, |entry, value| {
             entry.set_placeholder_text(Some(&value))
         });
@@ -173,11 +173,11 @@ impl View {
 
     pub fn separator(&self, parent: &Parent, id: &str, vertical: bool) {
         let orientation = if vertical {
-            gtk::Orientation::Vertical
+            gtk4::Orientation::Vertical
         } else {
-            gtk::Orientation::Horizontal
+            gtk4::Orientation::Horizontal
         };
-        self.mount_native(parent, id, &gtk::Separator::new(orientation));
+        self.mount_native(parent, id, &gtk4::Separator::new(orientation));
     }
 
     pub fn image_update_count(&self) -> usize {
@@ -327,9 +327,9 @@ impl View {
             .ok_or("missing control")?;
         Self::require_active_widget(Some(widget))
     }
-    fn require_active_widget(mut current: Option<gtk::Widget>) -> Result<(), String> {
+    fn require_active_widget(mut current: Option<gtk4::Widget>) -> Result<(), String> {
         while let Some(widget) = current {
-            if widget.is::<gtk::Window>() {
+            if widget.is::<gtk4::Window>() {
                 break;
             }
             if !widget.get_sensitive() || !widget.get_visible() {
@@ -345,7 +345,7 @@ impl View {
         }
         self.0.nodes.borrow().get(id).and_then(|node| {
             node.widget
-                .downcast_ref::<gtk::Scale>()
+                .downcast_ref::<gtk4::Scale>()
                 .map(|slider| slider.value())
         })
     }
@@ -410,7 +410,7 @@ impl View {
         text: Binding<String>,
         checked: Binding<bool>,
     ) {
-        let check = gtk::CheckButton::new();
+        let check = gtk4::CheckButton::new();
         check.set_sensitive(checked.is_writable());
         self.mount_native(parent, id, &check);
         self.bind_native(id, text, &check, |check, text| check.set_label(Some(&text)));
@@ -459,12 +459,12 @@ impl View {
             panechord_runtime::valid_item_key(value),
             "invalid radio value"
         );
-        let radio = gtk::CheckButton::new();
-        let anchor = gtk::CheckButton::new();
+        let radio = gtk4::CheckButton::new();
+        let anchor = gtk4::CheckButton::new();
         radio.set_group(Some(&anchor));
         self.keep_at(
             id,
-            Subscription::new(move || anchor.set_group(None::<&gtk::CheckButton>)),
+            Subscription::new(move || anchor.set_group(None::<&gtk4::CheckButton>)),
         );
         radio.set_sensitive(selected.is_writable());
         self.mount_native(parent, id, &radio);
@@ -495,8 +495,8 @@ impl View {
             self.0.error.replace(Some(error.into()));
             return;
         }
-        let slider = gtk::Scale::with_range(
-            gtk::Orientation::Horizontal,
+        let slider = gtk4::Scale::with_range(
+            gtk4::Orientation::Horizontal,
             range.min,
             range.max,
             range.step,
@@ -551,29 +551,29 @@ impl View {
         items: Binding<Vec<Choice>>,
         selected: Binding<String>,
     ) {
-        let combo = gtk::DropDown::from_strings(&[]);
+        let combo = gtk4::DropDown::from_strings(&[]);
         combo.set_sensitive(selected.is_writable());
         combo.set_hexpand(true);
-        let widths = gtk::SizeGroup::new(gtk::SizeGroupMode::Horizontal);
-        let factory = gtk::SignalListItemFactory::new();
+        let widths = gtk4::SizeGroup::new(gtk4::SizeGroupMode::Horizontal);
+        let factory = gtk4::SignalListItemFactory::new();
         let group = widths.clone();
         factory.connect_setup(move |_, object| {
-            let item = object.downcast_ref::<gtk::ListItem>().unwrap();
-            let label = gtk::Label::new(None);
+            let item = object.downcast_ref::<gtk4::ListItem>().unwrap();
+            let label = gtk4::Label::new(None);
             label.set_xalign(0.0);
             group.add_widget(&label);
             item.set_child(Some(&label));
         });
         factory.connect_bind(|_, object| {
-            let item = object.downcast_ref::<gtk::ListItem>().unwrap();
+            let item = object.downcast_ref::<gtk4::ListItem>().unwrap();
             let value = item
                 .item()
                 .unwrap()
-                .downcast::<gtk::StringObject>()
+                .downcast::<gtk4::StringObject>()
                 .unwrap();
             item.child()
                 .unwrap()
-                .downcast::<gtk::Label>()
+                .downcast::<gtk4::Label>()
                 .unwrap()
                 .set_text(&value.string());
         });
@@ -585,8 +585,8 @@ impl View {
         let guard = applying.clone();
         let weak = self.downgrade();
         let previous = RefCell::new(None::<Vec<Choice>>);
-        let measurements = RefCell::new(Vec::<gtk::Label>::new());
-        let refresh: Rc<dyn Fn(&gtk::DropDown)> = Rc::new(move |combo| {
+        let measurements = RefCell::new(Vec::<gtk4::Label>::new());
+        let refresh: Rc<dyn Fn(&gtk4::DropDown)> = Rc::new(move |combo| {
             let choices = source.get();
             let selected = selection.get();
             if let Err(error) = validate_choices(&choices, &selected) {
@@ -604,7 +604,7 @@ impl View {
                 let labels = choices
                     .iter()
                     .map(|choice| {
-                        let label = gtk::Label::new(Some(&choice.label));
+                        let label = gtk4::Label::new(Some(&choice.label));
                         widths.add_widget(&label);
                         label
                     })
@@ -619,7 +619,7 @@ impl View {
                 let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
                 match combo
                     .model()
-                    .and_then(|model| model.downcast::<gtk::StringList>().ok())
+                    .and_then(|model| model.downcast::<gtk4::StringList>().ok())
                 {
                     Some(list) => {
                         let n = list.n_items();
@@ -628,13 +628,13 @@ impl View {
                         }
                         list.splice(0, 0, &refs);
                     }
-                    None => combo.set_model(Some(&gtk::StringList::new(&refs))),
+                    None => combo.set_model(Some(&gtk4::StringList::new(&refs))),
                 }
             }
             let index = choices
                 .iter()
                 .position(|choice| choice.id == selected)
-                .map_or(gtk::INVALID_LIST_POSITION, |index| index as u32);
+                .map_or(gtk4::INVALID_LIST_POSITION, |index| index as u32);
             if combo.selected() != index {
                 combo.set_selected(index);
             }
@@ -686,8 +686,8 @@ impl View {
         pointer: Binding<Option<panechord_runtime::PointerPosition>>,
     ) {
         self.image(parent, id, source);
-        let picture = self.widget::<gtk::Picture>(id).unwrap();
-        let motion = gtk::EventControllerMotion::new();
+        let picture = self.widget::<gtk4::Picture>(id).unwrap();
+        let motion = gtk4::EventControllerMotion::new();
         let weak = self.downgrade();
         let writer = pointer.clone();
         let moved = motion.connect_motion(move |_, x, y| {
@@ -722,9 +722,9 @@ impl View {
     }
 
     pub fn image(&self, parent: &Parent, id: &str, source: Binding<Option<ImageFrame>>) {
-        let picture = gtk::Picture::new();
+        let picture = gtk4::Picture::new();
         picture.set_can_shrink(true);
-        picture.set_halign(gtk::Align::Center);
+        picture.set_halign(gtk4::Align::Center);
         picture.set_vexpand(true);
         self.mount_native(parent, id, &picture);
         self.0
@@ -741,22 +741,22 @@ impl View {
             }
             if let Some(frame) = frame {
                 let bytes = glib::Bytes::from_owned(frame.pixels().clone());
-                let texture = gtk::gdk::MemoryTexture::new(
+                let texture = gtk4::gdk::MemoryTexture::new(
                     frame.width() as i32,
                     frame.height() as i32,
-                    gtk::gdk::MemoryFormat::R8g8b8a8,
+                    gtk4::gdk::MemoryFormat::R8g8b8a8,
                     &bytes,
                     frame.width() as usize * 4,
                 );
                 picture.set_paintable(Some(&texture));
             } else {
-                picture.set_paintable(None::<&gtk::gdk::Paintable>);
+                picture.set_paintable(None::<&gtk4::gdk::Paintable>);
             }
         });
     }
 
     pub fn tab(&self, parent: &Parent, id: &str, selected: Binding<String>) -> Parent {
-        let notebook = gtk::Notebook::new();
+        let notebook = gtk4::Notebook::new();
         notebook.set_scrollable(true);
         notebook.set_vexpand(true);
         self.mount_native(parent, id, &notebook);
@@ -821,13 +821,13 @@ impl View {
         Parent::new(&notebook, ParentKind::Notebook)
     }
     pub fn navigation(&self, parent: &Parent, id: &str, selected: Binding<String>) -> Parent {
-        let stack = gtk::Stack::new();
+        let stack = gtk4::Stack::new();
         stack.set_hexpand(true);
         stack.set_vexpand(true);
-        let sidebar = gtk::StackSidebar::new();
+        let sidebar = gtk4::StackSidebar::new();
         sidebar.set_stack(&stack);
         sidebar.set_vexpand(true);
-        let body = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        let body = gtk4::Box::new(gtk4::Orientation::Horizontal, 12);
         body.append(&sidebar);
         body.append(&stack);
         self.mount_native(parent, id, &body);
@@ -899,10 +899,10 @@ impl View {
         }
         let state = self.0.tabs.borrow().get(id).cloned().ok_or("missing Tab")?;
         if let TabContainer::Sidebar { stack, sidebar } = &state.container {
-            let body = self.widget::<gtk::Box>(id)?;
+            let body = self.widget::<gtk4::Box>(id)?;
             match position {
                 panechord_runtime::TabPosition::Left => {
-                    body.reorder_child_after(sidebar, None::<&gtk::Widget>)
+                    body.reorder_child_after(sidebar, None::<&gtk4::Widget>)
                 }
                 panechord_runtime::TabPosition::Right => {
                     body.reorder_child_after(sidebar, Some(stack))
@@ -913,10 +913,10 @@ impl View {
         }
         let notebook = state.container.notebook();
         notebook.set_tab_pos(match position {
-            panechord_runtime::TabPosition::Top => gtk::PositionType::Top,
-            panechord_runtime::TabPosition::Bottom => gtk::PositionType::Bottom,
-            panechord_runtime::TabPosition::Left => gtk::PositionType::Left,
-            panechord_runtime::TabPosition::Right => gtk::PositionType::Right,
+            panechord_runtime::TabPosition::Top => gtk4::PositionType::Top,
+            panechord_runtime::TabPosition::Bottom => gtk4::PositionType::Bottom,
+            panechord_runtime::TabPosition::Left => gtk4::PositionType::Left,
+            panechord_runtime::TabPosition::Right => gtk4::PositionType::Right,
         });
         if let Some(header) = notebook.first_child() {
             header.set_size_request(
@@ -1057,13 +1057,13 @@ impl View {
         {
             return Err("unavailable Tab, invalid or duplicate page key, or page limit".into());
         }
-        let body = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        let body = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
         let previous_applying = state.applying.replace(true);
         self.mount_native(parent, id, &body);
         let frame = self.0.nodes.borrow().get(id).unwrap().frame.clone();
         match &state.container {
             TabContainer::Notebook(notebook) => {
-                let label = gtk::Label::new(Some(&title.get()));
+                let label = gtk4::Label::new(Some(&title.get()));
                 notebook.set_tab_label(&frame, Some(&label));
                 self.bind_native(id, title.clone(), &label, |label, title| {
                     label.set_label(&title)
@@ -1115,7 +1115,7 @@ impl View {
         title: Binding<String>,
         open: Binding<bool>,
     ) -> Parent {
-        let placeholder = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let placeholder = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         self.mount_native(parent, id, &placeholder);
         self.0
             .nodes
@@ -1124,8 +1124,8 @@ impl View {
             .unwrap()
             .frame
             .set_visible(false);
-        let body = gtk::Box::new(gtk::Orientation::Vertical, 8);
-        let window = gtk::Window::builder()
+        let body = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
+        let window = gtk4::Window::builder()
             .transient_for(&self.0.window)
             .modal(true)
             .default_width(480)

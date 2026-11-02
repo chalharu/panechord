@@ -5,12 +5,12 @@ and actions, and a GLib-local executor. No dependency on prototype_1.
 
 ## Native extensions
 
-The crate re-exports `gtk`. Application factories can construct any GTK widget
+Application factories can use the `gtk4` crate directly to construct any GTK widget
 and call `view.mount_native(parent, id, &widget)`. `view.bind_native(id, binding,
 &object, apply)` subscribes with a weak object reference. Register custom native
 signals with `view.track_signal(id, &object, signal)` for automatic disconnection.
 Factories must not capture View strongly in their signals or binding callbacks.
-`meter` mounts a genuine `gtk::ProgressBar`.
+`meter` mounts a genuine `gtk4::ProgressBar`.
 
 Entry writeback uses `notify::text`, coalesced by GTK across `set_text`'s
 delete/insert replacement, rather than rolling back during `changed`'s temporary

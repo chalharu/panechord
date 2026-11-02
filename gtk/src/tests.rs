@@ -2,7 +2,7 @@
 #[test]
 #[ignore = "isolated Xvfb native contract"]
 fn native_style_late_close_contract() {
-    gtk::init().unwrap();
+    gtk4::init().unwrap();
     let view = View::new(Binding::constant("style contract".into()));
     assert_eq!(
         view.try_style("missing", Style::default()),
@@ -34,8 +34,8 @@ fn native_style_late_close_contract() {
         },
     )
     .unwrap();
-    assert_eq!(frame.halign(), gtk::Align::End);
-    assert_eq!(frame.valign(), gtk::Align::Center);
+    assert_eq!(frame.halign(), gtk4::Align::End);
+    assert_eq!(frame.valign(), gtk4::Align::Center);
     assert!(!frame.hexpands());
     assert!(!frame.vexpands());
     view.try_style(
@@ -48,10 +48,10 @@ fn native_style_late_close_contract() {
     .unwrap();
     assert!(frame.vexpands());
     view.try_style("fixed", Style::default()).unwrap();
-    assert_eq!(frame.halign(), gtk::Align::Fill);
-    assert_eq!(frame.valign(), gtk::Align::Fill);
+    assert_eq!(frame.halign(), gtk4::Align::Fill);
+    assert_eq!(frame.valign(), gtk4::Align::Fill);
     assert!(!frame.is_vexpand_set());
-    let label = view.widget::<gtk::Label>("fixed").unwrap();
+    let label = view.widget::<gtk4::Label>("fixed").unwrap();
     view.try_style(
         "fixed",
         Style {
@@ -101,16 +101,16 @@ fn native_style_late_close_contract() {
     view.separator(&view.root(), "horizontal", false);
     view.separator(&view.root(), "vertical", true);
     assert_eq!(
-        view.widget::<gtk::Separator>("horizontal")
+        view.widget::<gtk4::Separator>("horizontal")
             .unwrap()
             .orientation(),
-        gtk::Orientation::Horizontal
+        gtk4::Orientation::Horizontal
     );
     assert_eq!(
-        view.widget::<gtk::Separator>("vertical")
+        view.widget::<gtk4::Separator>("vertical")
             .unwrap()
             .orientation(),
-        gtk::Orientation::Vertical
+        gtk4::Orientation::Vertical
     );
     view.try_style(
         "horizontal",
@@ -134,7 +134,7 @@ fn native_style_late_close_contract() {
         placeholder.bind(Clone::clone, None),
     );
     assert_eq!(
-        view.widget::<gtk::Entry>("placeholder")
+        view.widget::<gtk4::Entry>("placeholder")
             .unwrap()
             .placeholder_text()
             .as_deref(),
@@ -151,9 +151,9 @@ fn native_style_late_close_contract() {
         },
     )
     .unwrap();
-    let entry = view.widget::<gtk::Entry>("placeholder").unwrap();
-    assert!(entry.measure(gtk::Orientation::Horizontal, -1).0 <= 120);
-    assert!(entry.measure(gtk::Orientation::Horizontal, -1).1 <= 120);
+    let entry = view.widget::<gtk4::Entry>("placeholder").unwrap();
+    assert!(entry.measure(gtk4::Orientation::Horizontal, -1).0 <= 120);
+    assert!(entry.measure(gtk4::Orientation::Horizontal, -1).1 <= 120);
     assert_eq!(entry.width_chars(), 1);
     assert_eq!(entry.max_width_chars(), 1);
     view.try_style("placeholder", Style::default()).unwrap();
@@ -183,7 +183,7 @@ use std::time::Duration;
 #[ignore = "isolated Xvfb native contract"]
 fn native_image_pointer_is_local_and_stops_after_close() {
     use panechord_runtime::PointerPosition;
-    gtk::init().unwrap();
+    gtk4::init().unwrap();
     let model = Store::new(None::<PointerPosition>, GtkHost::attach().executor());
     let view = View::new(Binding::constant("pointer".into()));
     view.image_with_pointer(
@@ -195,13 +195,13 @@ fn native_image_pointer_is_local_and_stops_after_close() {
             Some(|target: &mut Option<PointerPosition>, value| *target = value),
         ),
     );
-    let picture = view.widget::<gtk::Picture>("image").unwrap();
+    let picture = view.widget::<gtk4::Picture>("image").unwrap();
     let controllers = picture.observe_controllers();
     let motion = (0..controllers.n_items())
         .find_map(|index| {
             controllers
                 .item(index)?
-                .downcast::<gtk::EventControllerMotion>()
+                .downcast::<gtk4::EventControllerMotion>()
                 .ok()
         })
         .unwrap();
@@ -219,7 +219,7 @@ fn native_image_pointer_is_local_and_stops_after_close() {
 #[test]
 #[ignore = "isolated Xvfb native contract"]
 fn native_repeat_reorders_natural_children_and_cleans_removed_scopes() {
-    gtk::init().unwrap();
+    gtk4::init().unwrap();
     let executor = GtkHost::attach().executor();
     let first = Keyed::new("first", Store::new("First".to_owned(), executor.clone()));
     let second = Keyed::new("second", Store::new("Second".to_owned(), executor.clone()));
@@ -242,7 +242,7 @@ fn native_repeat_reorders_natural_children_and_cleans_removed_scopes() {
             }
         }),
     );
-    let root = view.widget::<gtk::Box>("repeat").unwrap();
+    let root = view.widget::<gtk4::Box>("repeat").unwrap();
     let first_frame = root.first_child().unwrap();
     let second_frame = root.last_child().unwrap();
     assert_eq!(first_frame.height_request(), -1);
@@ -251,13 +251,13 @@ fn native_repeat_reorders_natural_children_and_cleans_removed_scopes() {
     assert_eq!(root.first_child(), Some(second_frame.clone()));
     assert_eq!(root.last_child(), Some(first_frame));
     let removed = view
-        .widget::<gtk::Label>("repeat/first/first/label")
+        .widget::<gtk4::Label>("repeat/first/first/label")
         .unwrap();
     assert!(rows.update(|rows| rows.retain(|row| row.key != "first")));
     assert!(first.model.update(|label| *label = "Late".into()));
     assert_eq!(removed.text(), "First");
     assert!(
-        view.widget::<gtk::Label>("repeat/first/first/label")
+        view.widget::<gtk4::Label>("repeat/first/first/label")
             .is_err()
     );
     assert_eq!(root.first_child(), Some(second_frame.clone()));
@@ -270,7 +270,7 @@ fn native_repeat_reorders_natural_children_and_cleans_removed_scopes() {
     let third_frame = view.0.nodes.borrow()["repeat/third"]
         .frame
         .clone()
-        .upcast::<gtk::Widget>();
+        .upcast::<gtk4::Widget>();
     assert_eq!(root.first_child(), Some(third_frame.clone()));
     let invalid = Keyed {
         key: "invalid/key".into(),
@@ -294,7 +294,7 @@ fn native_repeat_reorders_natural_children_and_cleans_removed_scopes() {
 fn native_table_wraps_virtualizes_and_rejects_invalid_snapshots() {
     use panechord_runtime::{Table, TableCell, TableColumn, TableRow, TextOverflow};
     use std::sync::Arc;
-    gtk::init().unwrap();
+    gtk4::init().unwrap();
     let host = GtkHost::attach();
     let data = Table {
         columns: vec![
@@ -350,18 +350,22 @@ fn native_table_wraps_virtualizes_and_rejects_invalid_snapshots() {
     while !ready.get() {
         glib::MainContext::default().iteration(true);
     }
-    let root = view.widget::<gtk::Box>("table").unwrap();
+    let root = view.widget::<gtk4::Box>("table").unwrap();
     let overlay = root
         .last_child()
         .unwrap()
-        .downcast::<gtk::Overlay>()
+        .downcast::<gtk4::Overlay>()
         .unwrap();
     let scroll = overlay
         .child()
         .unwrap()
-        .downcast::<gtk::ScrolledWindow>()
+        .downcast::<gtk4::ScrolledWindow>()
         .unwrap();
-    let list = scroll.child().unwrap().downcast::<gtk::ListView>().unwrap();
+    let list = scroll
+        .child()
+        .unwrap()
+        .downcast::<gtk4::ListView>()
+        .unwrap();
     assert_eq!(list.model().unwrap().n_items(), 1000);
     let mut child = list.first_child();
     let mut mounted = 0;
@@ -372,7 +376,7 @@ fn native_table_wraps_virtualizes_and_rejects_invalid_snapshots() {
         if let Some(body) = widget.first_child()
             && let Some(message) = body
                 .last_child()
-                .and_then(|widget| widget.downcast::<gtk::Label>().ok())
+                .and_then(|widget| widget.downcast::<gtk4::Label>().ok())
         {
             wrapped |= message.height() > 20;
         }
@@ -451,7 +455,7 @@ fn native_table_selection_writes_back_and_stops_after_close() {
         Table, TableCell, TableColumn, TableRow, TableSelection, TextOverflow,
     };
     use std::sync::Arc;
-    gtk::init().unwrap();
+    gtk4::init().unwrap();
     let selection = Store::new(None::<TableSelection>, GtkHost::attach().executor());
     let data = Table {
         columns: vec![TableColumn {
@@ -497,18 +501,22 @@ fn native_table_selection_writes_back_and_stops_after_close() {
     view.table_with_selection(&view.root(), "table", source, writer);
     view.native_window().set_default_size(420, 200);
     view.present();
-    let root = view.widget::<gtk::Box>("table").unwrap();
+    let root = view.widget::<gtk4::Box>("table").unwrap();
     let overlay = root
         .last_child()
         .unwrap()
-        .downcast::<gtk::Overlay>()
+        .downcast::<gtk4::Overlay>()
         .unwrap();
     let scroll = overlay
         .child()
         .unwrap()
-        .downcast::<gtk::ScrolledWindow>()
+        .downcast::<gtk4::ScrolledWindow>()
         .unwrap();
-    let list = scroll.child().unwrap().downcast::<gtk::ListView>().unwrap();
+    let list = scroll
+        .child()
+        .unwrap()
+        .downcast::<gtk4::ListView>()
+        .unwrap();
     let deadline = std::time::Instant::now() + Duration::from_secs(2);
     while list.first_child().is_none() && std::time::Instant::now() < deadline {
         glib::MainContext::default().iteration(true);
@@ -520,11 +528,11 @@ fn native_table_selection_writes_back_and_stops_after_close() {
         .unwrap()
         .first_child()
         .unwrap()
-        .downcast::<gtk::ToggleButton>()
+        .downcast::<gtk4::ToggleButton>()
         .unwrap();
-    let body = button.parent().unwrap().downcast::<gtk::Box>().unwrap();
-    let label = button.child().unwrap().downcast::<gtk::Label>().unwrap();
-    assert_eq!(label.valign(), gtk::Align::Center);
+    let body = button.parent().unwrap().downcast::<gtk4::Box>().unwrap();
+    let label = button.child().unwrap().downcast::<gtk4::Label>().unwrap();
+    assert_eq!(label.valign(), gtk4::Align::Center);
     assert_eq!(body.spacing(), 2);
     assert_eq!(
         (
@@ -560,7 +568,7 @@ fn native_table_selection_writes_back_and_stops_after_close() {
             .unwrap()
             .first_child()
             .unwrap()
-            .downcast::<gtk::ToggleButton>()
+            .downcast::<gtk4::ToggleButton>()
             .unwrap();
         if current != retired {
             break current;
@@ -571,7 +579,7 @@ fn native_table_selection_writes_back_and_stops_after_close() {
     let next = button
         .next_sibling()
         .unwrap()
-        .downcast::<gtk::ToggleButton>()
+        .downcast::<gtk4::ToggleButton>()
         .unwrap();
     next.emit_clicked();
     assert_eq!(
@@ -603,7 +611,7 @@ fn native_table_selection_writes_back_and_stops_after_close() {
 #[test]
 #[ignore = "isolated Xvfb native contract"]
 fn native_item_rows_keep_configured_height_with_grid_entries() {
-    gtk::init().unwrap();
+    gtk4::init().unwrap();
     let host = GtkHost::attach();
     let view = View::new(Binding::constant("rows".into()));
     let rows: Vec<_> = (0..8)
@@ -639,20 +647,20 @@ fn native_item_rows_keep_configured_height_with_grid_entries() {
             );
         }),
     );
-    let scroll = view.widget::<gtk::ScrolledWindow>("rows").unwrap();
+    let scroll = view.widget::<gtk4::ScrolledWindow>("rows").unwrap();
     let container = scroll.child().unwrap().first_child().unwrap();
     let row = container.first_child().unwrap().next_sibling().unwrap();
-    let grid = view.widget::<gtk::Grid>("rows/0/grid").unwrap();
-    assert_eq!(grid.measure(gtk::Orientation::Vertical, 700).0, 34);
-    assert_eq!(row.measure(gtk::Orientation::Vertical, 700).0, 34);
-    assert_eq!(row.measure(gtk::Orientation::Vertical, 700).1, 34);
+    let grid = view.widget::<gtk4::Grid>("rows/0/grid").unwrap();
+    assert_eq!(grid.measure(gtk4::Orientation::Vertical, 700).0, 34);
+    assert_eq!(row.measure(gtk4::Orientation::Vertical, 700).0, 34);
+    assert_eq!(row.measure(gtk4::Orientation::Vertical, 700).1, 34);
     view.close();
 }
 
 #[test]
 #[ignore = "isolated Xvfb native contract"]
 fn native_dynamic_tabs_preserve_reorder_and_release_removed_pages() {
-    gtk::init().unwrap();
+    gtk4::init().unwrap();
     let host = GtkHost::attach();
     let first = Keyed::new("first", Store::new("First".to_owned(), host.executor()));
     let second = Keyed::new("second", Store::new("Second".to_owned(), host.executor()));
@@ -678,14 +686,14 @@ fn native_dynamic_tabs_preserve_reorder_and_release_removed_pages() {
             );
         }),
     );
-    let notebook = view.widget::<gtk::Notebook>("pages").unwrap();
-    let retained = view.widget::<gtk::Label>("pages/second/label").unwrap();
+    let notebook = view.widget::<gtk4::Notebook>("pages").unwrap();
+    let retained = view.widget::<gtk4::Label>("pages/second/label").unwrap();
     assert_eq!(notebook.n_pages(), 2);
     assert_eq!(notebook.current_page(), Some(1));
     assert!(model.update(|state| state.0.reverse()));
     assert_eq!(notebook.current_page(), Some(0));
     assert_eq!(
-        view.widget::<gtk::Label>("pages/second/label").unwrap(),
+        view.widget::<gtk4::Label>("pages/second/label").unwrap(),
         retained
     );
     let duplicate = first.clone();
@@ -694,7 +702,7 @@ fn native_dynamic_tabs_preserve_reorder_and_release_removed_pages() {
     let remaining = second.clone();
     assert!(model.update(move |state| state.0 = vec![remaining]));
     assert_eq!(notebook.n_pages(), 1);
-    assert!(view.widget::<gtk::Label>("pages/first/label").is_err());
+    assert!(view.widget::<gtk4::Label>("pages/first/label").is_err());
     assert!(first.model.update(|name| *name = "removed".into()));
     assert!(second.model.update(|name| *name = "Retained".into()));
     assert_eq!(retained.label(), "Retained");
@@ -721,7 +729,7 @@ fn native_dynamic_tabs_preserve_reorder_and_release_removed_pages() {
     );
     assert_eq!(
         nested_view
-            .widget::<gtk::Notebook>("nested")
+            .widget::<gtk4::Notebook>("nested")
             .unwrap()
             .n_pages(),
         0
@@ -732,7 +740,7 @@ fn native_dynamic_tabs_preserve_reorder_and_release_removed_pages() {
 #[test]
 #[ignore = "isolated Xvfb native contract"]
 fn native_grid_default_styles_and_scroll_preserve_allocation() {
-    gtk::init().unwrap();
+    gtk4::init().unwrap();
     let view = View::new(Binding::constant("Grid and Scroll".into()));
     let viewport = view.try_scroll(&view.root(), "viewport", false).unwrap();
     let grid = view
@@ -745,7 +753,7 @@ fn native_grid_default_styles_and_scroll_preserve_allocation() {
             },
         )
         .unwrap();
-    let native = grid.widget.downcast_ref::<gtk::Grid>().unwrap();
+    let native = grid.widget.downcast_ref::<gtk4::Grid>().unwrap();
     for index in 0..5 {
         let id = format!("child-{index}");
         view.label(&grid, &id, Binding::constant(id.clone()));
@@ -767,20 +775,20 @@ fn native_grid_default_styles_and_scroll_preserve_allocation() {
             assert_eq!(native.query_child(&frame), (index % 2, index / 2, 1, 1));
         }
     }
-    let scroll = view.widget::<gtk::ScrolledWindow>("viewport").unwrap();
-    assert_eq!(scroll.hscrollbar_policy(), gtk::PolicyType::Never);
-    assert_eq!(scroll.vscrollbar_policy(), gtk::PolicyType::Automatic);
+    let scroll = view.widget::<gtk4::ScrolledWindow>("viewport").unwrap();
+    assert_eq!(scroll.hscrollbar_policy(), gtk4::PolicyType::Never);
+    assert_eq!(scroll.vscrollbar_policy(), gtk4::PolicyType::Automatic);
     assert!(scroll.property::<bool>("propagate-natural-width"));
     view.try_scroll(&view.root(), "horizontal", true).unwrap();
-    let horizontal = view.widget::<gtk::ScrolledWindow>("horizontal").unwrap();
+    let horizontal = view.widget::<gtk4::ScrolledWindow>("horizontal").unwrap();
     assert!(!horizontal.property::<bool>("propagate-natural-width"));
-    assert_eq!(horizontal.hscrollbar_policy(), gtk::PolicyType::Automatic);
-    assert_eq!(horizontal.vscrollbar_policy(), gtk::PolicyType::Never);
+    assert_eq!(horizontal.hscrollbar_policy(), gtk4::PolicyType::Automatic);
+    assert_eq!(horizontal.vscrollbar_policy(), gtk4::PolicyType::Never);
     assert!(view.try_scroll(&viewport, "viewport", false).is_err());
     view.tab(&view.root(), "tabs", Binding::constant("general".into()));
     view.tab_position("tabs", panechord_runtime::TabPosition::Left)
         .unwrap();
-    let notebook = view.widget::<gtk::Notebook>("tabs").unwrap();
+    let notebook = view.widget::<gtk4::Notebook>("tabs").unwrap();
     assert_eq!(notebook.first_child().unwrap().width_request(), 120);
     view.tab_position("tabs", panechord_runtime::TabPosition::Top)
         .unwrap();
@@ -795,7 +803,7 @@ fn native_grid_default_styles_and_scroll_preserve_allocation() {
 #[test]
 #[ignore = "isolated Xvfb native contract"]
 fn bounded_window_root_pins_footer_while_tall_page_scrolls_inside() {
-    gtk::init().unwrap();
+    gtk4::init().unwrap();
     let host = GtkHost::attach();
     let model = Store::new(0usize, host.executor());
     let view = View::new(Binding::constant("Settings".into()));
@@ -829,7 +837,7 @@ fn bounded_window_root_pins_footer_while_tall_page_scrolls_inside() {
         glib::MainContext::default().iteration(true);
     }
     // The tall page scrolls inside its own viewport ...
-    let inner = view.widget::<gtk::ScrolledWindow>("fields").unwrap();
+    let inner = view.widget::<gtk4::ScrolledWindow>("fields").unwrap();
     let adjustment = inner.vadjustment();
     assert!(
         adjustment.upper() > adjustment.page_size() + 1.0,
@@ -838,10 +846,10 @@ fn bounded_window_root_pins_footer_while_tall_page_scrolls_inside() {
         adjustment.page_size()
     );
     // ... while the footer stays pinned inside the window.
-    let button = view.widget::<gtk::Button>("apply").unwrap();
+    let button = view.widget::<gtk4::Button>("apply").unwrap();
     assert!(button.is_mapped(), "footer button must be visible");
     let placed = button.allocation();
-    let root = view.widget::<gtk::Box>("__root").unwrap();
+    let root = view.widget::<gtk4::Box>("__root").unwrap();
     let bounds = root.allocation();
     assert!(
         placed.y() >= bounds.y()
@@ -854,7 +862,7 @@ fn bounded_window_root_pins_footer_while_tall_page_scrolls_inside() {
 #[test]
 #[ignore = "isolated Xvfb native contract"]
 fn native_menu_declaration_order_survives_rebuild() {
-    gtk::init().unwrap();
+    gtk4::init().unwrap();
     let view = View::new(Binding::constant("Menus".into()));
     for (id, title) in [
         ("file", "File"),
@@ -918,7 +926,7 @@ fn native_x11_japanese_compose_focus_clipboard_and_rejection() {
     let Some(mut keys) = x11::X11::optional() else {
         return;
     };
-    gtk::init().expect("requires Xvfb and GDK_BACKEND=x11");
+    gtk4::init().expect("requires Xvfb and GDK_BACKEND=x11");
     assert_eq!(std::env::var("GTK_IM_MODULE").as_deref(), Ok("simple"));
     let host = GtkHost::attach();
     let model = Store::new((String::new(), String::new(), 0usize), host.executor());
@@ -959,24 +967,24 @@ fn native_x11_japanese_compose_focus_clipboard_and_rejection() {
             |v: String| v.parse::<u32>().map_err(|e| e.to_string()),
         ),
     );
-    let first = view.widget::<gtk::Entry>("first").unwrap();
-    let second = view.widget::<gtk::Entry>("second").unwrap();
-    let readonly = view.widget::<gtk::Entry>("readonly").unwrap();
-    let numeric = view.widget::<gtk::Entry>("number").unwrap();
+    let first = view.widget::<gtk4::Entry>("first").unwrap();
+    let second = view.widget::<gtk4::Entry>("second").unwrap();
+    let readonly = view.widget::<gtk4::Entry>("readonly").unwrap();
+    let numeric = view.widget::<gtk4::Entry>("number").unwrap();
     view.present();
     settle();
     let surface = view.native_window().surface().unwrap();
     assert_eq!(surface.display().type_().name(), "GdkX11Display");
     unsafe extern "C" {
-        fn gdk_x11_surface_get_xid(surface: *mut gtk::gdk::ffi::GdkSurface) -> std::ffi::c_ulong;
+        fn gdk_x11_surface_get_xid(surface: *mut gtk4::gdk::ffi::GdkSurface) -> std::ffi::c_ulong;
     }
     // SAFETY: checked X11 backend and live mapped GTK surface.
     keys.focus(unsafe { gdk_x11_surface_get_xid(surface.as_ptr()) });
     assert!(first.grab_focus());
     settle();
-    let focused = |entry: &gtk::Entry| {
+    let focused = |entry: &gtk4::Entry| {
         let focus = GtkWindowExt::focus(&view.native_window()).unwrap();
-        assert!(focus == *entry.upcast_ref::<gtk::Widget>() || focus.is_ancestor(entry));
+        assert!(focus == *entry.upcast_ref::<gtk4::Widget>() || focus.is_ancestor(entry));
     };
     focused(&first);
     keys.compose("日本語");
@@ -1052,7 +1060,7 @@ fn native_x11_japanese_compose_focus_clipboard_and_rejection() {
 
 #[test]
 fn native_close_requests_weak_and_reentrant() {
-    gtk::init().expect("native_close_requests_weak_and_reentrant requires Xvfb");
+    gtk4::init().expect("native_close_requests_weak_and_reentrant requires Xvfb");
     let view = View::new(Binding::constant("close requests".into()));
     view.menu(
         "file",
@@ -1130,7 +1138,7 @@ fn native_close_requests_weak_and_reentrant() {
 
 #[test]
 fn native_close_ready_subscription_retains_model_without_view_cycle() {
-    gtk::init()
+    gtk4::init()
         .expect("native_close_ready_subscription_retains_model_without_view_cycle requires Xvfb");
     let host = GtkHost::attach();
     let model = Store::new((0usize, false), host.executor());
@@ -1176,7 +1184,7 @@ fn native_close_ready_subscription_retains_model_without_view_cycle() {
 
 #[test]
 fn native_close_request_handler_precedes_coordinator_and_menu_falls_back() {
-    gtk::init().expect(
+    gtk4::init().expect(
         "native_close_request_handler_precedes_coordinator_and_menu_falls_back requires Xvfb",
     );
     let host = GtkHost::attach();
@@ -1220,42 +1228,42 @@ fn native_close_request_handler_precedes_coordinator_and_menu_falls_back() {
 
 #[test]
 fn native_canonical_shortcut_semantics() {
-    gtk::init().expect("native_canonical_shortcut_semantics requires Xvfb");
+    gtk4::init().expect("native_canonical_shortcut_semantics requires Xvfb");
     use panechord_runtime::ShortcutTarget;
     for (input, key, extra) in [
         (
             "Primary+S",
-            gtk::gdk::Key::s,
-            gtk::gdk::ModifierType::empty(),
+            gtk4::gdk::Key::s,
+            gtk4::gdk::ModifierType::empty(),
         ),
         (
             "Primary+Q",
-            gtk::gdk::Key::q,
-            gtk::gdk::ModifierType::empty(),
+            gtk4::gdk::Key::q,
+            gtk4::gdk::ModifierType::empty(),
         ),
         (
             "Primary+Shift+S",
-            gtk::gdk::Key::s,
-            gtk::gdk::ModifierType::SHIFT_MASK,
+            gtk4::gdk::Key::s,
+            gtk4::gdk::ModifierType::SHIFT_MASK,
         ),
     ] {
         for target in [ShortcutTarget::MacOS, ShortcutTarget::Other] {
             let shortcut = Shortcut::parse(input).unwrap();
-            let trigger = gtk::ShortcutTrigger::parse_string(&shortcut.to_gtk_for(target))
+            let trigger = gtk4::ShortcutTrigger::parse_string(&shortcut.to_gtk_for(target))
                 .unwrap()
-                .downcast::<gtk::KeyvalTrigger>()
+                .downcast::<gtk4::KeyvalTrigger>()
                 .unwrap();
             let primary = if target == ShortcutTarget::MacOS {
-                gtk::gdk::ModifierType::META_MASK
+                gtk4::gdk::ModifierType::META_MASK
             } else {
-                gtk::gdk::ModifierType::CONTROL_MASK
+                gtk4::gdk::ModifierType::CONTROL_MASK
             };
             assert_eq!(trigger.keyval(), key);
             assert_eq!(trigger.modifiers(), primary | extra);
         }
         assert_eq!(
             parse_shortcut(input).unwrap().to_string(),
-            gtk::ShortcutTrigger::parse_string(&Shortcut::parse(input).unwrap().to_gtk())
+            gtk4::ShortcutTrigger::parse_string(&Shortcut::parse(input).unwrap().to_gtk())
                 .unwrap()
                 .to_string()
         );
@@ -1314,7 +1322,7 @@ fn native_canonical_shortcut_semantics() {
     assert_eq!(shortcuts.len(), 2);
     for shortcut in shortcuts {
         assert!(shortcut.action().unwrap().activate(
-            gtk::ShortcutActionFlags::empty(),
+            gtk4::ShortcutActionFlags::empty(),
             &view.0.window,
             None
         ));
@@ -1327,7 +1335,7 @@ fn native_canonical_shortcut_semantics() {
 
 #[test]
 fn native_grid_equal_columns_geometry_and_spans() {
-    gtk::init().expect("native_grid_equal_columns_geometry_and_spans requires Xvfb");
+    gtk4::init().expect("native_grid_equal_columns_geometry_and_spans requires Xvfb");
     for width in [420, 660] {
         let view = View::new(Binding::constant("equal columns".into()));
         view.native_window().set_default_size(width, 300);
@@ -1361,7 +1369,7 @@ fn native_grid_equal_columns_geometry_and_spans() {
         }
         view.present();
         settle();
-        let grid = parent.widget.downcast_ref::<gtk::Grid>().unwrap();
+        let grid = parent.widget.downcast_ref::<gtk4::Grid>().unwrap();
         assert!(grid.is_mapped());
         assert!(grid.is_column_homogeneous());
         assert!(grid.hexpands());
@@ -1481,7 +1489,7 @@ fn coordinated_pair(host: &GtkHost, session: &Session, timeout: Duration) -> [Vi
 
 #[test]
 fn native_coordinated_multiwindow_close() {
-    gtk::init().expect("native_coordinated_multiwindow_close requires Xvfb");
+    gtk4::init().expect("native_coordinated_multiwindow_close requires Xvfb");
     let host = GtkHost::attach();
     let session = Session::new();
     let probe = Rc::new(CloseProbe::default());
@@ -1570,7 +1578,7 @@ fn native_coordinated_multiwindow_close() {
 
 #[test]
 fn native_coordinated_close_timeout() {
-    gtk::init().expect("native_coordinated_close_timeout requires Xvfb");
+    gtk4::init().expect("native_coordinated_close_timeout requires Xvfb");
     let host = GtkHost::attach();
     let session = Session::new();
     let probe = Rc::new(CloseProbe::default());
@@ -1620,7 +1628,7 @@ fn native_coordinated_close_timeout() {
 
 #[test]
 fn native_coordinated_close_cancel() {
-    gtk::init().expect("native_coordinated_close_cancel requires Xvfb");
+    gtk4::init().expect("native_coordinated_close_cancel requires Xvfb");
     let host = GtkHost::attach();
     let session = Session::new();
     let probe = Rc::new(CloseProbe::default());
@@ -1677,7 +1685,7 @@ fn native_coordinated_close_cancel() {
 
 #[test]
 fn native_coordinated_close_weak_teardown() {
-    gtk::init().expect("native_coordinated_close_weak_teardown requires Xvfb");
+    gtk4::init().expect("native_coordinated_close_weak_teardown requires Xvfb");
     for drop_host in [false, true] {
         let host = GtkHost::attach();
         let session = Session::new();
@@ -1738,7 +1746,7 @@ fn reap_all(executor: &GtkExecutor) {
 
 #[test]
 fn native_executor_completion() {
-    gtk::init().expect("native_executor_completion requires a display: run under Xvfb");
+    gtk4::init().expect("native_executor_completion requires a display: run under Xvfb");
     let host = GtkHost::attach();
     assert!(
         host.executor.reap.borrow().is_none(),
@@ -1852,9 +1860,9 @@ struct Leaf {
 
 #[test]
 fn native_entry_converted_replacement() {
-    gtk::init().expect("native_entry_converted_replacement requires Xvfb");
+    gtk4::init().expect("native_entry_converted_replacement requires Xvfb");
     // GTK replaces text by deleting and inserting, but coalesces text notify.
-    let probe = gtk::Entry::new();
+    let probe = gtk4::Entry::new();
     probe.set_text("0.5");
     let changed = Rc::new(RefCell::new(Vec::new()));
     let seen = changed.clone();
@@ -1887,8 +1895,8 @@ fn native_entry_converted_replacement() {
         );
     let view = View::new(Binding::constant("Converted entry".into()));
     view.entry(&view.root(), "number", text);
-    let entry = view.widget::<gtk::Entry>("number").unwrap();
-    let editable = entry.upcast_ref::<gtk::Editable>();
+    let entry = view.widget::<gtk4::Entry>("number").unwrap();
+    let editable = entry.upcast_ref::<gtk4::Editable>();
     assert_eq!(editable.text(), "0.5");
     assert_eq!(model.snapshot(), (0.5, 0));
     assert!(
@@ -1953,7 +1961,7 @@ fn native_entry_converted_replacement() {
 
 #[test]
 fn native_entry_incremental_edits_and_readonly() {
-    gtk::init().expect("native_entry_incremental_edits_and_readonly requires Xvfb");
+    gtk4::init().expect("native_entry_incremental_edits_and_readonly requires Xvfb");
     let host = GtkHost::attach();
     let model = Store::new(("ab".to_owned(), 0_usize), host.executor());
     let view = View::new(Binding::constant("Entry edits".into()));
@@ -1968,7 +1976,7 @@ fn native_entry_incremental_edits_and_readonly() {
             }),
         ),
     );
-    let entry = view.widget::<gtk::Entry>("text").unwrap();
+    let entry = view.widget::<gtk4::Entry>("text").unwrap();
     assert_eq!(model.snapshot().1, 0);
     let mut position = 2;
     entry.insert_text("c", &mut position);
@@ -1987,7 +1995,7 @@ fn native_entry_incremental_edits_and_readonly() {
     assert_eq!(model.snapshot().1, 5, "model updates must not echo");
 
     view.entry(&view.root(), "readonly", Binding::constant("fixed".into()));
-    let readonly = view.widget::<gtk::Entry>("readonly").unwrap();
+    let readonly = view.widget::<gtk4::Entry>("readonly").unwrap();
     assert!(!readonly.is_editable());
     assert!(view.edit("readonly", "invalid").is_err());
     readonly.set_text("native replacement");
@@ -2003,7 +2011,7 @@ fn native_entry_incremental_edits_and_readonly() {
 
 #[test]
 fn native_invalid_keyed_snapshots() {
-    gtk::init().expect("native_invalid_keyed_snapshots requires a display: run under Xvfb");
+    gtk4::init().expect("native_invalid_keyed_snapshots requires a display: run under Xvfb");
     let host = GtkHost::attach();
     let first = Keyed::new(
         "first",
@@ -2062,7 +2070,7 @@ fn native_invalid_keyed_snapshots() {
     let _ = viewport.update(|state| state.count = 1);
     assert_eq!(view.item_keys("rows"), ["first"]);
     assert!(view.items_error("rows").is_none());
-    let first_widget = view.widget::<gtk::Label>("rows/first/text").unwrap();
+    let first_widget = view.widget::<gtk4::Label>("rows/first/text").unwrap();
     let valid = viewport.snapshot();
     for invalid in [
         Viewport { count: 0, ..valid },
@@ -2090,7 +2098,7 @@ fn native_invalid_keyed_snapshots() {
                 .contains("invalid viewport")
         );
         assert_eq!(
-            view.widget::<gtk::Label>("rows/first/text").unwrap(),
+            view.widget::<gtk4::Label>("rows/first/text").unwrap(),
             first_widget
         );
     }
@@ -2109,10 +2117,10 @@ fn native_invalid_keyed_snapshots() {
         model.bind(|s| s.1.clone(), None),
         template,
     );
-    let row = view.widget::<gtk::Label>("rows/first/text").unwrap();
-    let content = view.widget::<gtk::Label>("content/first/text").unwrap();
-    let scroll = view.widget::<gtk::ScrolledWindow>("rows").unwrap();
-    let container = view.widget::<gtk::Box>("content").unwrap();
+    let row = view.widget::<gtk4::Label>("rows/first/text").unwrap();
+    let content = view.widget::<gtk4::Label>("content/first/text").unwrap();
+    let scroll = view.widget::<gtk4::ScrolledWindow>("rows").unwrap();
+    let container = view.widget::<gtk4::Box>("content").unwrap();
 
     for key in ["", "bad/key"] {
         // Public fields bypass Keyed::new. Even an offscreen invalid key rejects
@@ -2134,7 +2142,7 @@ fn native_invalid_keyed_snapshots() {
             view.items_error("rows").as_deref()
         );
         assert_eq!(view.item_keys("rows"), ["first"]);
-        assert_eq!(view.widget::<gtk::Label>("rows/first/text").unwrap(), row);
+        assert_eq!(view.widget::<gtk4::Label>("rows/first/text").unwrap(), row);
         assert!(row.parent().is_some());
         assert_eq!(builds.get(), before);
     }
@@ -2172,7 +2180,7 @@ fn native_invalid_keyed_snapshots() {
                 .contains("invalid content key")
         );
         assert_eq!(
-            view.widget::<gtk::Label>("content/first/text").unwrap(),
+            view.widget::<gtk4::Label>("content/first/text").unwrap(),
             content
         );
         assert!(content.parent().is_some());
@@ -2230,36 +2238,36 @@ fn menu_item(id: &str, role: MenuRole, shortcut: Option<&str>) -> MenuItem {
 
 #[test]
 fn native_root_style() {
-    gtk::init().expect("native_root_style requires a display: run under Xvfb");
+    gtk4::init().expect("native_root_style requires a display: run under Xvfb");
     let view = View::new(Binding::constant("Root style".into()));
     let root = view.root().widget;
     let outer = view.native_window().child().unwrap();
     let canvas = root.parent().unwrap();
-    assert!(canvas.is::<gtk::Box>());
+    assert!(canvas.is::<gtk4::Box>());
     // Bounded window root: the canvas docks straight into the window box.
     // No outer scrollable may sit between them and scroll the footer away.
     assert!(canvas.parent().is_some_and(|parent| parent == outer));
     let mut ancestor = canvas.parent();
     while let Some(widget) = ancestor {
         assert!(
-            !widget.is::<gtk::ScrolledWindow>(),
+            !widget.is::<gtk4::ScrolledWindow>(),
             "outer scrollable would scroll the footer away"
         );
         assert!(
-            !widget.is::<gtk::Viewport>(),
+            !widget.is::<gtk4::Viewport>(),
             "outer viewport would scroll the footer away"
         );
         ancestor = widget.parent();
     }
     assert_eq!(
-        view.widget::<gtk::Box>("__root")
+        view.widget::<gtk4::Box>("__root")
             .unwrap()
-            .upcast::<gtk::Widget>(),
+            .upcast::<gtk4::Widget>(),
         root
     );
     {
         let nodes = view.0.nodes.borrow();
-        assert_eq!(nodes["__root"].frame.upcast_ref::<gtk::Widget>(), &root);
+        assert_eq!(nodes["__root"].frame.upcast_ref::<gtk4::Widget>(), &root);
         assert_eq!(nodes["__root"].parent.widget, canvas);
     }
     view.label(&view.root(), "child", Binding::constant("content".into()));
@@ -2290,7 +2298,7 @@ fn native_root_style() {
     assert_eq!((padding.top(), padding.right()), (6, 7));
     assert_eq!((padding.bottom(), padding.left()), (8, 9));
     assert_eq!(root.parent().as_ref(), Some(&canvas));
-    assert!(outer.first_child().unwrap().is::<gtk::PopoverMenuBar>());
+    assert!(outer.first_child().unwrap().is::<gtk4::PopoverMenuBar>());
     assert_eq!(outer.last_child().as_ref(), Some(&canvas));
     assert_eq!(root.first_child(), root.last_child());
     assert_eq!(
@@ -2306,7 +2314,7 @@ fn native_root_style() {
 
 #[test]
 fn native_menu_namespaces() {
-    gtk::init().expect("native_menu_namespaces requires a display: run under Xvfb");
+    gtk4::init().expect("native_menu_namespaces requires a display: run under Xvfb");
     let host = GtkHost::attach();
     let view = View::new(Binding::constant("Menu namespaces".into()));
     let items = Store::new(
@@ -2439,7 +2447,7 @@ fn native_menu_namespaces() {
 
 #[test]
 fn vacant_hierarchical_menus_stay_out_of_the_menubar() {
-    gtk::init().expect(
+    gtk4::init().expect(
         "vacant_hierarchical_menus_stay_out_of_the_menubar requires a display: run under Xvfb",
     );
     let host = GtkHost::attach();
@@ -2513,7 +2521,7 @@ fn vacant_hierarchical_menus_stay_out_of_the_menubar() {
 
 #[test]
 fn native_contract() {
-    gtk::init().expect("native_contract requires a display: run under Xvfb");
+    gtk4::init().expect("native_contract requires a display: run under Xvfb");
     let host = GtkHost::attach();
     let executor = host.executor();
     let rows: Vec<_> = (0..100)
@@ -2590,7 +2598,10 @@ fn native_contract() {
             ..Style::default()
         },
     );
-    assert_eq!(root.widget.downcast_ref::<gtk::Box>().unwrap().spacing(), 5);
+    assert_eq!(
+        root.widget.downcast_ref::<gtk4::Box>().unwrap().spacing(),
+        5
+    );
     let grid = view.layout(
         &root,
         "grid",
@@ -2667,7 +2678,7 @@ fn native_contract() {
     );
     view.meter(&root, "meter", model.bind(|s| s.progress, None));
     // An application factory can mount an actual primitive, not a string descriptor.
-    let custom = gtk::Switch::new();
+    let custom = gtk4::Switch::new();
     view.mount_native(&root, "native-switch", &custom);
     view.bind_native(
         "native-switch",
@@ -2789,25 +2800,27 @@ fn native_contract() {
         assert_eq!(stack.margin_start(), 5);
         assert_eq!(stack.style_context().padding().left(), 9);
         assert_eq!(stack.style_context().padding().top(), 6);
-        let grid = grid.widget.downcast_ref::<gtk::Grid>().unwrap();
+        let grid = grid.widget.downcast_ref::<gtk4::Grid>().unwrap();
         assert_eq!(grid.column_spacing(), 7);
         assert_eq!(grid.query_child(&nodes["g2"].frame), (0, 1, 2, 1));
         assert!(nodes["g1"].frame.allocation().x() > nodes["g0"].frame.allocation().x());
         assert!(nodes["g2"].frame.allocation().y() > nodes["g0"].frame.allocation().y());
-        assert!(flex.widget.is::<gtk::FlowBox>());
+        assert!(flex.widget.is::<gtk4::FlowBox>());
         let first = nodes["f0"].frame.compute_bounds(&flex.widget).unwrap();
         let last = nodes["f5"].frame.compute_bounds(&flex.widget).unwrap();
         assert!(last.y() > first.y(), "FlowBox must actually wrap");
         let position = absolute
             .widget
-            .downcast_ref::<gtk::Fixed>()
+            .downcast_ref::<gtk4::Fixed>()
             .unwrap()
             .child_position(&nodes["positioned"].frame);
         assert_eq!(position, (31.0, 17.0));
         assert_eq!(nodes["positioned"].frame.width_request(), 90);
     }
     assert_eq!(
-        view.widget::<gtk::ProgressBar>("meter").unwrap().fraction(),
+        view.widget::<gtk4::ProgressBar>("meter")
+            .unwrap()
+            .fraction(),
         0.25
     );
     let _ = model.update(|s| {
@@ -2817,12 +2830,14 @@ fn native_contract() {
     assert!(custom.is_active());
     assert_eq!(view.title(), "Updated title");
     assert_eq!(
-        view.widget::<gtk::ProgressBar>("meter").unwrap().fraction(),
+        view.widget::<gtk4::ProgressBar>("meter")
+            .unwrap()
+            .fraction(),
         0.75
     );
 
-    let old_entry = view.widget::<gtk::Entry>("rows/k0/name").unwrap();
-    let old_button = view.widget::<gtk::Button>("rows/k0/invoke").unwrap();
+    let old_entry = view.widget::<gtk4::Entry>("rows/k0/name").unwrap();
+    let old_button = view.widget::<gtk4::Button>("rows/k0/invoke").unwrap();
     let old_weak = old_entry.downgrade();
     view.edit("rows/k0/name", "edited").unwrap();
     assert_eq!(rows[0].model.snapshot().name, "edited");
@@ -2877,11 +2892,11 @@ fn native_contract() {
     let _ = rows[0].model.update(|s| s.enabled = true);
     view.click("rows/k0/invoke").unwrap();
     assert_eq!(rows[0].model.snapshot().calls, 2);
-    let retained_entry = view.widget::<gtk::Entry>("rows/k0/name").unwrap();
+    let retained_entry = view.widget::<gtk4::Entry>("rows/k0/name").unwrap();
     let _ = model.update(|s| s.rows.swap(0, 1));
     assert_eq!(view.item_keys("rows"), ["k1", "k0", "k2"]);
     assert_eq!(
-        view.widget::<gtk::Entry>("rows/k0/name").unwrap(),
+        view.widget::<gtk4::Entry>("rows/k0/name").unwrap(),
         retained_entry
     );
     let valid_keys = view.item_keys("rows");
@@ -2896,7 +2911,7 @@ fn native_contract() {
     let _ = model.update(move |s| s.rows = reset_rows);
     assert!(view.items_error("rows").is_none());
     settle();
-    let scroll = view.widget::<gtk::ScrolledWindow>("rows").unwrap();
+    let scroll = view.widget::<gtk4::ScrolledWindow>("rows").unwrap();
     assert_eq!(
         scroll.vadjustment().upper(),
         6400.0,
@@ -2944,9 +2959,9 @@ fn native_contract() {
         "separator creates native menu sections"
     );
     let shortcut = state.shortcuts.borrow()[0].clone();
-    assert!(shortcut.action().unwrap().is::<gtk::NamedAction>());
+    assert!(shortcut.action().unwrap().is::<gtk4::NamedAction>());
     assert!(shortcut.action().unwrap().activate(
-        gtk::ShortcutActionFlags::empty(),
+        gtk4::ShortcutActionFlags::empty(),
         &view.0.window,
         None
     ));
@@ -2958,7 +2973,7 @@ fn native_contract() {
         s.menus[0].shortcut = Some("<Control>t".into());
     });
     assert!(!shortcut.action().unwrap().activate(
-        gtk::ShortcutActionFlags::empty(),
+        gtk4::ShortcutActionFlags::empty(),
         &view.0.window,
         None
     ));
@@ -2967,7 +2982,7 @@ fn native_contract() {
     let shortcut = state.shortcuts.borrow()[0].clone();
     assert_eq!(shortcut.trigger().unwrap().to_string(), "<Control>t");
     assert!(shortcut.action().unwrap().activate(
-        gtk::ShortcutActionFlags::empty(),
+        gtk4::ShortcutActionFlags::empty(),
         &view.0.window,
         None
     ));
@@ -2975,7 +2990,7 @@ fn native_contract() {
     let _ = model.update(|s| s.menus[0].enabled = false);
     assert!(view.activate_menu("choose").is_err());
     let _ = model.update(|s| s.menus[0].enabled = true);
-    let clipboard = view.widget::<gtk::Entry>("clipboard").unwrap();
+    let clipboard = view.widget::<gtk4::Entry>("clipboard").unwrap();
     clipboard.grab_focus();
     settle();
     view.activate_menu("select").unwrap();
@@ -3000,9 +3015,9 @@ fn native_contract() {
     assert_eq!(model.snapshot().clipboard, "clipboard text");
     view.activate_menu("about").unwrap();
     settle();
-    let about: Vec<_> = gtk::Window::list_toplevels()
+    let about: Vec<_> = gtk4::Window::list_toplevels()
         .into_iter()
-        .filter_map(|widget| widget.downcast::<gtk::AboutDialog>().ok())
+        .filter_map(|widget| widget.downcast::<gtk4::AboutDialog>().ok())
         .collect();
     assert_eq!(about.len(), 1);
     assert_eq!(about[0].program_name().as_deref(), Some("Updated title"));
@@ -3085,7 +3100,7 @@ fn native_contract() {
         "entry",
         model.bind(Clone::clone, Some(|s, v| *s = v)),
     );
-    let native = dropped.widget::<gtk::Entry>("entry").unwrap();
+    let native = dropped.widget::<gtk4::Entry>("entry").unwrap();
     let weak = Rc::downgrade(&dropped.0);
     let marker = Rc::new(());
     let task = Rc::downgrade(&marker);
@@ -3135,7 +3150,7 @@ fn native_contract() {
 #[test]
 #[ignore = "isolated Xvfb native contract"]
 fn native_dialog_footer_orders_cancel_first_and_dispatches() {
-    gtk::init().unwrap();
+    gtk4::init().unwrap();
     let host = GtkHost::attach();
     let model = Store::new(0i32, host.executor());
     let accept = model.command(
@@ -3177,10 +3192,10 @@ fn native_dialog_footer_orders_cancel_first_and_dispatches() {
         glib::MainContext::default().iteration(true);
     }
     // GNOME order: cancel first, affirmative second.
-    let row = view.widget::<gtk::Box>("actions").unwrap();
-    let first = row.first_child().and_downcast::<gtk::Button>().unwrap();
+    let row = view.widget::<gtk4::Box>("actions").unwrap();
+    let first = row.first_child().and_downcast::<gtk4::Button>().unwrap();
     assert_eq!(first.label().as_deref(), Some("Cancel"));
-    let second = first.next_sibling().and_downcast::<gtk::Button>().unwrap();
+    let second = first.next_sibling().and_downcast::<gtk4::Button>().unwrap();
     assert_eq!(second.label().as_deref(), Some("Save"));
     // The non-destructive accept is the visual default.
     assert!(second.css_classes().iter().any(|c| c == "suggested-action"));
@@ -3200,7 +3215,7 @@ fn native_dialog_footer_orders_cancel_first_and_dispatches() {
 #[test]
 #[ignore = "isolated Xvfb native contract"]
 fn native_dialog_footer_marks_destructive_without_default() {
-    gtk::init().unwrap();
+    gtk4::init().unwrap();
     let host = GtkHost::attach();
     let model = Store::new(0u32, host.executor());
     let noop = || model.command(|_| true, |_, ()| {}, Binding::constant(()));
@@ -3228,11 +3243,11 @@ fn native_dialog_footer_marks_destructive_without_default() {
     while !ready.get() {
         glib::MainContext::default().iteration(true);
     }
-    let row = view.widget::<gtk::Box>("confirm").unwrap();
+    let row = view.widget::<gtk4::Box>("confirm").unwrap();
     let accept = row
         .first_child()
         .and_then(|first| first.next_sibling())
-        .and_downcast::<gtk::Button>()
+        .and_downcast::<gtk4::Button>()
         .unwrap();
     assert_eq!(accept.label().as_deref(), Some("Discard"));
     assert!(
@@ -3248,7 +3263,7 @@ fn native_dialog_footer_marks_destructive_without_default() {
 #[test]
 #[ignore = "isolated Xvfb native contract"]
 fn native_menu_invisible_leaf_stays_out_and_releases_shortcut() {
-    gtk::init().unwrap();
+    gtk4::init().unwrap();
     let view = View::new(Binding::constant("Menus".into()));
     let items = Store::new(
         vec![

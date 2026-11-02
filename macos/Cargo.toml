@@ -8,10 +8,10 @@ build = "build.rs"
 links = "PanechordAppKit"
 
 [dependencies]
-panechord-runtime.workspace = true
 futures.workspace = true
+panechord-runtime.workspace = true
 raw-window-handle.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
-futures-timer = "3.0"
+futures-timer.workspace = true

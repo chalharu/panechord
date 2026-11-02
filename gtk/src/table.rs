@@ -4,45 +4,45 @@ use std::sync::Arc;
 
 #[derive(Clone)]
 struct MountedRow {
-    body: glib::WeakRef<gtk::Box>,
-    cells: Vec<glib::WeakRef<gtk::ToggleButton>>,
+    body: glib::WeakRef<gtk4::Box>,
+    cells: Vec<glib::WeakRef<gtk4::ToggleButton>>,
 }
 
 struct TableState {
     data: RefCell<Table>,
     rows: gio::ListStore,
-    headers: gtk::Box,
-    separator: gtk::Separator,
-    empty: gtk::Label,
-    groups: RefCell<Vec<gtk::SizeGroup>>,
+    headers: gtk4::Box,
+    separator: gtk4::Separator,
+    empty: gtk4::Label,
+    groups: RefCell<Vec<gtk4::SizeGroup>>,
     selection: Option<Binding<Option<TableSelection>>>,
     selected: RefCell<Option<TableSelection>>,
     mounted: RefCell<HashMap<String, MountedRow>>,
     owner: WeakView,
 }
 
-pub(super) fn apply_text_style(label: &gtk::Label, text: Option<panechord_runtime::TextStyle>) {
+pub(super) fn apply_text_style(label: &gtk4::Label, text: Option<panechord_runtime::TextStyle>) {
     label.remove_css_class("heading");
     label.remove_css_class("monospace");
     let Some(text) = text else {
         label.set_attributes(None);
         return;
     };
-    let attributes = gtk::pango::AttrList::new();
+    let attributes = gtk4::pango::AttrList::new();
     match text.role {
         panechord_runtime::TextRole::Body => {}
         panechord_runtime::TextRole::Heading => label.add_css_class("heading"),
         panechord_runtime::TextRole::Code => {
             label.add_css_class("monospace");
-            attributes.insert(gtk::pango::AttrString::new_family("monospace"));
+            attributes.insert(gtk4::pango::AttrString::new_family("monospace"));
         }
         panechord_runtime::TextRole::Subtitle => {
-            attributes.insert(gtk::pango::AttrInt::new_weight(gtk::pango::Weight::Bold));
+            attributes.insert(gtk4::pango::AttrInt::new_weight(gtk4::pango::Weight::Bold));
         }
     }
-    attributes.insert(gtk::pango::AttrFloat::new_scale(f64::from(text.scale)));
+    attributes.insert(gtk4::pango::AttrFloat::new_scale(f64::from(text.scale)));
     if let Some([red, green, blue]) = text.foreground {
-        attributes.insert(gtk::pango::AttrColor::new_foreground(
+        attributes.insert(gtk4::pango::AttrColor::new_foreground(
             u16::from(red) * 257,
             u16::from(green) * 257,
             u16::from(blue) * 257,
@@ -51,17 +51,17 @@ pub(super) fn apply_text_style(label: &gtk::Label, text: Option<panechord_runtim
     label.set_attributes(Some(&attributes));
 }
 
-fn label(column: &TableColumn, value: &str, heading: bool) -> gtk::Label {
-    let label = gtk::Label::new(Some(value));
+fn label(column: &TableColumn, value: &str, heading: bool) -> gtk4::Label {
+    let label = gtk4::Label::new(Some(value));
     configure_label(&label, column, heading);
     label
 }
 
-fn configure_label(label: &gtk::Label, column: &TableColumn, heading: bool) {
+fn configure_label(label: &gtk4::Label, column: &TableColumn, heading: bool) {
     label.set_xalign(0.0);
     label.set_hexpand(column.stretch);
-    label.set_halign(gtk::Align::Fill);
-    label.set_valign(gtk::Align::Start);
+    label.set_halign(gtk4::Align::Fill);
+    label.set_valign(gtk4::Align::Start);
     if let Some(width) = column.width {
         label.set_size_request(width.round() as i32, -1);
     }
@@ -79,17 +79,17 @@ fn configure_label(label: &gtk::Label, column: &TableColumn, heading: bool) {
     match column.overflow {
         TextOverflow::Wrap if !heading => {
             label.set_wrap(true);
-            label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+            label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
             label.set_max_width_chars(1);
         }
         TextOverflow::EllipsizeMiddle if !heading => {
-            label.set_ellipsize(gtk::pango::EllipsizeMode::Middle)
+            label.set_ellipsize(gtk4::pango::EllipsizeMode::Middle)
         }
-        _ => label.set_ellipsize(gtk::pango::EllipsizeMode::End),
+        _ => label.set_ellipsize(gtk4::pango::EllipsizeMode::End),
     }
 }
 
-fn set_selected(button: &gtk::ToggleButton, active: bool) {
+fn set_selected(button: &gtk4::ToggleButton, active: bool) {
     button.set_active(active);
     if active {
         button.remove_css_class("flat");
@@ -101,7 +101,7 @@ fn set_selected(button: &gtk::ToggleButton, active: bool) {
 }
 
 impl TableState {
-    fn unmount(&self, body: &gtk::Box) {
+    fn unmount(&self, body: &gtk4::Box) {
         let key = body.widget_name();
         let mut mounted = self.mounted.borrow_mut();
         if mounted
@@ -157,7 +157,7 @@ impl TableState {
                 .columns
                 .iter()
                 .map(|column| {
-                    let group = gtk::SizeGroup::new(gtk::SizeGroupMode::Horizontal);
+                    let group = gtk4::SizeGroup::new(gtk4::SizeGroupMode::Horizontal);
                     let header = label(column, &column.title, true);
                     group.add_widget(&header);
                     self.headers.append(&header);
@@ -175,18 +175,18 @@ impl TableState {
                     let sample = label(column, "", false);
                     let layout = sample.layout();
                     layout.set_width(-1);
-                    layout.set_ellipsize(gtk::pango::EllipsizeMode::None);
+                    layout.set_ellipsize(gtk4::pango::EllipsizeMode::None);
                     let width = data.rows.iter().fold(0, |width, row| {
                         layout.set_text(&row.cells[index].text);
                         width.max(layout.pixel_size().0)
                     });
                     let width = if self.selection.is_some() {
                         sample.set_size_request(width, -1);
-                        let button = gtk::ToggleButton::new();
+                        let button = gtk4::ToggleButton::new();
                         button.add_css_class("flat");
                         button.add_css_class("text-button");
                         button.set_child(Some(&sample));
-                        button.measure(gtk::Orientation::Horizontal, -1).1
+                        button.measure(gtk4::Orientation::Horizontal, -1).1
                     } else {
                         width
                     };
@@ -249,9 +249,9 @@ impl View {
         data: Binding<Table>,
         selection: Option<Binding<Option<TableSelection>>>,
     ) {
-        let root = gtk::Box::new(gtk::Orientation::Vertical, 2);
-        let headers = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        let separator = gtk::Separator::new(gtk::Orientation::Horizontal);
+        let root = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+        let headers = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        let separator = gtk4::Separator::new(gtk4::Orientation::Horizontal);
         root.append(&headers);
         root.append(&separator);
         let state = Rc::new(TableState {
@@ -259,35 +259,35 @@ impl View {
             rows: gio::ListStore::new::<glib::BoxedAnyObject>(),
             headers,
             separator,
-            empty: gtk::Label::new(None),
+            empty: gtk4::Label::new(None),
             groups: RefCell::new(Vec::new()),
             selection: selection.clone(),
             selected: RefCell::new(None),
             mounted: RefCell::new(HashMap::new()),
             owner: self.downgrade(),
         });
-        let factory = gtk::SignalListItemFactory::new();
+        let factory = gtk4::SignalListItemFactory::new();
         factory.connect_setup(|_, object| {
-            let item = object.downcast_ref::<gtk::ListItem>().unwrap();
-            item.set_child(Some(&gtk::Box::new(gtk::Orientation::Horizontal, 0)));
+            let item = object.downcast_ref::<gtk4::ListItem>().unwrap();
+            item.set_child(Some(&gtk4::Box::new(gtk4::Orientation::Horizontal, 0)));
         });
         let weak = Rc::downgrade(&state);
-        let row_css = gtk::CssProvider::new();
+        let row_css = gtk4::CssProvider::new();
         row_css.load_from_data("row { padding: 0; }");
         factory.connect_bind(move |_, object| {
             let Some(state) = weak.upgrade() else { return };
-            let item = object.downcast_ref::<gtk::ListItem>().unwrap();
+            let item = object.downcast_ref::<gtk4::ListItem>().unwrap();
             let row = item
                 .item()
                 .unwrap()
                 .downcast::<glib::BoxedAnyObject>()
                 .unwrap();
             let row = row.borrow::<Arc<TableRow>>();
-            let body = item.child().unwrap().downcast::<gtk::Box>().unwrap();
+            let body = item.child().unwrap().downcast::<gtk4::Box>().unwrap();
             state.unmount(&body);
             if let Some(row) = body.parent() {
                 row.style_context()
-                    .add_provider(&row_css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+                    .add_provider(&row_css, gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION);
             }
             while let Some(child) = body.first_child() {
                 body.remove(&child);
@@ -306,10 +306,10 @@ impl View {
                 column.text.foreground = cell.foreground.or(column.text.foreground);
                 if let Some(selection) = &state.selection {
                     let width = column.width.take();
-                    let button = gtk::ToggleButton::with_label(&cell.text);
-                    let label = button.child().unwrap().downcast::<gtk::Label>().unwrap();
+                    let button = gtk4::ToggleButton::with_label(&cell.text);
+                    let label = button.child().unwrap().downcast::<gtk4::Label>().unwrap();
                     configure_label(&label, &column, false);
-                    label.set_valign(gtk::Align::Center);
+                    label.set_valign(gtk4::Align::Center);
                     button.set_visible(!column.hide_empty || !cell.text.is_empty());
                     button.add_css_class("flat");
                     button.add_css_class("text-button");
@@ -374,10 +374,10 @@ impl View {
         });
         let weak = Rc::downgrade(&state);
         factory.connect_unbind(move |_, object| {
-            let item = object.downcast_ref::<gtk::ListItem>().unwrap();
+            let item = object.downcast_ref::<gtk4::ListItem>().unwrap();
             if let Some(body) = item
                 .child()
-                .and_then(|child| child.downcast::<gtk::Box>().ok())
+                .and_then(|child| child.downcast::<gtk4::Box>().ok())
             {
                 if let Some(state) = weak.upgrade() {
                     state.unmount(&body);
@@ -387,19 +387,19 @@ impl View {
                 }
             }
         });
-        let native_selection = gtk::NoSelection::new(Some(state.rows.clone()));
-        let list = gtk::ListView::new(Some(native_selection), Some(factory));
+        let native_selection = gtk4::NoSelection::new(Some(state.rows.clone()));
+        let list = gtk4::ListView::new(Some(native_selection), Some(factory));
         list.set_vexpand(true);
         list.set_hexpand(true);
-        let scroll = gtk::ScrolledWindow::new();
-        scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+        let scroll = gtk4::ScrolledWindow::new();
+        scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
         scroll.set_vexpand(true);
         scroll.set_hexpand(true);
         scroll.set_child(Some(&list));
-        let overlay = gtk::Overlay::new();
+        let overlay = gtk4::Overlay::new();
         overlay.set_child(Some(&scroll));
-        state.empty.set_halign(gtk::Align::Center);
-        state.empty.set_valign(gtk::Align::Center);
+        state.empty.set_halign(gtk4::Align::Center);
+        state.empty.set_valign(gtk4::Align::Center);
         overlay.add_overlay(&state.empty);
         overlay.set_vexpand(true);
         root.append(&overlay);

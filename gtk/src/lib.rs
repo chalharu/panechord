@@ -8,7 +8,6 @@ mod controls;
 #[cfg(target_os = "macos")]
 mod macos_menu;
 mod table;
-pub use gtk;
 
 use std::{
     cell::{Cell, RefCell},
@@ -19,7 +18,7 @@ use std::{
 };
 
 use futures::future::{AbortHandle, Abortable, LocalBoxFuture};
-use gtk::{gio, glib, prelude::*};
+use gtk4::{gio, glib, prelude::*};
 use panechord_runtime::{
     Binding, Command, Executor, Keyed, Layout, MenuItem, MenuRole, Session, Shortcut,
     ShutdownPhase, Store, Style, Subscription, UiHost, Viewport, WindowHooks,
@@ -28,7 +27,7 @@ use panechord_runtime::{
 /// A native container, not a second runtime parent descriptor.
 #[derive(Clone)]
 pub struct Parent {
-    widget: gtk::Widget,
+    widget: gtk4::Widget,
     kind: ParentKind,
     next: Rc<Cell<u32>>,
 }
@@ -44,7 +43,7 @@ enum ParentKind {
 }
 
 impl Parent {
-    fn new(widget: &impl IsA<gtk::Widget>, kind: ParentKind) -> Self {
+    fn new(widget: &impl IsA<gtk4::Widget>, kind: ParentKind) -> Self {
         Self {
             widget: widget.as_ref().clone(),
             kind,
@@ -52,16 +51,16 @@ impl Parent {
         }
     }
 
-    fn append(&self, widget: &gtk::Widget) {
+    fn append(&self, widget: &gtk4::Widget) {
         let index = self.next.get();
         self.next.set(index + 1);
         match self.kind {
             ParentKind::Stack => self
                 .widget
-                .downcast_ref::<gtk::Box>()
+                .downcast_ref::<gtk4::Box>()
                 .unwrap()
                 .append(widget),
-            ParentKind::Grid(columns) => self.widget.downcast_ref::<gtk::Grid>().unwrap().attach(
+            ParentKind::Grid(columns) => self.widget.downcast_ref::<gtk4::Grid>().unwrap().attach(
                 widget,
                 (index % columns) as i32,
                 (index / columns) as i32,
@@ -70,63 +69,63 @@ impl Parent {
             ),
             ParentKind::Flex => self
                 .widget
-                .downcast_ref::<gtk::FlowBox>()
+                .downcast_ref::<gtk4::FlowBox>()
                 .unwrap()
                 .insert(widget, -1),
             ParentKind::Absolute => self
                 .widget
-                .downcast_ref::<gtk::Fixed>()
+                .downcast_ref::<gtk4::Fixed>()
                 .unwrap()
                 .put(widget, 0.0, 0.0),
             ParentKind::Notebook => {
                 self.widget
-                    .downcast_ref::<gtk::Notebook>()
+                    .downcast_ref::<gtk4::Notebook>()
                     .unwrap()
-                    .append_page(widget, None::<&gtk::Widget>);
+                    .append_page(widget, None::<&gtk4::Widget>);
             }
             ParentKind::PageStack => {
                 self.widget
-                    .downcast_ref::<gtk::Stack>()
+                    .downcast_ref::<gtk4::Stack>()
                     .unwrap()
                     .add_child(widget);
             }
         }
     }
 
-    fn remove(&self, widget: &gtk::Widget) {
+    fn remove(&self, widget: &gtk4::Widget) {
         match self.kind {
             ParentKind::Stack => self
                 .widget
-                .downcast_ref::<gtk::Box>()
+                .downcast_ref::<gtk4::Box>()
                 .unwrap()
                 .remove(widget),
             ParentKind::Grid(_) => self
                 .widget
-                .downcast_ref::<gtk::Grid>()
+                .downcast_ref::<gtk4::Grid>()
                 .unwrap()
                 .remove(widget),
             ParentKind::Flex => {
-                if let Some(child) = widget.parent().and_downcast::<gtk::FlowBoxChild>() {
+                if let Some(child) = widget.parent().and_downcast::<gtk4::FlowBoxChild>() {
                     self.widget
-                        .downcast_ref::<gtk::FlowBox>()
+                        .downcast_ref::<gtk4::FlowBox>()
                         .unwrap()
                         .remove(&child);
                 }
             }
             ParentKind::Absolute => self
                 .widget
-                .downcast_ref::<gtk::Fixed>()
+                .downcast_ref::<gtk4::Fixed>()
                 .unwrap()
                 .remove(widget),
             ParentKind::Notebook => {
-                let notebook = self.widget.downcast_ref::<gtk::Notebook>().unwrap();
+                let notebook = self.widget.downcast_ref::<gtk4::Notebook>().unwrap();
                 if let Some(page) = notebook.page_num(widget) {
                     notebook.remove_page(Some(page));
                 }
             }
             ParentKind::PageStack => self
                 .widget
-                .downcast_ref::<gtk::Stack>()
+                .downcast_ref::<gtk4::Stack>()
                 .unwrap()
                 .remove(widget),
         }
@@ -149,10 +148,10 @@ struct Resources {
 }
 
 struct Node {
-    widget: gtk::Widget,
-    frame: gtk::Box,
+    widget: gtk4::Widget,
+    frame: gtk4::Box,
     parent: Parent,
-    css: gtk::CssProvider,
+    css: gtk4::CssProvider,
     grid_index: usize,
 }
 
@@ -171,25 +170,25 @@ struct MenuState {
     /// repopulating) the last content rebuilds the bar exactly on change.
     vacant: Cell<bool>,
     actions: RefCell<Vec<String>>,
-    shortcuts: RefCell<Vec<gtk::Shortcut>>,
+    shortcuts: RefCell<Vec<gtk4::Shortcut>>,
 }
 
 struct Action {
     action: gio::SimpleAction,
     name: String,
     // macOS global-menu mirror only (`macos_menu` is Apple-gated); other
-    // platforms drive accelerators through `gtk::Shortcut` triggers.
+    // platforms drive accelerators through `gtk4::Shortcut` triggers.
     #[cfg(target_os = "macos")]
     shortcut: Option<String>,
 }
 
 struct Inner {
-    window: gtk::Window,
+    window: gtk4::Window,
     root: Parent,
     menus: gio::Menu,
     menu_states: RefCell<HashMap<String, Rc<MenuState>>>,
     group: gio::SimpleActionGroup,
-    shortcuts: gtk::ShortcutController,
+    shortcuts: gtk4::ShortcutController,
     serial: Cell<u64>,
     scope: RefCell<String>,
     nodes: RefCell<HashMap<String, Node>>,
@@ -324,14 +323,14 @@ fn take_initial_window_size() -> (i32, i32) {
 pub async fn pick_file() -> Option<std::path::PathBuf> {
     let (sender, receiver) = futures::channel::oneshot::channel();
     let sender = std::cell::RefCell::new(Some(sender));
-    let dialog = gtk::FileChooserNative::builder()
+    let dialog = gtk4::FileChooserNative::builder()
         .title("Open")
-        .action(gtk::FileChooserAction::Open)
+        .action(gtk4::FileChooserAction::Open)
         .modal(true)
         .build();
     dialog.connect_response(move |dialog, response| {
         if let Some(sender) = sender.borrow_mut().take() {
-            let path = (response == gtk::ResponseType::Accept)
+            let path = (response == gtk4::ResponseType::Accept)
                 .then(|| dialog.file())
                 .flatten()
                 .and_then(|file| file.path());
@@ -346,22 +345,22 @@ pub async fn pick_file() -> Option<std::path::PathBuf> {
 impl View {
     pub fn new(title: Binding<String>) -> Self {
         let (initial_width, initial_height) = take_initial_window_size();
-        let window = gtk::Window::builder()
+        let window = gtk4::Window::builder()
             .default_width(initial_width)
             .default_height(initial_height)
             .build();
-        let outer = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        let root = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         root.set_vexpand(true);
         let menus = gio::Menu::new();
-        let bar = gtk::PopoverMenuBar::from_model(Some(&menus));
+        let bar = gtk4::PopoverMenuBar::from_model(Some(&menus));
         // macOS shows the mirrored system-global menu instead; the
         // in-window bar would duplicate it. Menu logic still builds the
         // gio models the global mirror reads from.
         #[cfg(target_os = "macos")]
         bar.set_visible(false);
         outer.append(&bar);
-        let canvas = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let canvas = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         canvas.set_vexpand(true);
         canvas.append(&root);
         // Bounded window root, never an outer scrollable: inner `Scroll`
@@ -371,13 +370,13 @@ impl View {
         outer.append(&canvas);
         window.set_child(Some(&outer));
         root.set_widget_name("__root");
-        let css = gtk::CssProvider::new();
+        let css = gtk4::CssProvider::new();
         root.style_context()
-            .add_provider(&css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+            .add_provider(&css, gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION);
         let group = gio::SimpleActionGroup::new();
         window.insert_action_group("panechord", Some(&group));
-        let shortcuts = gtk::ShortcutController::new();
-        shortcuts.set_scope(gtk::ShortcutScope::Global);
+        let shortcuts = gtk4::ShortcutController::new();
+        shortcuts.set_scope(gtk4::ShortcutScope::Global);
         window.add_controller(shortcuts.clone());
         let view = Self(Rc::new(Inner {
             window,
@@ -432,13 +431,13 @@ impl View {
     }
 
     /// Obtain the real window for integration with an existing GTK Application.
-    pub fn native_window(&self) -> gtk::Window {
+    pub fn native_window(&self) -> gtk4::Window {
         self.0.window.clone()
     }
 
     /// Construct custom GTK primitives in application code, then mount them here.
     /// The ID participates in style, automation and template-prefix cleanup.
-    pub fn mount_native(&self, parent: &Parent, id: &str, widget: &impl IsA<gtk::Widget>) {
+    pub fn mount_native(&self, parent: &Parent, id: &str, widget: &impl IsA<gtk4::Widget>) {
         assert!(!self.0.closed.get(), "cannot mount into a closed view");
         assert!(!id.is_empty(), "empty control ID is reserved");
         assert!(
@@ -449,15 +448,15 @@ impl View {
             widget.parent().is_none(),
             "native widget already has a parent"
         );
-        let frame = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let frame = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         frame.set_widget_name(id);
         frame.set_hexpand(true);
         widget.set_widget_name(id);
         frame.append(widget);
-        let css = gtk::CssProvider::new();
+        let css = gtk4::CssProvider::new();
         frame
             .style_context()
-            .add_provider(&css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+            .add_provider(&css, gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION);
         let grid_index = parent.next.get() as usize;
         parent.append(frame.upcast_ref());
         self.0.nodes.borrow_mut().insert(
@@ -623,7 +622,7 @@ impl View {
         if !parent
             .widget
             .root()
-            .and_then(|root| root.downcast::<gtk::Window>().ok())
+            .and_then(|root| root.downcast::<gtk4::Window>().ok())
             .is_some_and(|window| {
                 window == self.0.window || window.transient_for().as_ref() == Some(&self.0.window)
             })
@@ -632,11 +631,11 @@ impl View {
         }
         let result = match layout {
             Layout::Stack { horizontal, gap } => {
-                let widget = gtk::Box::new(
+                let widget = gtk4::Box::new(
                     if horizontal {
-                        gtk::Orientation::Horizontal
+                        gtk4::Orientation::Horizontal
                     } else {
-                        gtk::Orientation::Vertical
+                        gtk4::Orientation::Vertical
                     },
                     pixels(gap),
                 );
@@ -644,13 +643,13 @@ impl View {
             }
             Layout::Grid { columns, gap } => {
                 assert!(columns > 0, "Grid columns must be positive");
-                let widget = gtk::Grid::new();
+                let widget = gtk4::Grid::new();
                 widget.set_column_homogeneous(true);
                 widget.set_hexpand(true);
                 // GTK only counts attached tracks; retain even empty declared
                 // columns, otherwise a partially populated grid changes ratios.
                 for column in 0..columns {
-                    let track = gtk::Box::new(gtk::Orientation::Vertical, 0);
+                    let track = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
                     track.set_hexpand(true);
                     widget.attach(&track, column as i32, 0, 1, 1);
                 }
@@ -659,15 +658,15 @@ impl View {
                 Parent::new(&widget, ParentKind::Grid(columns))
             }
             Layout::Flex { gap } => {
-                let widget = gtk::FlowBox::new();
-                widget.set_selection_mode(gtk::SelectionMode::None);
+                let widget = gtk4::FlowBox::new();
+                widget.set_selection_mode(gtk4::SelectionMode::None);
                 widget.set_row_spacing(pixels(gap) as u32);
                 widget.set_column_spacing(pixels(gap) as u32);
                 widget.set_min_children_per_line(1);
                 widget.set_max_children_per_line(u16::MAX as u32);
                 Parent::new(&widget, ParentKind::Flex)
             }
-            Layout::Absolute => Parent::new(&gtk::Fixed::new(), ParentKind::Absolute),
+            Layout::Absolute => Parent::new(&gtk4::Fixed::new(), ParentKind::Absolute),
         };
         self.mount_native(parent, id, &result.widget);
         Ok(result)
@@ -687,18 +686,18 @@ impl View {
                 gap: 0.0,
             },
         )?;
-        let scroll = gtk::ScrolledWindow::new();
+        let scroll = gtk4::ScrolledWindow::new();
         scroll.set_propagate_natural_width(!horizontal);
         scroll.set_policy(
             if horizontal {
-                gtk::PolicyType::Automatic
+                gtk4::PolicyType::Automatic
             } else {
-                gtk::PolicyType::Never
+                gtk4::PolicyType::Never
             },
             if horizontal {
-                gtk::PolicyType::Never
+                gtk4::PolicyType::Never
             } else {
-                gtk::PolicyType::Automatic
+                gtk4::PolicyType::Automatic
             },
         );
         scroll.set_hexpand(true);
@@ -744,7 +743,7 @@ impl View {
             },
         };
         style.validate(layout).map_err(str::to_owned)?;
-        if let Ok(entry) = self.widget::<gtk::Entry>(id) {
+        if let Ok(entry) = self.widget::<gtk4::Entry>(id) {
             entry.set_width_chars(if style.placement.width.is_some() {
                 1
             } else {
@@ -756,7 +755,7 @@ impl View {
                 -1
             });
         }
-        if let Ok(label) = self.widget::<gtk::Label>(id) {
+        if let Ok(label) = self.widget::<gtk4::Label>(id) {
             table::apply_text_style(&label, style.text);
         }
         let margin = style.margin;
@@ -774,10 +773,10 @@ impl View {
         ));
         let p = style.placement;
         let alignment = |value| match value {
-            Some(Alignment::Start) => gtk::Align::Start,
-            Some(Alignment::Center) => gtk::Align::Center,
-            Some(Alignment::End) => gtk::Align::End,
-            Some(Alignment::Stretch) | None => gtk::Align::Fill,
+            Some(Alignment::Start) => gtk4::Align::Start,
+            Some(Alignment::Center) => gtk4::Align::Center,
+            Some(Alignment::End) => gtk4::Align::End,
+            Some(Alignment::Stretch) | None => gtk4::Align::Fill,
         };
         frame.set_halign(alignment(style.horizontal_alignment));
         frame.set_valign(alignment(style.vertical_alignment));
@@ -796,7 +795,7 @@ impl View {
         );
         match parent.kind {
             ParentKind::Grid(columns) => {
-                let grid = parent.widget.downcast_ref::<gtk::Grid>().unwrap();
+                let grid = parent.widget.downcast_ref::<gtk4::Grid>().unwrap();
                 let (row, column) = p.grid_position(grid_index, columns);
                 grid.remove(&frame);
                 grid.attach(&frame, column, row, p.column_span, p.row_span);
@@ -804,7 +803,7 @@ impl View {
             ParentKind::Absolute => {
                 parent
                     .widget
-                    .downcast_ref::<gtk::Fixed>()
+                    .downcast_ref::<gtk4::Fixed>()
                     .unwrap()
                     .move_(&frame, p.x as f64, p.y as f64);
             }
@@ -814,14 +813,14 @@ impl View {
     }
 
     pub fn label(&self, parent: &Parent, id: &str, text: Binding<String>) {
-        let label = gtk::Label::new(None);
+        let label = gtk4::Label::new(None);
         label.set_xalign(0.0);
         self.mount_native(parent, id, &label);
         self.bind_native(id, text, &label, |label, text| label.set_text(&text));
     }
 
     pub fn entry(&self, parent: &Parent, id: &str, text: Binding<String>) {
-        let entry = gtk::Entry::new();
+        let entry = gtk4::Entry::new();
         entry.set_editable(text.is_writable());
         self.mount_native(parent, id, &entry);
         let applying = Rc::new(Cell::new(false));
@@ -859,7 +858,7 @@ impl View {
     }
 
     pub fn button(&self, parent: &Parent, id: &str, text: Binding<String>, command: Command) {
-        let button = gtk::Button::new();
+        let button = gtk4::Button::new();
         self.mount_native(parent, id, &button);
         self.bind_native(id, text, &button, |button, text| button.set_label(&text));
         self.bind_native(id, command.enabled.clone(), &button, |button, enabled| {
@@ -880,10 +879,10 @@ impl View {
         id: &str,
         footer: panechord_runtime::DialogFooter,
     ) {
-        let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-        row.set_halign(gtk::Align::End);
-        let cancel = gtk::Button::new();
-        let accept = gtk::Button::new();
+        let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 12);
+        row.set_halign(gtk4::Align::End);
+        let cancel = gtk4::Button::new();
+        let accept = gtk4::Button::new();
         row.append(&cancel);
         row.append(&accept);
         self.mount_native(parent, id, &row);
@@ -919,7 +918,7 @@ impl View {
     }
 
     pub fn meter(&self, parent: &Parent, id: &str, value: Binding<f64>) {
-        let meter = gtk::ProgressBar::new();
+        let meter = gtk4::ProgressBar::new();
         self.mount_native(parent, id, &meter);
         self.bind_native(id, value, &meter, |meter, value| {
             meter.set_fraction(if value.is_finite() {
@@ -940,17 +939,17 @@ impl View {
         viewport: Binding<Viewport>,
         template: Rc<dyn Fn(&View, &Parent, &str, Store<T>)>,
     ) {
-        let container = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        let top = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        let bottom = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        let top = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        let bottom = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         container.append(&top);
         container.append(&bottom);
-        let scroll = gtk::ScrolledWindow::builder()
-            .hscrollbar_policy(gtk::PolicyType::Never)
-            .vscrollbar_policy(gtk::PolicyType::Automatic)
+        let scroll = gtk4::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk4::PolicyType::Never)
+            .vscrollbar_policy(gtk4::PolicyType::Automatic)
             .child(&container)
             .build();
-        scroll.set_valign(gtk::Align::Start);
+        scroll.set_valign(gtk4::Align::Start);
         self.mount_native(parent, id, &scroll);
         let rows = Rc::new(Rows {
             owner: Rc::downgrade(&self.0),
@@ -1319,7 +1318,7 @@ impl View {
             section.append(Some(&item.label), Some(&detailed));
             if let Some(trigger) = trigger {
                 let shortcut =
-                    gtk::Shortcut::new(Some(trigger), Some(gtk::NamedAction::new(&detailed)));
+                    gtk4::Shortcut::new(Some(trigger), Some(gtk4::NamedAction::new(&detailed)));
                 self.0.shortcuts.add_shortcut(shortcut.clone());
                 state.shortcuts.borrow_mut().push(shortcut);
             }
@@ -1338,7 +1337,7 @@ impl View {
         match role {
             MenuRole::Quit => self.request_close(),
             MenuRole::About => {
-                let dialog = gtk::AboutDialog::builder()
+                let dialog = gtk4::AboutDialog::builder()
                     .transient_for(&self.0.window)
                     .destroy_with_parent(true)
                     .modal(true)
@@ -1351,7 +1350,7 @@ impl View {
                     return;
                 };
                 if *role == MenuRole::SelectAll {
-                    if let Some(editable) = focus.dynamic_cast_ref::<gtk::Editable>() {
+                    if let Some(editable) = focus.dynamic_cast_ref::<gtk4::Editable>() {
                         editable.select_region(0, -1);
                     } else {
                         let _ = focus.activate_action("selection.select-all", None);
@@ -1429,7 +1428,7 @@ impl View {
             .unwrap_or_default()
     }
 
-    fn widget<W: IsA<gtk::Widget>>(&self, id: &str) -> Result<W, String> {
+    fn widget<W: IsA<gtk4::Widget>>(&self, id: &str) -> Result<W, String> {
         if self.0.closed.get() {
             return Err("view is closed".into());
         }
@@ -1443,7 +1442,7 @@ impl View {
     }
     pub fn edit(&self, id: &str, value: &str) -> Result<(), String> {
         self.require_interactive(id)?;
-        let entry = self.widget::<gtk::Entry>(id)?;
+        let entry = self.widget::<gtk4::Entry>(id)?;
         if !entry.is_editable() {
             return Err(format!("read-only entry: {id}"));
         }
@@ -1452,7 +1451,7 @@ impl View {
     }
     pub fn click(&self, id: &str) -> Result<(), String> {
         self.require_interactive(id)?;
-        if let Ok(check) = self.widget::<gtk::CheckButton>(id) {
+        if let Ok(check) = self.widget::<gtk4::CheckButton>(id) {
             if !check.is_sensitive() {
                 return Err("read-only control".into());
             }
@@ -1464,7 +1463,7 @@ impl View {
             check.set_active(active);
             return Ok(());
         }
-        let button = self.widget::<gtk::Button>(id)?;
+        let button = self.widget::<gtk4::Button>(id)?;
         if !button.is_sensitive() {
             return Err(format!("disabled button: {id}"));
         }
@@ -1501,23 +1500,23 @@ impl View {
     }
     pub fn text(&self, id: &str) -> Option<String> {
         let widget = self.0.nodes.borrow().get(id)?.widget.clone();
-        if let Some(label) = widget.downcast_ref::<gtk::Label>() {
+        if let Some(label) = widget.downcast_ref::<gtk4::Label>() {
             return Some(label.text().into());
         }
-        if let Some(entry) = widget.downcast_ref::<gtk::Entry>() {
+        if let Some(entry) = widget.downcast_ref::<gtk4::Entry>() {
             return Some(entry.text().into());
         }
         widget
-            .downcast_ref::<gtk::Button>()
+            .downcast_ref::<gtk4::Button>()
             .and_then(|button| button.label().map(Into::into))
     }
 }
 
 // Canonical common grammar first; raw GTK trigger strings are legacy-only.
-fn parse_shortcut(value: &str) -> Option<gtk::ShortcutTrigger> {
+fn parse_shortcut(value: &str) -> Option<gtk4::ShortcutTrigger> {
     match Shortcut::parse(value) {
-        Ok(shortcut) => gtk::ShortcutTrigger::parse_string(&shortcut.to_gtk()),
-        Err(_) => gtk::ShortcutTrigger::parse_string(value),
+        Ok(shortcut) => gtk4::ShortcutTrigger::parse_string(&shortcut.to_gtk()),
+        Err(_) => gtk4::ShortcutTrigger::parse_string(value),
     }
 }
 
@@ -1535,16 +1534,16 @@ fn valid_key(key: &str) -> bool {
 
 struct Mounted<T: Clone + 'static> {
     item: Keyed<T>,
-    row: gtk::ScrolledWindow,
+    row: gtk4::ScrolledWindow,
 }
 
 struct Rows<T: Clone + 'static> {
     owner: Weak<Inner>,
     id: String,
-    container: gtk::Box,
-    top: gtk::Box,
-    bottom: gtk::Box,
-    scroll: gtk::ScrolledWindow,
+    container: gtk4::Box,
+    top: gtk4::Box,
+    bottom: gtk4::Box,
+    scroll: gtk4::ScrolledWindow,
     source: RefCell<Vec<Keyed<T>>>,
     mounted: RefCell<Vec<Mounted<T>>>,
     viewport: Cell<Viewport>,
@@ -1635,10 +1634,10 @@ impl<T: Clone + 'static> Rows<T> {
                         view.cleanup(&format!("{}/{}", self.id, stale.item.key));
                         self.container.remove(&stale.row);
                     }
-                    let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
-                    let row = gtk::ScrolledWindow::builder()
-                        .hscrollbar_policy(gtk::PolicyType::Never)
-                        .vscrollbar_policy(gtk::PolicyType::External)
+                    let body = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+                    let row = gtk4::ScrolledWindow::builder()
+                        .hscrollbar_policy(gtk4::PolicyType::Never)
+                        .vscrollbar_policy(gtk4::PolicyType::External)
                         .child(&body)
                         .build();
                     row.set_widget_name(&item.key);
@@ -1666,7 +1665,7 @@ impl<T: Clone + 'static> Rows<T> {
                 view.cleanup(&format!("{}/{}", self.id, stale.item.key));
                 self.container.remove(&stale.row);
             }
-            let mut previous: gtk::Widget = self.top.clone().upcast();
+            let mut previous: gtk4::Widget = self.top.clone().upcast();
             for row in &mounted {
                 self.container
                     .reorder_child_after(&row.row, Some(&previous));
@@ -1790,14 +1789,14 @@ pub struct GtkHost {
     executor: Rc<GtkExecutor>,
     sessions: Rc<RefCell<Vec<Session>>>,
     windows: Rc<RefCell<HashMap<String, View>>>,
-    application: RefCell<Option<gtk::Application>>,
+    application: RefCell<Option<gtk4::Application>>,
 }
 
 impl GtkHost {
     /// GTK must already be initialized; the caller continues driving its GTK loop.
     pub fn attach() -> Self {
         assert!(
-            gtk::is_initialized_main_thread(),
+            gtk4::is_initialized_main_thread(),
             "GtkHost must attach on the GTK thread"
         );
         let sessions = Rc::new(RefCell::new(Vec::<Session>::new()));
@@ -1821,7 +1820,7 @@ impl GtkHost {
     pub fn executor(&self) -> Rc<dyn Executor> {
         self.executor.clone()
     }
-    pub fn attach_view(&self, application: &gtk::Application, view: &View) {
+    pub fn attach_view(&self, application: &gtk4::Application, view: &View) {
         view.0.window.set_application(Some(application));
         let weak = Rc::downgrade(&self.executor);
         view.on_close(Rc::new(move || {
@@ -2080,9 +2079,9 @@ fn panic_error(panic: Box<dyn std::any::Any + Send>) -> String {
 }
 
 pub fn run(make: impl FnOnce(Rc<dyn Executor>) -> View + 'static) -> Result<(), String> {
-    gtk::init().map_err(|error| error.to_string())?;
+    gtk4::init().map_err(|error| error.to_string())?;
     let host = Rc::new(GtkHost::attach());
-    let app = gtk::Application::new(None::<&str>, gio::ApplicationFlags::NON_UNIQUE);
+    let app = gtk4::Application::new(None::<&str>, gio::ApplicationFlags::NON_UNIQUE);
     app.register(None::<&gio::Cancellable>)
         .map_err(|error| error.to_string())?;
     let owner = Rc::new(RefCell::new(None::<View>));
@@ -2136,9 +2135,9 @@ pub fn run(make: impl FnOnce(Rc<dyn Executor>) -> View + 'static) -> Result<(), 
 pub fn run_host(
     make: impl FnOnce(Rc<GtkHost>) -> Result<(), String> + 'static,
 ) -> Result<(), String> {
-    gtk::init().map_err(|error| error.to_string())?;
+    gtk4::init().map_err(|error| error.to_string())?;
     let host = Rc::new(GtkHost::attach());
-    let app = gtk::Application::new(None::<&str>, gio::ApplicationFlags::NON_UNIQUE);
+    let app = gtk4::Application::new(None::<&str>, gio::ApplicationFlags::NON_UNIQUE);
     app.register(None::<&gio::Cancellable>)
         .map_err(|error| error.to_string())?;
     let error = Rc::new(RefCell::new(None));

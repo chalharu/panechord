@@ -3,8 +3,8 @@
 //! Dispatch reuses the registered gio actions (`activate()` fires the same
 //! closures as the in-window items), so behavior stays identical.
 use super::Inner;
-use gtk::gio::prelude::{ActionExt as _, MenuModelExt as _};
-use gtk::{gio, prelude::*};
+use gtk4::gio::prelude::{ActionExt as _, MenuModelExt as _};
+use gtk4::{gio, prelude::*};
 use objc2::rc::Retained;
 use objc2::runtime::NSObject;
 use objc2::{ClassType, MainThreadOnly, define_class, msg_send, sel};

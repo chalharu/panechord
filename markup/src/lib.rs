@@ -695,7 +695,7 @@ impl Document {
             || [p.width, p.height]
                 .into_iter()
                 .flatten()
-                .any(|v| !v.is_finite() || v < 0.0 || v > 1_000_000.0)
+                .any(|v| !v.is_finite() || v < 0.0 || v > panechord_runtime::MAX_LAYOUT_SIZE)
         {
             return Err(err("invalid spacing or placement".into()));
         }
@@ -827,9 +827,9 @@ impl Document {
                 children: cs,
                 ..
             } => {
-                if !(1..=4096).contains(columns)
+                if !(1..=panechord_runtime::MAX_GRID_COLUMNS).contains(columns)
                     || !gap.is_finite()
-                    || !(0.0..=1_000_000.0).contains(gap)
+                    || !(0.0..=panechord_runtime::MAX_LAYOUT_SIZE).contains(gap)
                 {
                     return Err(err("invalid grid columns/gap".into()));
                 }
@@ -842,7 +842,7 @@ impl Document {
             | Control::FlexLayout {
                 gap, children: cs, ..
             } => {
-                if !gap.is_finite() || !(0.0..=1_000_000.0).contains(gap) {
+                if !gap.is_finite() || !(0.0..=panechord_runtime::MAX_LAYOUT_SIZE).contains(gap) {
                     return Err(err("invalid gap".into()));
                 }
                 children.extend(cs);

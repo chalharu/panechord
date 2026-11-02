@@ -31,6 +31,7 @@ pub struct Settings {
     pub viewport: Viewport,
     pub file_items: Vec<MenuItem>,
     pub edit_items: Vec<MenuItem>,
+    pub help_items: Vec<MenuItem>,
     workers: Rc<RefCell<BlockingPool>>,
     path: PathBuf,
 }
@@ -89,17 +90,64 @@ impl Settings {
                     enabled: true,
                     visible: true,
                 },
+            ],
+            edit_items: vec![
                 MenuItem {
-                    id: "about".into(),
-                    label: "About Panechord".into(),
+                    id: "copy".into(),
+                    label: "Copy".into(),
                     argument: String::new(),
-                    shortcut: None,
-                    role: MenuRole::About,
+                    shortcut: Some("Primary+C".into()),
+                    role: MenuRole::Copy,
                     enabled: true,
                     visible: true,
                 },
+                MenuItem {
+                    id: "cut".into(),
+                    label: "Cut".into(),
+                    argument: String::new(),
+                    shortcut: Some("Primary+X".into()),
+                    role: MenuRole::Cut,
+                    enabled: true,
+                    visible: true,
+                },
+                MenuItem {
+                    id: "paste".into(),
+                    label: "Paste".into(),
+                    argument: String::new(),
+                    shortcut: Some("Primary+V".into()),
+                    role: MenuRole::Paste,
+                    enabled: true,
+                    visible: true,
+                },
+                MenuItem {
+                    id: "select-all".into(),
+                    label: "Select All".into(),
+                    argument: String::new(),
+                    shortcut: Some("Primary+A".into()),
+                    role: MenuRole::SelectAll,
+                    enabled: true,
+                    visible: true,
+                },
+                MenuItem {
+                    id: "separator".into(),
+                    label: String::new(),
+                    argument: String::new(),
+                    shortcut: None,
+                    role: MenuRole::Separator,
+                    enabled: true,
+                    visible: true,
+                },
+                menu_item("reverse", "Reverse items", "reverse", None),
             ],
-            edit_items: vec![menu_item("reverse", "Reverse items", "reverse", None)],
+            help_items: vec![MenuItem {
+                id: "about".into(),
+                label: "About Panechord".into(),
+                argument: String::new(),
+                shortcut: None,
+                role: MenuRole::About,
+                enabled: true,
+                visible: true,
+            }],
             workers,
             path,
         }
@@ -129,7 +177,7 @@ impl Settings {
     fn reverse(&mut self) {
         self.rows.reverse();
         self.selected = self.rows.first().cloned();
-        self.edit_items[0].label = format!("Reverse again (first: {})", self.rows[0].key);
+        self.edit_items[5].label = format!("Reverse again (first: {})", self.rows[0].key);
     }
     #[command]
     fn choose(model: Store<Self>, argument: String) {

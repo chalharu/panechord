@@ -22,8 +22,8 @@ use std::{
 use futures::future::{AbortHandle, Abortable, LocalBoxFuture};
 use gtk4::{gio, glib, prelude::*};
 use panechord_runtime::{
-    Binding, Command, Executor, Keyed, Layout, MenuItem, MenuRole, Session, ShutdownPhase, Store,
-    Style, Subscription, UiHost, Viewport, WindowHooks, canonical_or_raw,
+    Binding, Command, Executor, Keyed, Layout, MenuItem, MenuRole, Session, Shortcut,
+    ShutdownPhase, Store, Style, Subscription, UiHost, Viewport, WindowHooks,
 };
 
 /// A native container, not a second runtime parent descriptor.
@@ -194,6 +194,10 @@ struct Inner {
     lists: RefCell<HashMap<String, Rc<dyn ListControl>>>,
     actions: RefCell<HashMap<String, Action>>,
     control_actions: RefCell<HashMap<String, controls::Action>>,
+    /// Dialog footer buttons by `footer-id/sub` key (`accept`/`cancel`).
+    /// Footers mount a single row node, so the buttons live here instead of
+    /// the layout registry; `click`/`require_interactive` consult this map.
+    footer_buttons: RefCell<HashMap<String, gtk4::Button>>,
     tabs: RefCell<HashMap<String, Rc<controls::Tab>>>,
     /// Parsed shortcut triggers by raw shortcut string: menu items recur with
     /// the same strings on every emission, so parse once per distinct string.
@@ -241,6 +245,7 @@ impl Inner {
         drop(self.resources.take());
         drop(self.lists.take());
         drop(self.control_actions.take());
+        drop(self.footer_buttons.take());
         drop(self.tabs.take());
         self.menus.remove_all();
         self.window.remove_controller(&self.shortcuts);
@@ -339,10 +344,8 @@ impl View {
         root.set_vexpand(true);
         let menus = gio::Menu::new();
         let bar = gtk4::PopoverMenuBar::from_model(Some(&menus));
-        // macOS installs no global menu (the former system-global mirror
-        // is removed), so the in-window bar stays hidden and menus are
-        // unavailable on macOS builds. Menu logic still builds the gio
-        // models; hiding only affects presentation.
+        // macOS builds hide the in-window bar; menus are unavailable there.
+        // Menu logic still builds the gio models; hiding only affects presentation.
         #[cfg(target_os = "macos")]
         bar.set_visible(false);
         outer.append(&bar);
@@ -386,6 +389,7 @@ impl View {
             lists: RefCell::default(),
             actions: RefCell::default(),
             control_actions: RefCell::default(),
+            footer_buttons: RefCell::default(),
             tabs: RefCell::default(),
             trigger_cache: RefCell::default(),
             menu_states: RefCell::default(),
@@ -535,6 +539,10 @@ impl View {
     fn cleanup(&self, prefix: &str) {
         self.0
             .control_actions
+            .borrow_mut()
+            .retain(|id, _| !scoped(id, prefix));
+        self.0
+            .footer_buttons
             .borrow_mut()
             .retain(|id, _| !scoped(id, prefix));
         self.0.tabs.borrow_mut().retain(|id, _| !scoped(id, prefix));
@@ -885,6 +893,10 @@ impl View {
         ];
         for (sub, button, part) in parts {
             let key = format!("{id}/{sub}");
+            self.0
+                .footer_buttons
+                .borrow_mut()
+                .insert(key.clone(), button.clone());
             self.bind_native(&key, part.text.clone(), button, |button, text| {
                 button.set_label(&text)
             });
@@ -1446,6 +1458,13 @@ impl View {
             .borrow()
             .get(id)
             .map(|node| node.widget.clone())
+            .or_else(|| {
+                self.0
+                    .footer_buttons
+                    .borrow()
+                    .get(id)
+                    .map(|button| button.clone().upcast())
+            })
             .and_then(|widget| widget.downcast::<W>().ok())
             .ok_or_else(|| format!("missing or wrong control: {id}"))
     }
@@ -1521,9 +1540,12 @@ impl View {
     }
 }
 
-// Canonical grammar first; the raw value stays as the GTK-native fallback.
+// Only the shared grammar is accepted; anything else is an invalid shortcut.
 fn parse_shortcut(value: &str) -> Option<gtk4::ShortcutTrigger> {
-    gtk4::ShortcutTrigger::parse_string(&canonical_or_raw(value, shortcut::to_gtk))
+    match Shortcut::parse(value) {
+        Ok(shortcut) => gtk4::ShortcutTrigger::parse_string(&shortcut::to_gtk(&shortcut)),
+        Err(_) => None,
+    }
 }
 
 fn pixels(value: f32) -> i32 {

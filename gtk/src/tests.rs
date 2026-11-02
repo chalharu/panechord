@@ -1298,10 +1298,7 @@ fn native_canonical_shortcut_semantics() {
             "{key}"
         );
     }
-    assert_eq!(
-        parse_shortcut("Ctrl+Shift+S").unwrap().to_string(),
-        parse_shortcut("<Control><Shift>s").unwrap().to_string()
-    );
+    assert!(parse_shortcut("<Control><Shift>s").is_none());
     // Install and activate real canonical menu shortcuts, not just string output.
     let view = View::new(Binding::constant("shortcuts".into()));
     let calls = Rc::new(Cell::new(0));
@@ -2564,7 +2561,7 @@ fn native_contract() {
             progress: 0.25,
             clipboard: "clipboard text".into(),
             menus: vec![
-                menu_item("choose", MenuRole::Normal, Some("<Control>r")),
+                menu_item("choose", MenuRole::Normal, Some("Primary+R")),
                 menu_item("sep", MenuRole::Separator, None),
                 menu_item("select", MenuRole::SelectAll, None),
                 menu_item("copy", MenuRole::Copy, None),
@@ -2974,7 +2971,7 @@ fn native_contract() {
     let _ = model.update(|s| {
         s.menus[0].argument = "new argument".into();
         s.menus[0].label = "new label".into();
-        s.menus[0].shortcut = Some("<Control>t".into());
+        s.menus[0].shortcut = Some("Primary+T".into());
     });
     assert!(!shortcut.action().unwrap().activate(
         gtk4::ShortcutActionFlags::empty(),

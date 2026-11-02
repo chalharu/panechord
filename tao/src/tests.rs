@@ -1155,7 +1155,7 @@ fn dynamic_menu_snapshots_replace_arguments_enabled_hotkeys_and_native_items() {
         id: "save".into(),
         label: "Save".into(),
         argument: "first".into(),
-        shortcut: Some("Ctrl+KeyS".into()),
+        shortcut: Some("Ctrl+S".into()),
         role: MenuRole::Normal,
         enabled: true,
         visible: true,
@@ -1188,7 +1188,7 @@ fn dynamic_menu_snapshots_replace_arguments_enabled_hotkeys_and_native_items() {
     assert!(!view.0.menu_ids.borrow().contains_key(&old_native));
     let _ = state.update(|s| {
         s.1[0].enabled = true;
-        s.1[0].shortcut = Some("Ctrl+Shift+KeyS".into());
+        s.1[0].shortcut = Some("Ctrl+Shift+S".into());
     });
     h.pump();
     view.activate_menu("file/save").unwrap();
@@ -1297,7 +1297,7 @@ fn native_menu_append_failure(hierarchical: bool) {
         id: "save".into(),
         label: "Save".into(),
         argument: "old argument".into(),
-        shortcut: Some("Ctrl+KeyS".into()),
+        shortcut: Some("Ctrl+S".into()),
         role: MenuRole::Normal,
         enabled: true,
         visible: true,
@@ -1398,7 +1398,7 @@ fn native_menu_append_failure(hierarchical: bool) {
             first.id = "new".into();
             first.label = "New".into();
             first.argument = "new argument".into();
-            first.shortcut = Some("Ctrl+KeyN".into());
+            first.shortcut = Some("Ctrl+N".into());
             let mut failing = first.clone();
             failing.id = "bad".into();
             failing.shortcut = Some(shortcut.into());

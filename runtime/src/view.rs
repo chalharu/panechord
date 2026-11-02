@@ -248,14 +248,6 @@ pub trait DialogView: ViewCore {
     ) -> Self::Parent;
 }
 
-/// The former `ContainerView` surface: every container capability at once.
-/// Generic code that needs less bounds on the individual traits instead
-/// (`fn show<V: TabView + DialogView>`); the umbrella stays for code that
-/// genuinely needs the whole surface (codegen output, `Runner`).
-pub trait ContainerView: TabView + ListView + TableView + DialogView {}
-
-impl<T> ContainerView for T where T: TabView + ListView + TableView + DialogView {}
-
 /// Menus: typed dispatch plus hierarchical submenus.
 pub trait MenuView: ViewCore {
     fn typed_menu<A: Clone + 'static>(
@@ -301,7 +293,10 @@ pub trait View:
     + ButtonView
     + SelectView
     + MediaView
-    + ContainerView
+    + TabView
+    + ListView
+    + TableView
+    + DialogView
     + MenuView
     + AutomationView
 {
@@ -314,7 +309,10 @@ impl<T> View for T where
         + ButtonView
         + SelectView
         + MediaView
-        + ContainerView
+        + TabView
+        + ListView
+        + TableView
+        + DialogView
         + MenuView
         + AutomationView
 {

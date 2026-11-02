@@ -73,9 +73,8 @@ Primary/Ctrl/Cmd/Alt/Shift before one ASCII letter/digit, F1..F12, or
 Enter/Tab/Space/Escape/Backspace/Delete/Insert/Home/End/PageUp/PageDown/Left/Right/Up/Down.
 Tokens are case-insensitive and trimmed; Shift is explicit. Primary is Cmd on
 macOS, Ctrl elsewhere. `panechord_tao::shortcut::{to_muda,to_muda_for}` lowers
-the parsed form (the runtime only parses). If common parsing fails, existing muda accelerator input
-(e.g. `Ctrl+KeyS`) is accepted as **legacy backend-specific syntax**; its broader
-accepted vocabulary is not common grammar. GTK keyvals and muda Code accelerators
+the parsed form (the runtime only parses). Anything outside the shared grammar
+is rejected; GTK keyvals and muda Code accelerators
 do not establish physical-key equivalence for all keyboard layouts.
 Normal items dispatch their frozen
 string argument. Automation accepts `menu/item` or an unambiguous item ID.

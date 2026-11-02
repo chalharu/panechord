@@ -324,6 +324,13 @@ impl View {
             .borrow()
             .get(id)
             .map(|node| node.widget.clone())
+            .or_else(|| {
+                self.0
+                    .footer_buttons
+                    .borrow()
+                    .get(id)
+                    .map(|button| button.clone().upcast())
+            })
             .ok_or("missing control")?;
         Self::require_active_widget(Some(widget))
     }

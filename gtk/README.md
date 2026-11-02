@@ -77,9 +77,8 @@ to Cmd (GTK Meta) on macOS, Ctrl elsewhere; Shift is always explicit.
 `panechord_gtk::shortcut::{to_gtk,to_gtk_for}` lowers the parsed form (the
 runtime only parses); `*_for(ShortcutTarget)` allows explicit target lowering
 independently of the build host.
-If common parsing fails, existing GTK trigger syntax (`<Control>s`) is accepted
-as **legacy backend-specific input**, not portable grammar. The legacy parser
-may accept more keys/modifiers than the strict common parser. Invalid shortcuts
+Anything outside the shared grammar is rejected, including GTK trigger syntax
+such as `<Control>s`. Invalid shortcuts
 and duplicate IDs reject the snapshot. Normal
 items dispatch their String argument; built-in roles operate on native GTK
 focus/clipboard, open a native AboutDialog, or request View closure. Clipboard roles
@@ -115,8 +114,7 @@ For each window, call `host.register_view(&session, "main", &view)` and then
 unique IDs for every View sharing the Session, before attaching/presenting it.
 Without `coordinate_close`, native close keeps its original synchronous behavior.
 The host must outlive the windows and the caller must keep driving the GTK loop.
-For multiwindow Applications, set each `native_window().set_application(...)`;
-do not use the single-window executor-closing `attach_view` convenience.
+For multiwindow Applications, set each `native_window().set_application(...)`.
 
 Coordination is the fallback for `request_close` (including native/menu close);
 it never registers or replaces

@@ -3,10 +3,8 @@
 //! trimmed. Modifiers: Primary, Ctrl, Cmd, Alt, Shift (no duplicates).
 //! Primary resolves to Cmd on macOS, Ctrl elsewhere. This is not a promise of
 //! physical-key/layout identity: GTK uses keyvals, muda's Accelerator uses Code.
-//! Backend-specific legacy syntax is deliberately NOT parsed here; use
-//! `canonical_or_raw` to sequence the canonical grammar ahead of a
-//! backend-native fallback in one shared place.
-use std::{borrow::Cow, fmt, str::FromStr};
+//! Only this grammar is accepted; backend renderers lower the parsed form.
+use std::{fmt, str::FromStr};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShortcutTarget {
@@ -138,19 +136,6 @@ impl Shortcut {
     }
 }
 
-/// Canonical grammar first, raw value as the backend-native fallback: renders
-/// the canonical form when `value` parses, otherwise borrows `value` so the
-/// backend parser can try its own legacy syntax. Each backend passes its own
-/// renderer (`panechord_gtk::shortcut::to_gtk`,
-/// `panechord_tao::shortcut::to_muda`), so the fallback is sequenced in one
-/// shared place without the runtime naming backend vocabulary.
-pub fn canonical_or_raw(value: &str, render: impl FnOnce(&Shortcut) -> String) -> Cow<'_, str> {
-    match Shortcut::parse(value) {
-        Ok(shortcut) => Cow::Owned(render(&shortcut)),
-        Err(_) => Cow::Borrowed(value),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -189,7 +174,7 @@ mod tests {
         }
     }
     #[test]
-    fn malformed_and_legacy_are_not_common_grammar() {
+    fn malformed_inputs_are_not_common_grammar() {
         for input in [
             "",
             "+",

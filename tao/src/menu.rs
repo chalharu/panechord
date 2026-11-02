@@ -1,7 +1,7 @@
 use super::shortcut::to_muda;
 use super::*;
 use muda::{IsMenuItem, PredefinedMenuItem, accelerator::Accelerator};
-use panechord_runtime::{MenuItem, MenuNode, MenuRole, canonical_or_raw, visible_tree};
+use panechord_runtime::{MenuItem, MenuNode, MenuRole, Shortcut, visible_tree};
 
 #[derive(Clone)]
 pub(super) struct Action {
@@ -16,8 +16,12 @@ fn vetoed_quit(role: &MenuRole) -> bool {
     *role == MenuRole::Quit
 }
 pub fn parse_shortcut(value: &str) -> Result<Accelerator, String> {
-    // Canonical grammar first; the raw value stays as the muda-native fallback.
-    canonical_or_raw(value, to_muda)
+    // Only the shared grammar is accepted; anything else is an invalid shortcut.
+    let rendered = match Shortcut::parse(value) {
+        Ok(shortcut) => to_muda(&shortcut),
+        Err(error) => return Err(format!("invalid menu shortcut {value:?}: {error}")),
+    };
+    rendered
         .parse::<Accelerator>()
         .map_err(|e| format!("invalid menu shortcut {value:?}: {e}"))
 }
@@ -514,19 +518,21 @@ mod tests {
             );
         }
         assert_eq!(
-            parse_shortcut("Ctrl+Shift+S"),
-            parse_shortcut("Ctrl+Shift+KeyS")
+            parse_shortcut("Ctrl+Shift+S").unwrap(),
+            parse_shortcut("Primary+Shift+S").unwrap()
         );
+        assert!(parse_shortcut("Ctrl+Shift+KeyS").is_err());
     }
     #[test]
     fn parse_and_validate_before_snapshot_mutation() {
-        assert!(parse_shortcut("Ctrl+KeyS").is_ok());
+        assert!(parse_shortcut("Ctrl+S").is_ok());
         assert!(parse_shortcut("NotAModifier+UnknownKey").is_err());
+        assert!(parse_shortcut("Ctrl+KeyS").is_err());
         let item: MenuItem = MenuItem {
             id: "save".into(),
             label: "Save".into(),
             argument: "now".into(),
-            shortcut: Some("Ctrl+KeyS".into()),
+            shortcut: Some("Ctrl+S".into()),
             role: MenuRole::Normal,
             enabled: true,
             visible: true,
@@ -636,7 +642,7 @@ mod tests {
                 role == MenuRole::Separator || vetoed_quit(&role)
             );
             item.enabled = true;
-            item.shortcut = Some("Ctrl+KeyS".into());
+            item.shortcut = Some("Ctrl+S".into());
             assert_eq!(
                 validate(&[item], &RefCell::new(HashMap::new())).is_ok(),
                 vetoed_quit(&role)

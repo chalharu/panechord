@@ -24,7 +24,6 @@ struct Controls {
     page: String,
     option: String,
     menu_tree: Vec<panechord_runtime::MenuNode<String>>,
-    menu_title: String,
     open: bool,
 }
 #[panechord_macros::commands]
@@ -191,7 +190,6 @@ fn main() -> Result<(), String> {
                         )],
                     }],
                 }],
-                menu_title: "Emulation".into(),
                 open: false,
             },
             executor.clone(),
@@ -230,8 +228,6 @@ fn main() -> Result<(), String> {
         executor.spawn(Box::pin(async move {
             probe.activate_menu("emulation/slot").unwrap();
             assert_eq!(model.snapshot().region, "slot-1");
-            assert!(model.update(|state| state.menu_title = "Emulation Updated".into()));
-            probe.activate_menu("emulation/slot").unwrap();
             assert!(model.update(|state| {
                 if let panechord_runtime::MenuNode::Submenu { enabled, .. } =
                     &mut state.menu_tree[0]
@@ -335,7 +331,11 @@ fn main() -> Result<(), String> {
             }
             probe.click("open_dialog").unwrap();
             assert!(model.snapshot().open);
-            probe.click("dismiss").unwrap();
+            probe.click("actions/accept").unwrap();
+            assert!(!model.snapshot().open);
+            probe.click("open_dialog").unwrap();
+            assert!(model.snapshot().open);
+            probe.click("actions/cancel").unwrap();
             assert!(!model.snapshot().open);
             probe.set_open("dialog", true).unwrap();
             assert!(model.snapshot().open);

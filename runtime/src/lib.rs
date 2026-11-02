@@ -11,8 +11,8 @@ pub use backend::Backend;
 pub use key::KeyCode;
 pub use lifecycle::{Lifecycle, RequestGuard, panic_message};
 pub use view::{
-    AutomationView, ButtonView, ContainerView, DialogView, LayoutView, ListView, MediaView,
-    MenuView, SelectView, TabView, TableView, Template, TextView, View, ViewCore, WeakViewHandle,
+    AutomationView, ButtonView, DialogView, LayoutView, ListView, MediaView, MenuView, SelectView,
+    TabView, TableView, Template, TextView, View, ViewCore, WeakViewHandle,
 };
 #[doc(hidden)]
 pub mod native_keys;
@@ -34,7 +34,7 @@ pub use session::{
     Session, ShutdownCoordinator, ShutdownFailure, ShutdownOutcome, ShutdownPhase, UiHost,
     WindowHooks, run_async,
 };
-pub use shortcut::{Shortcut, ShortcutError, ShortcutTarget, canonical_or_raw};
+pub use shortcut::{Shortcut, ShortcutError, ShortcutTarget};
 pub use store::{
     Binding, Command, Executor, Limits, Policy, Store, StoreOwner, Subscription, WriteError,
     ignore_write, validation,

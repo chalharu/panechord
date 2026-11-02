@@ -3127,10 +3127,14 @@ fn native_contract() {
     assert!(task.upgrade().is_none());
     host.close();
 
-    // Standalone run drives a real Application loop, aborting its executor on close.
+    // Standalone run_host drives a real Application loop, quitting when no
+    // registered window remains.
     let ran = Rc::new(Cell::new(false));
     let flag = ran.clone();
-    run(move |executor| {
+    run_host(move |host| {
+        let session = Session::new();
+        UiHost::attach(&*host, session.clone()).unwrap();
+        let executor = host.executor();
         let view = View::new(Binding::constant("standalone".into()));
         let weak = Rc::downgrade(&view.0);
         executor.spawn(Box::pin(async move {
@@ -3145,7 +3149,8 @@ fn native_contract() {
             flag.set(view.native_window().is_mapped());
             view.activate_menu("quit").unwrap();
         }));
-        view
+        host.register_view(&session, "standalone", &view).unwrap();
+        Ok(())
     })
     .unwrap();
     assert!(ran.get());

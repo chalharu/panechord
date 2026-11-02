@@ -26,9 +26,13 @@ root:
   id: main
   title: {literal: Panechord 2 — macro-driven layouts and MVVM}
   menus:
-    - id: actions
-      title: {literal: Actions}
-      items: {bind: {path: menu_items}}
+    - id: file
+      title: {literal: File}
+      items: {bind: {path: file_items}}
+      command: choose
+    - id: edit
+      title: {literal: Edit}
+      items: {bind: {path: edit_items}}
       command: choose
   content:
     type: StackLayout
@@ -62,10 +66,16 @@ root:
         id: commands
         gap: 8
         children:
+          - type: Label
+            id: level_caption
+            text: {literal: Level}
           - type: TextBox
             id: number
             text: {bind: {path: progress, mode: TwoWay, converter: crate::NumberText}}
             style: {placement: {width: 120}}
+          - type: Label
+            id: progress_caption
+            text: {literal: Progress}
           - type: Native
             id: meter
             factory: crate::meter
@@ -91,15 +101,13 @@ root:
         id: selected
         content: {bind: {path: selected}}
         content_template: row
-      - type: AbsoluteLayout
-        id: absolute
-        padding: 4
-        style: {placement: {height: 48}}
+      - type: FlexLayout
+        id: flow
+        gap: 8
         children:
           - type: Label
-            id: absolute_caption
-            text: {literal: "Absolute: x=12, y=4"}
-            style: {placement: {x: 12, y: 4, width: 240, height: 24}}
+            id: flow_caption
+            text: {literal: "Wraps instead of clipping at narrow widths"}
       - type: BindableLayout
         id: bound_rows
         items: {bind: {path: rows}}

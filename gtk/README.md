@@ -89,7 +89,7 @@ conformance merely because GTK widgets are used.
 
 ## Loop ownership and shutdown
 
-`run(make)` initializes GTK and owns a native Application loop. For an existing
+`run_host(make)` owns the native Application loop. For an existing
 GTK loop, initialize GTK on that thread and retain `GtkHost::attach()`; obtain its
 `executor()` without starting a nested loop. `native_window()` exposes the real
 window for setting an existing Application. `register_view(&session, id, &view)`
@@ -101,10 +101,8 @@ Default registered View hooks immediately confirm and have no app work to drain;
 register application cancellation/drain hooks with Session separately. View
 `on_close` callbacks are additive and should close application Stores. Dropping
 View disconnects signals/subscriptions; closing/dropping GtkHost aborts all its
-tasks. `attach_view(application, view)` is the single-window convenience used by
-`run`, and also closes the host executor when that View closes; use
-`native_window().set_application(...)` for multiwindow attached hosts instead.
-Task completion queues a coalesced, one-shot idle callback to release GLib
+tasks. Use `native_window().set_application(...)` for multiwindow attached
+hosts. Task completion queues a coalesced, one-shot idle callback to release GLib
 JoinHandles, even without another spawn. Tasks and cleanup callbacks refer to the
 executor weakly; handle/Source destruction runs outside registry borrows. There
 is no permanent idle source or periodic polling timer. Registered window closure

@@ -100,10 +100,10 @@ static MENU_INIT: Once = Once::new();
 
 // Automatic window tabbing is a process-wide AppKit default (tao exposes it
 // per builder via `WindowBuilderExtMacOS`, but `Desktop::open` builds the
-// window internally). The flag defaults to tao's default (on); Panechord apps
-// opt out before `run_host` so separate windows never merge into tabs.
+// window internally). Panechord defaults to opted out, so separate windows
+// never merge into tabs unless the app opts in before `run_host`.
 static ALLOW_AUTOMATIC_WINDOW_TABBING: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(true);
+    std::sync::atomic::AtomicBool::new(false);
 
 /// Opt out of (or back into) AppKit automatic window tabbing. Takes effect
 /// for windows created after the call; off macOS it only records the flag.

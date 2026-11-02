@@ -106,6 +106,25 @@ impl Shortcut {
     pub fn parse(value: &str) -> Result<Self, ShortcutError> {
         value.parse()
     }
+    /// Memoized parse for menu rebuild loops: the same shortcut strings recur
+    /// on every items emission, so cache the portable parse per raw string.
+    /// Backends still own rendering (`to_gtk`/`to_muda`/`to_bridge`); this
+    /// only skips re-splitting and re-validating the shared grammar.
+    pub fn parse_cached(value: &str) -> Result<Self, ShortcutError> {
+        use std::{cell::RefCell, collections::HashMap};
+        thread_local! {
+            static PARSED: RefCell<HashMap<String, Result<Shortcut, ShortcutError>>> =
+                RefCell::new(HashMap::new());
+        }
+        PARSED.with(|cache| {
+            if let Some(hit) = cache.borrow().get(value) {
+                return hit.clone();
+            }
+            let parsed = Self::parse(value);
+            cache.borrow_mut().insert(value.to_owned(), parsed.clone());
+            parsed
+        })
+    }
     /// Raw modifier bitmap for backend renderers: bit 0 Primary, 1 Ctrl,
     /// 2 Cmd, 3 Alt, 4 Shift. Backends resolve Primary to Cmd on macOS and
     /// Ctrl elsewhere.

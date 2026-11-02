@@ -29,7 +29,7 @@ use panechord_tao as backend;
 ))]
 compile_error!("select exactly one backend: backend-gtk, backend-tao or backend-macos");
 
-use panechord_runtime::{BlockingPool, Store};
+use panechord_runtime::{BlockingPool, Session, Store, UiHost};
 use std::{
     cell::{Cell, RefCell},
     path::PathBuf,
@@ -57,7 +57,10 @@ fn main() -> Result<(), String> {
     let pool = workers.clone();
     let passed = Rc::new(Cell::new(false));
     let probe = passed.clone();
-    let result = backend::run(move |executor| {
+    let result = backend::run_host(move |host| {
+        let session = Session::new();
+        host.attach(session.clone())?;
+        let executor = host.executor();
         #[cfg(not(feature = "backend-macos"))]
         let model = Store::new(model::App::new(folder), executor.clone());
         #[cfg(feature = "backend-macos")]
@@ -68,10 +71,16 @@ fn main() -> Result<(), String> {
             std::num::NonZeroUsize::new(64).unwrap(),
         );
         let view = wiring::view(model.clone(), executor.clone(), pool);
+        #[cfg(feature = "backend-gtk")]
+        host.register_view(&session, "main", &view)?;
+        #[cfg(feature = "backend-tao")]
+        host.present(&view);
+        #[cfg(feature = "backend-macos")]
+        host.present(&view);
         if smoke {
             executor.spawn(Box::pin(smoke::verify(view.clone(), model, probe)));
         }
-        view
+        Ok(())
     });
     workers.borrow_mut().shutdown(); // Join only after the native event loop exits.
     result?;

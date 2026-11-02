@@ -3,7 +3,6 @@
 #![cfg(target_os = "macos")]
 mod controls;
 mod input;
-pub mod lifecycle;
 pub mod shortcut;
 mod view;
 
@@ -195,12 +194,22 @@ struct Inner {
     nodes: RefCell<HashSet<String>>,
     lists: RefCell<HashMap<String, Rc<List>>>,
     menu_errors: RefCell<HashMap<String, String>>,
+    /// Last built native items JSON per menu id: title ticks (titles ride
+    /// their own subscription) reuse the cached items instead of revalidating
+    /// and reserializing the content. Items emissions always rebuild fully:
+    /// handlers capture each item's argument, and arguments are only `Clone`,
+    /// so a title tick can never prove the content identical — it just
+    /// doesn't touch it.
+    menu_native_items: RefCell<HashMap<String, serde_json::Value>>,
+    /// Bridge shortcut strings by raw shortcut: items recur with the same
+    /// strings on every emission, so parse and render once per distinct one.
+    bridge_cache: RefCell<HashMap<String, String>>,
     tabs: RefCell<HashMap<String, controls::TabState>>,
     layouts: RefCell<HashMap<String, Layout>>,
     parents: RefCell<HashMap<String, String>>,
     grid_index: RefCell<HashMap<String, usize>>,
     next_index: RefCell<HashMap<String, usize>>,
-    lifecycle: lifecycle::Lifecycle,
+    lifecycle: panechord_runtime::Lifecycle,
     surface_event: RefCell<Option<SurfaceEventHandler>>,
     surface_viewport: RefCell<Option<ViewportHook>>,
     surface_size: Cell<(f32, f32)>,
@@ -386,16 +395,6 @@ fn within(id: &str, scope: &str) -> bool {
             .is_some_and(|tail| tail.starts_with('/'))
 }
 
-/// Backend-resolved run configuration for this host. The AppKit host consumes
-/// the first submenu as the application menu, like Tao on macOS; host-side
-/// parity is still unverified.
-pub fn runner_config() -> panechord_runtime::RunnerConfig {
-    panechord_runtime::RunnerConfig {
-        application_menu: true,
-        menu_quit_in_file: false,
-    }
-}
-
 /// Opt out of (or back into) AppKit automatic window tabbing, mirroring
 /// tao's Mac-only builder option. Must run on the main thread; it sets the
 /// `NSWindow` class default, so it applies to windows created after the call.
@@ -438,12 +437,14 @@ impl View {
             nodes: RefCell::new(HashSet::from(["__root".into()])),
             lists: RefCell::new(HashMap::new()),
             menu_errors: RefCell::new(HashMap::new()),
+            menu_native_items: RefCell::new(HashMap::new()),
+            bridge_cache: RefCell::new(HashMap::new()),
             tabs: RefCell::new(HashMap::new()),
             layouts: RefCell::new(HashMap::from([("__root".to_owned(), Layout::default())])),
             parents: RefCell::new(HashMap::new()),
             grid_index: RefCell::new(HashMap::new()),
             next_index: RefCell::new(HashMap::new()),
-            lifecycle: lifecycle::Lifecycle::default(),
+            lifecycle: panechord_runtime::Lifecycle::default(),
             surface_event: RefCell::new(None),
             surface_viewport: RefCell::new(None),
             surface_size: Cell::new((0.0, 0.0)),
@@ -1277,6 +1278,9 @@ impl View {
         let key = id.to_owned();
         let source = items.clone();
         let heading = title.clone();
+        let title_key = key.clone();
+        let title_source = source.clone();
+        let title_heading = heading.clone();
         let refresh: Refresh = Rc::new(move |view| {
             // Vacant menus (hidden by visible bindings) stay out of the
             // menubar; remove a previously installed one if it empties.
@@ -1300,16 +1304,28 @@ impl View {
                         .insert(key.clone(), "invalid or duplicate menu item id".into());
                     return;
                 }
-                let shortcut = match item.shortcut.as_deref().map(Shortcut::parse).transpose() {
-                    Ok(shortcut) => shortcut
-                        .map(|shortcut| shortcut::to_bridge(&shortcut))
-                        .unwrap_or_default(),
-                    Err(error) => {
-                        view.0
-                            .menu_errors
-                            .borrow_mut()
-                            .insert(key.clone(), error.to_string());
-                        return;
+                let shortcut = match item.shortcut.as_deref() {
+                    None => String::new(),
+                    Some(raw) => {
+                        if let Some(hit) = view.0.bridge_cache.borrow().get(raw) {
+                            hit.clone()
+                        } else {
+                            let rendered = match Shortcut::parse_cached(raw) {
+                                Ok(parsed) => shortcut::to_bridge(&parsed),
+                                Err(error) => {
+                                    view.0
+                                        .menu_errors
+                                        .borrow_mut()
+                                        .insert(key.clone(), error.to_string());
+                                    return;
+                                }
+                            };
+                            view.0
+                                .bridge_cache
+                                .borrow_mut()
+                                .insert(raw.to_owned(), rendered.clone());
+                            rendered
+                        }
                     }
                 };
                 let argument = item.argument.clone();
@@ -1350,8 +1366,36 @@ impl View {
             }
             view.0.handlers.borrow_mut().extend(handlers);
             view.0.menu_errors.borrow_mut().remove(&key);
+            view.0
+                .menu_native_items
+                .borrow_mut()
+                .insert(key.clone(), serde_json::Value::Array(native));
         });
-        let update = refresh.clone();
+        // Title ticks reuse the cached items JSON: titles never touch items
+        // or handlers, so only the title wrapper reserializes.
+        let title_refresh = refresh.clone();
+        let refresh_title: Refresh = Rc::new(move |view| {
+            if title_heading.get().is_empty() && title_source.get().is_empty() {
+                view.remove_menu(&title_key);
+                return;
+            }
+            if let Some(items) = view.0.menu_native_items.borrow().get(&title_key).cloned() {
+                let json =
+                    serde_json::json!({"title":title_heading.get(),"items":items}).to_string();
+                unsafe {
+                    w3_menu(
+                        view.0.native.get(),
+                        title_key.as_ptr(),
+                        title_key.len(),
+                        json.as_ptr(),
+                        json.len(),
+                    );
+                }
+                return;
+            }
+            title_refresh(view);
+        });
+        let update = refresh_title;
         self.bind(id, title, move |view, _| update(view));
         self.bind(id, items, move |view, _| refresh(view));
     }
@@ -1530,7 +1574,7 @@ impl View {
         if self.0.lifecycle.is_closed() {
             return Err("view is closed".into());
         }
-        let shortcut = Shortcut::parse(shortcut)
+        let shortcut = Shortcut::parse_cached(shortcut)
             .map_err(|error| error.to_string())
             .map(|shortcut| shortcut::to_bridge(&shortcut))?;
         Ok(unsafe { w3_shortcut(self.0.native.get(), shortcut.as_ptr(), shortcut.len()) } == 1)
@@ -1678,13 +1722,6 @@ impl panechord_runtime::WindowHost<View> for MacHost {
     ) -> Result<(), String> {
         MacHost::register_view(self, session, id, view, hooks)
     }
-}
-
-pub fn run(make: impl FnOnce(Rc<dyn Executor>) -> View + 'static) -> Result<(), String> {
-    run_host(move |host| {
-        host.present(&make(host.executor()));
-        Ok(())
-    })
 }
 
 pub fn run_host(make: impl FnOnce(Rc<MacHost>) -> Result<(), String>) -> Result<(), String> {

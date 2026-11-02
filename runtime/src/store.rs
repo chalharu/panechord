@@ -5,7 +5,7 @@ use futures::{
 };
 use std::{
     cell::{Cell, RefCell},
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeMap, VecDeque},
     future::Future,
     rc::{Rc, Weak},
 };
@@ -282,11 +282,13 @@ impl<S> Listener<S> {
     }
 }
 
-// Bindings keep this snapshot hub alive, but it never owns a Store or callback.
-type ListenerMap<S> = BTreeMap<u64, Weak<Listener<S>>>;
+// One entry per subscription, keyed by subscription id. A single map keeps
+// notification order identical to subscription order without sorting: one
+// global id sequence replaces the former per-field groups plus sort.
+type ListenerEntry<S> = (Option<&'static str>, Weak<Listener<S>>);
 struct Snapshots<S: Clone + 'static> {
     value: RefCell<Rc<S>>,
-    listeners: RefCell<BTreeMap<Option<&'static str>, ListenerMap<S>>>,
+    listeners: RefCell<BTreeMap<u64, ListenerEntry<S>>>,
     next: Cell<u64>,
     closed: Cell<bool>,
 }
@@ -302,30 +304,22 @@ impl<S: Clone + 'static> Snapshots<S> {
         let state = Rc::new(state);
         let old = self.value.replace(state.clone());
         drop(old);
-        let listeners: Vec<_> = {
+        let listeners: Vec<Weak<Listener<S>>> = {
             let registry = self.listeners.borrow();
-            if let Some(fields) = dirty {
-                let keys: BTreeSet<_> = std::iter::once(None)
-                    .chain(fields.iter().copied().map(Some))
-                    .collect();
-                keys.iter()
-                    .filter_map(|key| registry.get(key))
-                    .flat_map(|group| group.iter().map(|(id, listener)| (*id, listener.clone())))
-                    .collect()
-            } else {
-                registry
+            match dirty {
+                None => registry.values().map(|(_, weak)| weak.clone()).collect(),
+                Some(fields) => registry
                     .values()
-                    .flat_map(|group| group.iter().map(|(id, listener)| (*id, listener.clone())))
-                    .collect()
+                    .filter(|(field, _)| field.is_none_or(|name| fields.contains(&name)))
+                    .map(|(_, weak)| weak.clone())
+                    .collect(),
             }
         };
-        let mut listeners = listeners;
-        listeners.sort_unstable_by_key(|(id, _)| *id);
-        for (_, listener) in listeners {
+        for weak in listeners {
             if self.closed.get() {
                 break;
             }
-            if let Some(listener) = listener.upgrade() {
+            if let Some(listener) = weak.upgrade() {
                 listener.call(&state);
             }
         }
@@ -345,20 +339,12 @@ impl<S: Clone + 'static> Snapshots<S> {
         });
         self.listeners
             .borrow_mut()
-            .entry(field)
-            .or_default()
-            .insert(id, Rc::downgrade(&listener));
+            .insert(id, (field, Rc::downgrade(&listener)));
         let hub = Rc::downgrade(self);
         let owned = listener.clone();
         let token = Subscription::new(move || {
             if let Some(hub) = hub.upgrade() {
-                let mut registry = hub.listeners.borrow_mut();
-                if let Some(group) = registry.get_mut(&field) {
-                    group.remove(&id);
-                    if group.is_empty() {
-                        registry.remove(&field);
-                    }
-                }
+                hub.listeners.borrow_mut().remove(&id);
             }
             owned.cancel();
         });
@@ -368,8 +354,8 @@ impl<S: Clone + 'static> Snapshots<S> {
     fn close(&self) {
         self.closed.set(true);
         let listeners = std::mem::take(&mut *self.listeners.borrow_mut());
-        for listener in listeners.into_values().flat_map(BTreeMap::into_values) {
-            if let Some(listener) = listener.upgrade() {
+        for (_, weak) in listeners.into_values() {
+            if let Some(listener) = weak.upgrade() {
                 listener.cancel();
             }
         }
@@ -560,13 +546,15 @@ impl<S: Clone + 'static> Core<S> {
     fn flush(&self) {
         // Status mailboxes belong to subscription scopes, not the ingress queue.
         // They coalesce and retry only when a dequeue has made space available.
-        let flushers: Vec<_> = self.flushers.borrow().values().cloned().collect();
-        for flusher in flushers {
-            if self.closed.get() {
-                break;
-            }
-            if let Some(flusher) = flusher.upgrade() {
-                flusher();
+        if !self.flushers.borrow().is_empty() {
+            let flushers: Vec<_> = self.flushers.borrow().values().cloned().collect();
+            for flusher in flushers {
+                if self.closed.get() {
+                    break;
+                }
+                if let Some(flusher) = flusher.upgrade() {
+                    flusher();
+                }
             }
         }
         let finalizers = std::mem::take(&mut *self.finalizers.borrow_mut());

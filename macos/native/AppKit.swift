@@ -1518,6 +1518,7 @@ public func add(_ pointer: UnsafeMutableRawPointer, _ parentBytes: UnsafePointer
         meter.minValue = 0
         meter.maxValue = 1
         meter.style = .bar
+        meter.setAccessibilityLabel("Progress")
         view = meter
     case 21:
         let flex = FlexContainer()

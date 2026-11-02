@@ -59,8 +59,9 @@ about the oldest OS or Intel hardware.
   view is rejected before it can touch Session or window state.
   Closing the active window hands menus and Quit to a surviving window without
   re-`present()`. Confirmation waits without a deadline; only the post-approval
-  drain is capped at five seconds. `run` remains the single-window compatible
-  entry. External reactor integration is a separate task.
+  drain is capped at five seconds. `run_host` is the single entry; screens
+  attach a `Session`, build, and `present`. External reactor integration is a
+  separate task.
 - `DialogFooter` is a right-aligned row, Cancel first; a destructive accept sets
   `NSButton.hasDestructiveAction` (macOS 11+). A non-destructive accept is the
   default button (Return) and cancel always answers Escape; a destructive

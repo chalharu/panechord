@@ -5,16 +5,18 @@
 //! Store owner. User callbacks, destructors and future polls run outside runtime
 //! RefCell borrows. Executors may poll immediately inside `spawn`.
 mod key;
+mod lifecycle;
 mod window;
 pub use backend::Backend;
 pub use key::KeyCode;
+pub use lifecycle::{Lifecycle, RequestGuard, panic_message};
 pub use view::{
-    AutomationView, ButtonView, ContainerView, LayoutView, MediaView, MenuView, SelectView,
-    Template, TextView, View, ViewCore, WeakViewHandle,
+    AutomationView, ButtonView, ContainerView, DialogView, LayoutView, ListView, MediaView,
+    MenuView, SelectView, TabView, TableView, Template, TextView, View, ViewCore, WeakViewHandle,
 };
 #[doc(hidden)]
 pub mod native_keys;
-pub use window::{RunnerConfig, WindowEvent, WindowHost, WindowSurface};
+pub use window::{WindowEvent, WindowHost, WindowSurface};
 mod backend;
 mod blocking;
 mod controls;

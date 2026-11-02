@@ -107,7 +107,7 @@ mod native {
         view
     }
 
-    pub fn run() -> Result<(), String> {
+    pub fn run_multiwindow() -> Result<(), String> {
         panechord_macos::run_host(|host| {
             let closed_session = Session::new();
             let closed = View::new(Binding::constant("Closed".into()));
@@ -237,5 +237,5 @@ mod native {
 
 fn main() {
     #[cfg(target_os = "macos")]
-    native::run().unwrap();
+    native::run_multiwindow().unwrap();
 }

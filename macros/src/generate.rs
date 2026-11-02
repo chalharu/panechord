@@ -92,8 +92,9 @@ pub fn generate(doc: &Document, backend: &Path, owned: bool) -> syn::Result<Toke
         // assertion below pins the full `View` capability contract (LSP).
         // Method calls resolve through the imported capability traits.
         use ::panechord_runtime::{
-            AutomationView as _, ButtonView as _, ContainerView as _, LayoutView as _,
-            MediaView as _, MenuView as _, SelectView as _, TextView as _, ViewCore as _,
+            AutomationView as _, ButtonView as _, DialogView as _, LayoutView as _,
+            ListView as _, MediaView as _, MenuView as _, SelectView as _, TabView as _,
+            TableView as _, TextView as _, ViewCore as _,
         };
         let __panechord_external = || __panechord_model.clone();
         let __panechord_view = <<#backend::Backend as ::panechord_runtime::Backend>::View

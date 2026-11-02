@@ -11,10 +11,10 @@
 use super::{Parent, TaoHost, View, WeakView};
 use panechord_runtime::Binding;
 use panechord_runtime::{
-    AutomationView, Backend as BackendTrait, ButtonView, Choice, Command, ContainerView,
-    DialogFooter, ImageFrame, Keyed, Layout, LayoutView, MediaView, MenuItem, MenuNode, MenuView,
-    PointerPosition, RunnerConfig, SelectView, SliderRange, Store, Style, Subscription,
-    TabPosition, Table, TableSelection, TextView, ViewCore, Viewport, WeakViewHandle,
+    AutomationView, Backend as BackendTrait, ButtonView, Choice, Command, DialogFooter, DialogView,
+    ImageFrame, Keyed, Layout, LayoutView, ListView, MediaView, MenuItem, MenuNode, MenuView,
+    PointerPosition, SelectView, SliderRange, Store, Style, Subscription, TabPosition, TabView,
+    Table, TableSelection, TableView, TextView, ViewCore, Viewport, WeakViewHandle,
 };
 use std::rc::Rc;
 
@@ -177,7 +177,7 @@ impl MediaView for View {
     }
 }
 
-impl ContainerView for View {
+impl TabView for View {
     fn tab(&self, parent: &Parent, id: &str, selected: Binding<String>) -> Parent {
         View::tab(self, parent, id, selected)
     }
@@ -213,6 +213,9 @@ impl ContainerView for View {
     ) -> Parent {
         View::tab_items(self, parent, id, items, selected, title, template)
     }
+}
+
+impl ListView for View {
     fn repeat<T: Clone + 'static>(
         &self,
         parent: &Parent,
@@ -242,27 +245,6 @@ impl ContainerView for View {
     ) {
         View::content(self, parent, id, item, template)
     }
-    fn dialog(
-        &self,
-        parent: &Parent,
-        id: &str,
-        title: Binding<String>,
-        open: Binding<bool>,
-    ) -> Parent {
-        View::dialog(self, parent, id, title, open)
-    }
-    fn table(&self, parent: &Parent, id: &str, data: Binding<Table>) {
-        View::table(self, parent, id, data)
-    }
-    fn table_with_selection(
-        &self,
-        parent: &Parent,
-        id: &str,
-        data: Binding<Table>,
-        selection: Binding<Option<TableSelection>>,
-    ) {
-        View::table_with_selection(self, parent, id, data, selection)
-    }
     fn item_keys(&self, id: &str) -> Vec<String> {
         View::item_keys(self, id)
     }
@@ -274,6 +256,33 @@ impl ContainerView for View {
     }
     fn items_error(&self, id: &str) -> Option<String> {
         View::items_error(self, id)
+    }
+}
+
+impl DialogView for View {
+    fn dialog(
+        &self,
+        parent: &Parent,
+        id: &str,
+        title: Binding<String>,
+        open: Binding<bool>,
+    ) -> Parent {
+        View::dialog(self, parent, id, title, open)
+    }
+}
+
+impl TableView for View {
+    fn table(&self, parent: &Parent, id: &str, data: Binding<Table>) {
+        View::table(self, parent, id, data)
+    }
+    fn table_with_selection(
+        &self,
+        parent: &Parent,
+        id: &str,
+        data: Binding<Table>,
+        selection: Binding<Option<TableSelection>>,
+    ) {
+        View::table_with_selection(self, parent, id, data, selection)
     }
 }
 
@@ -333,9 +342,6 @@ pub struct Backend;
 impl BackendTrait for Backend {
     type View = View;
     type Host = TaoHost;
-    fn runner_config() -> RunnerConfig {
-        super::runner_config()
-    }
     fn run_host(
         make: impl FnOnce(Rc<TaoHost>) -> Result<(), String> + 'static,
     ) -> Result<(), String> {

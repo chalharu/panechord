@@ -29,7 +29,8 @@ pub struct Settings {
     pub rows: Vec<Keyed<Row>>,
     pub selected: Option<Keyed<Row>>,
     pub viewport: Viewport,
-    pub menu_items: Vec<MenuItem>,
+    pub file_items: Vec<MenuItem>,
+    pub edit_items: Vec<MenuItem>,
     workers: Rc<RefCell<BlockingPool>>,
     path: PathBuf,
 }
@@ -68,15 +69,23 @@ impl Settings {
                 count: 4,
                 row_height: 64.0,
             },
-            menu_items: vec![
+            file_items: vec![
                 menu_item("save", "Save", "save", Some(shortcut())),
-                menu_item("reverse", "Reverse items", "reverse", None),
                 MenuItem {
                     id: "separator".into(),
                     label: String::new(),
                     argument: String::new(),
                     shortcut: None,
                     role: MenuRole::Separator,
+                    enabled: true,
+                    visible: true,
+                },
+                MenuItem {
+                    id: "quit".into(),
+                    label: "Quit".into(),
+                    argument: String::new(),
+                    shortcut: Some("Primary+Q".into()),
+                    role: MenuRole::Quit,
                     enabled: true,
                     visible: true,
                 },
@@ -90,6 +99,7 @@ impl Settings {
                     visible: true,
                 },
             ],
+            edit_items: vec![menu_item("reverse", "Reverse items", "reverse", None)],
             workers,
             path,
         }
@@ -99,21 +109,7 @@ impl Settings {
     }
 }
 fn shortcut() -> String {
-    #[cfg(feature = "backend-gtk")]
-    {
-        "<Control>s".into()
-    }
-    #[cfg(all(feature = "backend-tao", not(feature = "backend-gtk")))]
-    {
-        "Ctrl+KeyS".into()
-    }
-    #[cfg(all(
-        feature = "backend-macos",
-        not(any(feature = "backend-gtk", feature = "backend-tao"))
-    ))]
-    {
-        "Primary+KeyS".into()
-    }
+    "Primary+S".into()
 }
 fn menu_item(id: &str, label: &str, argument: &str, shortcut: Option<String>) -> MenuItem {
     MenuItem {
@@ -133,7 +129,7 @@ impl Settings {
     fn reverse(&mut self) {
         self.rows.reverse();
         self.selected = self.rows.first().cloned();
-        self.menu_items[1].label = format!("Reverse again (first: {})", self.rows[0].key);
+        self.edit_items[0].label = format!("Reverse again (first: {})", self.rows[0].key);
     }
     #[command]
     fn choose(model: Store<Self>, argument: String) {
@@ -162,11 +158,11 @@ impl Settings {
                 let _ = model.update(|s| {
                     s.busy = true;
                     s.status = "Saving…".into();
-                    s.menu_items[0].enabled = false;
+                    s.file_items[0].enabled = false;
                 });
                 if !model.effect(Policy::Serial, "save", task, |s, result| {
                     s.busy = false;
-                    s.menu_items[0].enabled = true;
+                    s.file_items[0].enabled = true;
                     s.status = match result.map_err(|e| e.to_string()).and_then(|r| r) {
                         Ok(()) => {
                             s.saved += 1;
@@ -177,7 +173,7 @@ impl Settings {
                 }) {
                     let _ = model.update(|s| {
                         s.busy = false;
-                        s.menu_items[0].enabled = true;
+                        s.file_items[0].enabled = true;
                         s.status = "Task capacity exceeded".into();
                     });
                 }

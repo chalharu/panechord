@@ -23,10 +23,23 @@ impl Greeting {
 }
 
 fn main() -> Result<(), String> {
-    backend::run(|executor| {
+    backend::run_host(|host| {
+        use panechord_runtime::{Session, UiHost as _};
+        let session = Session::new();
+        host.attach(session.clone())?;
+        let executor = host.executor();
         let model = Store::new(Greeting { name: "Panechord".into() }, executor);
-        let owner = model.try_into_owner().expect("shared model");
-        panechord_macros::owned_view!("ui/minimal.yaml", owner, backend)
+        let owner = model
+            .try_into_owner()
+            .unwrap_or_else(|_| panic!("shared model"));
+        let view = panechord_macros::owned_view!("ui/minimal.yaml", owner, backend);
+        #[cfg(feature = "backend-gtk")]
+        host.register_view(&session, "main", &view)?;
+        #[cfg(feature = "backend-tao")]
+        host.present(&view);
+        #[cfg(feature = "backend-macos")]
+        host.present(&view);
+        Ok(())
     })
 }
 ```

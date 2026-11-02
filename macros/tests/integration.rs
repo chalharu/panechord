@@ -361,7 +361,7 @@ mod fake {
         }
     }
 
-    impl ContainerView for View {
+    impl TabView for View {
         fn tab(&self, _: &Parent, _: &str, _: Binding<String>) -> Parent {
             Parent
         }
@@ -397,6 +397,9 @@ mod fake {
         ) -> Parent {
             View::tab_items(self, parent, id, items, selected, title, template)
         }
+    }
+
+    impl ListView for View {
         fn repeat<T: Clone + 'static>(
             &self,
             parent: &Parent,
@@ -428,18 +431,6 @@ mod fake {
         ) {
             View::content(self, parent, id, item, template)
         }
-        fn dialog(&self, _: &Parent, _: &str, _: Binding<String>, _: Binding<bool>) -> Parent {
-            Parent
-        }
-        fn table(&self, _: &Parent, _: &str, _: Binding<Table>) {}
-        fn table_with_selection(
-            &self,
-            _: &Parent,
-            _: &str,
-            _: Binding<Table>,
-            _: Binding<Option<TableSelection>>,
-        ) {
-        }
         fn item_keys(&self, _: &str) -> Vec<String> {
             Vec::new()
         }
@@ -449,6 +440,24 @@ mod fake {
         fn viewport(&self, _: &str, _: usize) {}
         fn items_error(&self, _: &str) -> Option<String> {
             None
+        }
+    }
+
+    impl DialogView for View {
+        fn dialog(&self, _: &Parent, _: &str, _: Binding<String>, _: Binding<bool>) -> Parent {
+            Parent
+        }
+    }
+
+    impl TableView for View {
+        fn table(&self, _: &Parent, _: &str, _: Binding<Table>) {}
+        fn table_with_selection(
+            &self,
+            _: &Parent,
+            _: &str,
+            _: Binding<Table>,
+            _: Binding<Option<TableSelection>>,
+        ) {
         }
     }
 
@@ -523,12 +532,6 @@ mod fake {
     impl panechord_runtime::Backend for Backend {
         type View = View;
         type Host = Host;
-        fn runner_config() -> RunnerConfig {
-            RunnerConfig {
-                application_menu: false,
-                menu_quit_in_file: true,
-            }
-        }
         fn run_host(
             _: impl FnOnce(Rc<Host>) -> Result<(), String> + 'static,
         ) -> Result<(), String> {

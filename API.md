@@ -67,31 +67,40 @@ backend-specific. This does not unify other layout/style/menu error policies.
 
 ## Identical GTK/Tao View API
 
-`View` Clone, `Parent` Clone. `run(make: impl FnOnce(Rc<dyn Executor>)->View+'static)->Result<(),String>` native loop.
+`View` Clone, `Parent` Clone. `run_host(make: impl FnOnce(Rc<Host>)->Result<(),String>)->Result<(),String>` owns the single native loop; screens build inside `make` and present via `register_view`/`present`.
 
 ### Shared capability traits and backend abstraction
 
 The three concrete `View` types each satisfied the whole screen API, so every
 client depended on every method. The shared contract is now capability traits
 in `panechord_runtime` — `ViewCore`, `LayoutView`, `TextView`, `ButtonView`,
-`SelectView`, `MediaView`, `ContainerView`, `MenuView`, `AutomationView` — with
+`SelectView`, `MediaView`, `TabView`, `ListView`, `TableView`, `DialogView`
+(`ContainerView` re-combines the four for code that needs the whole surface),
+`MenuView`, `AutomationView` — with
 `View` as the umbrella (blanket-impl'd) and `WeakViewHandle` for weak handles.
 Generic code bounds on what it uses (`fn show<V: TextView + ButtonView>`);
-codegen asserts `V: View`. Each backend implements all nine (including Tao's
-`items_error`, which previously existed only on GTK/macOS) plus its own
+codegen asserts `V: View`. Each backend implements all twelve plus its own
 inherent extensions (`mount_native`/`bind_native`, Tao `mount`/`mount_bound`,
 AppKit `surface`/probes): extension without touching the contract.
 
-`panechord_runtime::Backend` is the host-side shape (`runner_config`,
-`run_host`, option setters; `View`/`Host` assoc types with
+System theme (dark mode, high contrast) is inherited, not overridden: default
+text, button and progress styling comes from the native theme on every
+backend (GTK theme classes, iced theme, AppKit system colors). An explicit
+`foreground` in `Style`/table cells is an application override and stays
+exactly as specified, so contrast for custom colors is the application's
+responsibility.
+
+`panechord_runtime::Backend` is the host-side shape (`run_host`, option
+setters; `View`/`Host` assoc types with
 `Host: WindowHost<View>`). `panechord::Runner` drives the feature-selected
 backend through the trait, so new backends/options extend the trait instead of
 editing dispatch. All three `GtkHost`/`TaoHost`/`MacHost` implement
 `WindowHost<View>`; all `WeakView`s implement `WeakViewHandle`.
 
-Teardown lifecycle (`Lifecycle`: closed flag, close hooks, request handler,
-reentrancy gate) is a dedicated component per backend, not fields mixed into
-the content registries; host coordination slots stay in `Inner`. Generated
+Teardown lifecycle (`panechord_runtime::Lifecycle`: closed flag, close hooks,
+request handler, reentrancy gate) is a shared runtime component, not fields
+mixed into the content registries nor triplicated per backend; host
+coordination slots stay in `Inner`. Generated
 screens construct through `<Backend as panechord_runtime::Backend>::View::new`
 and import the capability traits, so codegen depends on the contract, not on
 backend concretions (`RuntimePaths` rewrites the runtime path for
@@ -142,7 +151,7 @@ contracts: the complete template, including padding and wrapped text, must fit
 
 ### macOS practical-screen subset
 
-`panechord-macos` supplies `View`/`Parent`/`run` for the settings and library screens,
+`panechord-macos` supplies `View`/`Parent`/`run_host` for the settings and library screens,
 with AppKit Stack, Grid, Flex, Absolute, Label, TextBox, Button, meter,
 ItemsControl, Menu and the seven required
 controls. It uses the same

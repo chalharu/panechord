@@ -1,22 +1,24 @@
 //! View teardown lifecycle: the SRP split of the former god-`Inner`.
 //!
-//! `Inner` used to own the closed flag, final cleanup hooks, the replaceable
-//! close-request handler and the synchronous reentrancy gate alongside layout
-//! registries, menus, lists and widgets. This component owns exactly that
-//! lifecycle slice. Content registries keep their own teardown;
-//! `Inner::shutdown` only orders the two phases (mark closed once, drop
-//! content, then run final hooks). Host coordination hooks (the GTK
-//! coordinated-close slot, Tao/macOS quit routing) stay in `Inner`: they
-//! belong to the host relationship, not to the view's own teardown state.
+//! Every backend `Inner` used to own the closed flag, final cleanup hooks, the
+//! replaceable close-request handler and the synchronous reentrancy gate
+//! alongside layout registries, menus, lists and widgets. This component owns
+//! exactly that lifecycle slice and nothing backend-specific (only std), so
+//! all backends share it instead of triplicating the file. Content registries
+//! keep their own teardown; `Inner::shutdown` only orders the two phases
+//! (mark closed once, drop content, then run final hooks). Host coordination
+//! hooks (close slots, quit routing) stay in `Inner`: they belong to the host
+//! relationship, not to the view's own teardown state.
 
 use std::{
+    any::Any,
     cell::{Cell, RefCell},
     panic::{AssertUnwindSafe, catch_unwind},
     rc::Rc,
 };
 
-/// Close/teardown state for one `View`. See the module docs for the split.
-pub(super) struct Lifecycle {
+/// Close/teardown state for one view. See the module docs for the split.
+pub struct Lifecycle {
     closed: Cell<bool>,
     on_close: RefCell<Vec<Rc<dyn Fn()>>>,
     on_close_request: RefCell<Option<Rc<dyn Fn()>>>,
@@ -35,7 +37,7 @@ impl Default for Lifecycle {
 }
 
 /// Reentrancy gate for close requests. Dropping retries a later request.
-pub(super) struct RequestGuard<'a> {
+pub struct RequestGuard<'a> {
     flag: &'a Cell<bool>,
 }
 
@@ -43,6 +45,17 @@ impl Drop for RequestGuard<'_> {
     fn drop(&mut self) {
         self.flag.set(false);
     }
+}
+
+/// Panic payload message shared by every backend's final-hook reporting.
+/// Backend `panic_error` wrappers add their own callback prefix on top.
+pub fn panic_message(panic: &(dyn Any + Send)) -> String {
+    panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .unwrap_or("non-string panic payload")
+        .to_owned()
 }
 
 impl Lifecycle {
@@ -88,7 +101,7 @@ impl Lifecycle {
         drop(self.on_close_request.take());
         for callback in self.on_close.take() {
             if let Err(panic) = catch_unwind(AssertUnwindSafe(|| callback())) {
-                report(super::panic_error(panic));
+                report(panic_message(&*panic));
             }
         }
     }

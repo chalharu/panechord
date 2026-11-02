@@ -1,6 +1,6 @@
 //! Run in its own process (GTK3 only), optionally under Xvfb.
-use panechord_runtime::{Binding, Keyed, Layout, MenuItem, MenuRole, Store, Viewport};
-use panechord_tao::{View, run};
+use panechord_runtime::{Binding, Keyed, Layout, MenuItem, MenuRole, Session, Store, Viewport};
+use panechord_tao::{View, run_host};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -174,7 +174,11 @@ fn main() -> Result<(), String> {
     }
     let closed = Rc::new(Cell::new(false));
     let observed = closed.clone();
-    run(move |executor| {
+    run_host(move |host| {
+        use panechord_runtime::UiHost as _;
+        let session = Session::new();
+        host.attach(session.clone())?;
+        let executor = host.executor();
         let model = Store::new("native smoke".to_owned(), executor.clone());
         let view = View::new(model.bind(Clone::clone, None));
         // A settings-like model controls readiness. Neither callback owns View.
@@ -402,7 +406,8 @@ fn main() -> Result<(), String> {
                 out.activate_menu("file/quit").unwrap();
             }
         }));
-        view
+        host.present(&view);
+        Ok(())
     })?;
     assert!(closed.get(), "native Quit must close the owning View");
     #[cfg(any(

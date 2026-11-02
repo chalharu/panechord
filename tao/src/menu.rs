@@ -21,14 +21,22 @@ pub fn parse_shortcut(value: &str) -> Result<Accelerator, String> {
         .parse::<Accelerator>()
         .map_err(|e| format!("invalid menu shortcut {value:?}: {e}"))
 }
-fn validate<A>(items: &[MenuItem<A>]) -> Result<(), String> {
+fn validate<A>(
+    items: &[MenuItem<A>],
+    accelerator_cache: &RefCell<HashMap<String, Accelerator>>,
+) -> Result<(), String> {
     let mut ids = HashSet::new();
     for item in items {
         if !ids.insert(&item.id) {
             return Err(format!("duplicate menu item id: {}", item.id));
         }
         if let Some(shortcut) = &item.shortcut {
-            parse_shortcut(shortcut)?;
+            if accelerator_cache.borrow().get(shortcut.as_str()).is_none() {
+                let parsed = parse_shortcut(shortcut)?;
+                accelerator_cache
+                    .borrow_mut()
+                    .insert(shortcut.clone(), parsed);
+            }
             if item.role != MenuRole::Normal && !vetoed_quit(&item.role) {
                 return Err(format!(
                     "custom shortcut on predefined native role is unsupported: {}",
@@ -212,6 +220,12 @@ impl View {
         let old_keys = RefCell::new(Vec::<String>::new());
         let old_native = RefCell::new(Vec::<muda::MenuId>::new());
         let old_accelerators = RefCell::new(Vec::<(muda::MenuItem, Option<Accelerator>)>::new());
+        // Parsed-accelerator cache: recurring shortcut strings must not
+        // re-parse on every items emission. (No content-signature skip here:
+        // native actions capture each item's argument, and arguments are only
+        // `Clone`, so value-identical snapshots cannot be proven identical.)
+        let accelerator_cache =
+            RefCell::new(std::collections::HashMap::<String, Accelerator>::new());
         let token = items.subscribe(Rc::new(move |tree| {
             let Some(inner) = weak.upgrade().filter(|i| !i.lifecycle.is_closed()) else {
                 return;
@@ -227,7 +241,7 @@ impl View {
                     return;
                 }
             };
-            if let Err(error) = validate(&values) {
+            if let Err(error) = validate(&values, &accelerator_cache) {
                 inner.report(error);
                 return;
             }
@@ -252,12 +266,20 @@ impl View {
                 };
                 let key = format!("{menu_id}/{}", item.id);
                 if item.role == MenuRole::Normal || vetoed_quit(&item.role) {
-                    let accelerator = item
-                        .shortcut
-                        .as_deref()
-                        .map(parse_shortcut)
-                        .transpose()
-                        .expect("validated shortcut");
+                    let accelerator = match item.shortcut.as_deref() {
+                        None => None,
+                        Some(raw) => {
+                            if let Some(hit) = accelerator_cache.borrow().get(raw) {
+                                Some(*hit)
+                            } else {
+                                let parsed = parse_shortcut(raw).expect("validated shortcut");
+                                accelerator_cache
+                                    .borrow_mut()
+                                    .insert(raw.to_owned(), parsed);
+                                Some(parsed)
+                            }
+                        }
+                    };
                     let entry = muda::MenuItem::new(&item.label, item.enabled, accelerator);
                     ids.push((entry.id().clone(), key.clone()));
                     // Predefined Quit directly terminates the native loop/app on
@@ -509,11 +531,11 @@ mod tests {
             enabled: true,
             visible: true,
         };
-        assert!(validate(std::slice::from_ref(&item)).is_ok());
-        assert!(validate(&[item.clone(), item.clone()]).is_err());
+        assert!(validate(std::slice::from_ref(&item), &RefCell::new(HashMap::new())).is_ok());
+        assert!(validate(&[item.clone(), item.clone()], &RefCell::new(HashMap::new())).is_err());
         let mut role = item;
         role.role = MenuRole::Copy;
-        assert!(validate(&[role]).is_err());
+        assert!(validate(&[role], &RefCell::new(HashMap::new())).is_err());
     }
 
     #[test]
@@ -607,15 +629,18 @@ mod tests {
                 enabled: true,
                 visible: true,
             };
-            assert!(validate(&[item.clone()]).is_ok());
+            assert!(validate(&[item.clone()], &RefCell::new(HashMap::new())).is_ok());
             item.enabled = false;
             assert_eq!(
-                validate(&[item.clone()]).is_ok(),
+                validate(&[item.clone()], &RefCell::new(HashMap::new())).is_ok(),
                 role == MenuRole::Separator || vetoed_quit(&role)
             );
             item.enabled = true;
             item.shortcut = Some("Ctrl+KeyS".into());
-            assert_eq!(validate(&[item]).is_ok(), vetoed_quit(&role));
+            assert_eq!(
+                validate(&[item], &RefCell::new(HashMap::new())).is_ok(),
+                vetoed_quit(&role)
+            );
         }
     }
 }

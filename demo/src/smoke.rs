@@ -42,7 +42,7 @@ pub async fn verify(view: backend::View, model: Store<Settings>, path: PathBuf) 
     view.viewport("rows", 0);
     assert_eq!(view.text("rows/0/name").as_deref(), Some("EDITED ITEM"));
     assert_eq!(view.text("selected/0/name").as_deref(), Some("EDITED ITEM"));
-    view.activate_menu("actions/save").unwrap();
+    view.activate_menu("file/save").unwrap();
     assert!(model.snapshot().busy);
     assert!(view.click("save").is_err());
     until(model.bind(|s| s.busy, None), |busy| !busy).await;
@@ -58,7 +58,7 @@ pub async fn verify(view: backend::View, model: Store<Settings>, path: PathBuf) 
     until(model.bind(|s| s.busy, None), |busy| !busy).await;
     assert_eq!(model.snapshot().saved, 2);
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "Grace");
-    view.activate_menu("actions/reverse").unwrap();
+    view.activate_menu("edit/reverse").unwrap();
     assert_eq!(
         view.item_keys("rows").first().map(String::as_str),
         Some("999")

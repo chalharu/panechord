@@ -22,8 +22,8 @@
 //! probes); the shared contract is what generic code bounds on.
 //!
 //! [`Backend`](crate::Backend) is the matching host-side abstraction: one
-//! `runner_config` / `run_host` / option-setter shape per backend, so adding a
-//! backend implements the trait instead of editing the facade dispatch.
+//! `run_host` / option-setter shape per backend, so adding a backend
+//! implements the trait instead of editing the facade dispatch.
 //!
 //! Backend-specific extensions stay inherent methods on the concrete `View`
 //! (GTK's `mount_native`/`bind_native`, Tao's `mount`/`mount_bound`,
@@ -158,8 +158,8 @@ pub trait MediaView: ViewCore {
     fn meter(&self, parent: &Self::Parent, id: &str, value: Binding<f64>);
 }
 
-/// Tab sets, virtualized lists, content projection, tables, and dialogs.
-pub trait ContainerView: ViewCore {
+/// Tab sets and navigation.
+pub trait TabView: ViewCore {
     fn tab(&self, parent: &Self::Parent, id: &str, selected: Binding<String>) -> Self::Parent;
     fn navigation(
         &self,
@@ -192,6 +192,10 @@ pub trait ContainerView: ViewCore {
         title: Rc<dyn Fn(Store<T>) -> Binding<String>>,
         template: Template<Self, Self::Parent, T>,
     ) -> Self::Parent;
+}
+
+/// Virtualized lists, content projection, and their probes.
+pub trait ListView: ViewCore {
     fn repeat<T: Clone + 'static>(
         &self,
         parent: &Self::Parent,
@@ -215,13 +219,14 @@ pub trait ContainerView: ViewCore {
         item: Binding<Option<Keyed<T>>>,
         template: Template<Self, Self::Parent, T>,
     );
-    fn dialog(
-        &self,
-        parent: &Self::Parent,
-        id: &str,
-        title: Binding<String>,
-        open: Binding<bool>,
-    ) -> Self::Parent;
+    fn item_keys(&self, id: &str) -> Vec<String>;
+    fn mounted_count(&self, id: &str) -> usize;
+    fn viewport(&self, id: &str, start: usize);
+    fn items_error(&self, id: &str) -> Option<String>;
+}
+
+/// Tables, with and without selection.
+pub trait TableView: ViewCore {
     fn table(&self, parent: &Self::Parent, id: &str, data: Binding<Table>);
     fn table_with_selection(
         &self,
@@ -230,11 +235,26 @@ pub trait ContainerView: ViewCore {
         data: Binding<Table>,
         selection: Binding<Option<TableSelection>>,
     );
-    fn item_keys(&self, id: &str) -> Vec<String>;
-    fn mounted_count(&self, id: &str) -> usize;
-    fn viewport(&self, id: &str, start: usize);
-    fn items_error(&self, id: &str) -> Option<String>;
 }
+
+/// Dialog windows.
+pub trait DialogView: ViewCore {
+    fn dialog(
+        &self,
+        parent: &Self::Parent,
+        id: &str,
+        title: Binding<String>,
+        open: Binding<bool>,
+    ) -> Self::Parent;
+}
+
+/// The former `ContainerView` surface: every container capability at once.
+/// Generic code that needs less bounds on the individual traits instead
+/// (`fn show<V: TabView + DialogView>`); the umbrella stays for code that
+/// genuinely needs the whole surface (codegen output, `Runner`).
+pub trait ContainerView: TabView + ListView + TableView + DialogView {}
+
+impl<T> ContainerView for T where T: TabView + ListView + TableView + DialogView {}
 
 /// Menus: typed dispatch plus hierarchical submenus.
 pub trait MenuView: ViewCore {

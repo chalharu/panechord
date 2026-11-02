@@ -118,7 +118,7 @@ these limits; it describes adapter support, not clipboard-service availability.
 
 ## Loop and verification
 
-`run` owns one UI-local future scheduler and one native loop. Worker wakeups cross
+`run_host` owns one UI-local future scheduler and one native loop. Worker wakeups cross
 the event proxy as coalesced numeric IDs, with a one-shot GTK idle nudge on Linux.
 Idle waits are event-driven; the only deadlines come from actual iced redraw
 requests (such as caret blinking), not a runtime polling timer. Close/drop owns
@@ -139,7 +139,7 @@ upgrade and call close only when ready; retain that token with `View::keep`.
 An on_close callback closes the Store when the View actually ends. Never capture
 View strongly in a callback/token stored on that same View. keep ownership and
 template-scoped token eviction are unchanged.
-Call `run` on the main thread, at most once per process. Do not initialize GTK4
+Call `run_host` on the main thread, at most once per process. Do not initialize GTK4
 in the same process, or install a competing process-global muda event handler.
 
 Diagnostics/automation: `error`, `diagnostics`, `frame_count`, `mount_identity`,
@@ -160,7 +160,7 @@ the native Quit shim. It is ignored by default to isolate GTK thread ownership;
 from `panechord`, run it separately with
 `xvfb-run -a cargo test -p panechord-tao --lib tests::native_menu_append_failure_restores_accelerators_registry_and_quit -- --exact --ignored --test-threads=1`.
 `G_DEBUG=fatal-criticals` can additionally enforce clean GTK diagnostics.
-`examples/native_smoke.rs` has a real `main` calling `run`; it opens/draws a native
+`examples/native_smoke.rs` has a real `main` calling `run_host`; it opens/draws a native
 window and menu, mounts an application-defined advanced widget that roundtrips
 the system clipboard, awaits a worker completion, exercises automation and closes.
 On Linux it also activates the real native accelerator group and observes/closes

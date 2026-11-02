@@ -5,7 +5,6 @@
 pub use panechord_runtime::Alignment;
 
 mod controls;
-mod lifecycle;
 pub mod shortcut;
 mod table;
 mod view;
@@ -196,7 +195,11 @@ struct Inner {
     actions: RefCell<HashMap<String, Action>>,
     control_actions: RefCell<HashMap<String, controls::Action>>,
     tabs: RefCell<HashMap<String, Rc<controls::Tab>>>,
-    lifecycle: lifecycle::Lifecycle,
+    /// Parsed shortcut triggers by raw shortcut string: menu items recur with
+    /// the same strings on every emission, so parse once per distinct string.
+    /// `None` records a failed parse to skip re-parsing invalid input too.
+    trigger_cache: RefCell<HashMap<String, Option<gtk4::ShortcutTrigger>>>,
+    lifecycle: panechord_runtime::Lifecycle,
     coordinated_close: RefCell<Option<Rc<CoordinatedClose>>>,
     image_updates: Cell<usize>,
     surface_viewport: RefCell<Option<surface::ViewportHook>>,
@@ -258,17 +261,6 @@ impl Drop for Inner {
     fn drop(&mut self) {
         self.shutdown();
         self.window.destroy();
-    }
-}
-
-/// Backend-resolved run configuration for this host. GTK builds no menubar
-/// application menu on any platform: menus render in the in-window bar, and
-/// macOS builds install no global menu (the former system-global mirror is
-/// removed), so the leading-submenu reservation does not apply.
-pub fn runner_config() -> panechord_runtime::RunnerConfig {
-    panechord_runtime::RunnerConfig {
-        application_menu: false,
-        menu_quit_in_file: true,
     }
 }
 
@@ -395,8 +387,9 @@ impl View {
             actions: RefCell::default(),
             control_actions: RefCell::default(),
             tabs: RefCell::default(),
+            trigger_cache: RefCell::default(),
             menu_states: RefCell::default(),
-            lifecycle: lifecycle::Lifecycle::default(),
+            lifecycle: panechord_runtime::Lifecycle::default(),
             coordinated_close: RefCell::default(),
             image_updates: Cell::new(0),
             surface_viewport: RefCell::default(),
@@ -941,6 +934,10 @@ impl View {
 
     pub fn meter(&self, parent: &Parent, id: &str, value: Binding<f64>) {
         let meter = gtk4::ProgressBar::new();
+        // No programmatic accessible name: gtk4's accessible-property API
+        // needs v4_10 (which also deprecates FileChooserNative, so the
+        // migration waits for a deliberate platform bump). Screens pair the
+        // meter with a visible caption, as the gallery does.
         self.mount_native(parent, id, &meter);
         self.bind_native(id, value, &meter, |meter, value| {
             meter.set_fraction(if value.is_finite() {
@@ -1234,7 +1231,8 @@ impl View {
     ) {
         // Invisible leaves stay out entirely: no action, no shortcut, no row.
         // The subscription re-fires when visibility flips, so this is the
-        // only membership gate needed.
+        // only membership gate needed. Triggers are parsed once per distinct
+        // shortcut string: items recur with the same strings on every tick.
         let items: Vec<_> = items
             .into_iter()
             .filter(|item| item.visible)
@@ -1244,6 +1242,10 @@ impl View {
             })
             .collect();
         // Validate the entire snapshot (including shortcuts) before touching the old menu.
+        // No content-signature skip: native actions capture each item's
+        // argument, and arguments are only `Clone`, so value-identical
+        // snapshots cannot be proven identical. Recurring shortcut strings
+        // still parse once via the trigger cache below.
         let Some(menu_state) = self.0.menu_states.borrow().get(id).cloned() else {
             // Raced with view teardown (e.g. closing a window mid-update):
             // report instead of panicking on the stale subscription.
@@ -1264,17 +1266,28 @@ impl View {
                     .replace(Some(format!("duplicate menu item id: {}", item.id)));
                 return;
             }
-            let trigger = item
-                .shortcut
-                .as_ref()
-                .map(|shortcut| parse_shortcut(shortcut));
-            if trigger.as_ref().is_some_and(Option::is_none) {
+            let trigger = match item.shortcut.as_deref() {
+                None => None,
+                Some(raw) => {
+                    if let Some(hit) = self.0.trigger_cache.borrow().get(raw) {
+                        hit.clone()
+                    } else {
+                        let parsed = parse_shortcut(raw);
+                        self.0
+                            .trigger_cache
+                            .borrow_mut()
+                            .insert(raw.to_owned(), parsed.clone());
+                        parsed
+                    }
+                }
+            };
+            if item.shortcut.is_some() && trigger.is_none() {
                 self.0
                     .error
                     .replace(Some(format!("invalid GTK shortcut for {}", item.id)));
                 return;
             }
-            triggers.push(trigger.flatten());
+            triggers.push(trigger);
         }
         self.clear_menu(id);
         let Some(state) = self.0.menu_states.borrow().get(id).cloned() else {
@@ -1817,15 +1830,6 @@ impl GtkHost {
     pub fn executor(&self) -> Rc<dyn Executor> {
         self.executor.clone()
     }
-    pub fn attach_view(&self, application: &gtk4::Application, view: &View) {
-        view.0.window.set_application(Some(application));
-        let weak = Rc::downgrade(&self.executor);
-        view.on_close(Rc::new(move || {
-            if let Some(executor) = weak.upgrade() {
-                executor.close();
-            }
-        }));
-    }
     /// Opt in to asynchronous Session shutdown on native close-request. Does not
     /// register/replace any WindowHooks: register native Views and application
     /// hooks separately and retain their tokens. The caller must drive GTK.
@@ -2073,60 +2077,6 @@ fn panic_error(panic: Box<dyn std::any::Any + Send>) -> String {
         .or_else(|| panic.downcast_ref::<&str>().copied())
         .unwrap_or("non-string panic");
     format!("GTK callback panicked: {message}")
-}
-
-pub fn run(make: impl FnOnce(Rc<dyn Executor>) -> View + 'static) -> Result<(), String> {
-    gtk4::init().map_err(|error| error.to_string())?;
-    let host = Rc::new(GtkHost::attach());
-    let app = gtk4::Application::new(None::<&str>, gio::ApplicationFlags::NON_UNIQUE);
-    app.register(None::<&gio::Cancellable>)
-        .map_err(|error| error.to_string())?;
-    let owner = Rc::new(RefCell::new(None::<View>));
-    let error = Rc::new(RefCell::new(None));
-    let make = RefCell::new(Some(make));
-    let retained = owner.clone();
-    let failure = error.clone();
-    let pending = Rc::downgrade(&host);
-    let activate = app.connect_activate(move |app| {
-        let Some(make) = make.borrow_mut().take() else {
-            return;
-        };
-        let Some(host) = pending.upgrade() else {
-            app.quit();
-            return;
-        };
-        match catch_unwind(AssertUnwindSafe(|| make(host.executor()))) {
-            Ok(view) => {
-                if view.0.lifecycle.is_closed() {
-                    app.quit();
-                } else {
-                    host.attach_view(app, &view);
-                    view.present();
-                }
-                retained.replace(Some(view));
-            }
-            Err(panic) => {
-                failure.replace(Some(panic_error(panic)));
-                app.quit();
-            }
-        }
-    });
-    let status = app.run_with_args(&["panechord-gtk"]);
-    app.disconnect(activate);
-    if let Some(view) = owner.take() {
-        view.close();
-        if let Some(problem) = view.0.error.take() {
-            error.replace(Some(problem));
-        }
-    }
-    host.close();
-    if let Some(error) = error.take() {
-        return Err(error);
-    }
-    if status != glib::ExitCode::SUCCESS {
-        return Err(format!("GTK exited with {status:?}"));
-    }
-    Ok(())
 }
 
 pub fn run_host(

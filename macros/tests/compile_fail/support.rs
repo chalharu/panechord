@@ -46,10 +46,11 @@ pub fn model() -> Store<Model> {
 pub mod fake {
     use super::*;
     use panechord_runtime::{
-        AutomationView, Backend as BackendTrait, ButtonView, Choice, ContainerView, DialogFooter,
-        ImageFrame, Keyed, LayoutView, MediaView, MenuItem, MenuNode, MenuView, PointerPosition,
-        RunnerConfig, SelectView, Session, SliderRange, Subscription, Table, TableSelection,
-        TabPosition, TextView, UiHost, ViewCore, Viewport, WeakViewHandle, WindowHooks, WindowHost,
+        AutomationView, Backend as BackendTrait, ButtonView, Choice, DialogFooter, DialogView,
+        ImageFrame, Keyed, LayoutView, ListView, MediaView, MenuItem, MenuNode, MenuView,
+        PointerPosition, SelectView, Session, SliderRange, Subscription, TabPosition, Table,
+        TableSelection, TabView, TableView, TextView, UiHost, ViewCore, Viewport, WeakViewHandle,
+        WindowHooks, WindowHost,
     };
 
     #[derive(Clone)]
@@ -165,7 +166,7 @@ pub mod fake {
         fn meter(&self, _: &Parent, _: &str, _: Binding<f64>) {}
     }
 
-    impl ContainerView for View {
+    impl TabView for View {
         fn tab(&self, _: &Parent, _: &str, _: Binding<String>) -> Parent { Parent }
         fn navigation(&self, _: &Parent, _: &str, _: Binding<String>) -> Parent { Parent }
         fn tab_position(&self, _: &str, _: TabPosition) -> Result<(), String> { Ok(()) }
@@ -173,16 +174,25 @@ pub mod fake {
         fn try_tab_page(&self, _: &Parent, _: &str, _: Binding<String>, _: &str) -> Result<Parent, String> { Ok(Parent) }
         fn finish_tab(&self, _: &Parent) -> Result<(), String> { Ok(()) }
         fn tab_items<T: Clone + 'static>(&self, _: &Parent, _: &str, _: Binding<Vec<Keyed<T>>>, _: Binding<String>, _: Rc<dyn Fn(Store<T>) -> Binding<String>>, _: Rc<dyn Fn(&View, &Parent, &str, Store<T>)>) -> Parent { Parent }
+}
+
+    impl ListView for View {
         fn repeat<T: Clone + 'static>(&self, _: &Parent, _: &str, _: Binding<Vec<Keyed<T>>>, _: f32, _: Rc<dyn Fn(&View, &Parent, &str, Store<T>)>) {}
         fn items<T: Clone + 'static>(&self, _: &Parent, _: &str, _: Binding<Vec<Keyed<T>>>, _: Binding<Viewport>, _: Rc<dyn Fn(&View, &Parent, &str, Store<T>)>) {}
         fn content<T: Clone + 'static>(&self, _: &Parent, _: &str, _: Binding<Option<Keyed<T>>>, _: Rc<dyn Fn(&View, &Parent, &str, Store<T>)>) {}
-        fn dialog(&self, _: &Parent, _: &str, _: Binding<String>, _: Binding<bool>) -> Parent { Parent }
-        fn table(&self, _: &Parent, _: &str, _: Binding<Table>) {}
-        fn table_with_selection(&self, _: &Parent, _: &str, _: Binding<Table>, _: Binding<Option<TableSelection>>) {}
         fn item_keys(&self, _: &str) -> Vec<String> { Vec::new() }
         fn mounted_count(&self, _: &str) -> usize { 0 }
         fn viewport(&self, _: &str, _: usize) {}
         fn items_error(&self, _: &str) -> Option<String> { None }
+    }
+
+    impl DialogView for View {
+        fn dialog(&self, _: &Parent, _: &str, _: Binding<String>, _: Binding<bool>) -> Parent { Parent }
+    }
+
+    impl TableView for View {
+        fn table(&self, _: &Parent, _: &str, _: Binding<Table>) {}
+        fn table_with_selection(&self, _: &Parent, _: &str, _: Binding<Table>, _: Binding<Option<TableSelection>>) {}
     }
 
     impl MenuView for View {
@@ -223,9 +233,6 @@ pub mod fake {
     impl BackendTrait for Backend {
         type View = View;
         type Host = Host;
-        fn runner_config() -> RunnerConfig {
-            RunnerConfig { application_menu: false, menu_quit_in_file: true }
-        }
         fn run_host(_: impl FnOnce(Rc<Host>) -> Result<(), String> + 'static) -> Result<(), String> {
             Err("fixture has no native loop".into())
         }

@@ -54,7 +54,11 @@ fn main() -> Result<(), String> {
             pixels.extend_from_slice(&color);
         }
     }
-    backend::run(move |executor| {
+    backend::run_host(move |host| {
+        use panechord_runtime::{Session, UiHost as _};
+        let session = Session::new();
+        host.attach(session.clone())?;
+        let executor = host.executor();
         let rejected = Store::new(42.4, executor.clone());
         let sample = backend::View::new(panechord_runtime::Binding::constant(
             "rejected slider".into(),
@@ -179,7 +183,7 @@ fn main() -> Result<(), String> {
                                 id: "slot".into(),
                                 label: "Slot 1".into(),
                                 argument: "slot-1".into(),
-                                shortcut: Some("Ctrl+S".into()),
+                                shortcut: Some("Primary+S".into()),
                                 role: panechord_runtime::MenuRole::Normal,
                                 enabled: true,
                                 visible: true,
@@ -215,7 +219,13 @@ fn main() -> Result<(), String> {
         }));
         if std::env::var_os("PANECHORD_CONTROLS_REVIEW").is_some() {
             completed.set(true);
-            return view;
+            #[cfg(feature = "backend-gtk")]
+            host.register_view(&session, "review", &view)?;
+            #[cfg(feature = "backend-tao")]
+            host.present(&view);
+            #[cfg(feature = "backend-macos")]
+            host.present(&view);
+            return Ok(());
         }
         executor.spawn(Box::pin(async move {
             probe.activate_menu("emulation/slot").unwrap();
@@ -424,6 +434,12 @@ fn main() -> Result<(), String> {
             );
             assert!(probe.set_open("dialog", true).is_err());
         }));
-        view
+        #[cfg(feature = "backend-gtk")]
+        host.register_view(&session, "controls", &view)?;
+        #[cfg(feature = "backend-tao")]
+        host.present(&view);
+        #[cfg(feature = "backend-macos")]
+        host.present(&view);
+        Ok(())
     })
 }

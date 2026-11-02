@@ -35,8 +35,8 @@ pub use panechord_native::{
     Parent, View, WeakView, pick_file, set_allows_automatic_window_tabbing, set_initial_window_size,
 };
 
-/// Startup builder: backend-resolved run configuration flows into the
-/// application instead of views querying backend capabilities, so every
+/// Startup builder: pre-build window options flow into the backend before the
+/// single `run_host` loop starts. Views are built inside `run`, so every
 /// branch stays unit-testable on any platform.
 #[cfg(any(
     feature = "native",
@@ -142,16 +142,14 @@ impl RunnerBuilder {
         self,
         make: impl FnOnce(
             std::rc::Rc<dyn WindowHost<<SelectedBackend as panechord_runtime::Backend>::View>>,
-            &RunnerConfig,
         ) -> Result<(), String>
         + 'static,
     ) -> Result<(), String> {
         // One dispatch shape for every backend, driven through the
-        // `panechord_runtime::Backend` trait: `runner_config`, `run_host`
-        // and the pre-build option setters. A new builder option extends
-        // the trait; a new backend implements it.
+        // `panechord_runtime::Backend` trait: `run_host` and the pre-build
+        // option setters. A new builder option extends the trait; a new
+        // backend implements it.
         use panechord_runtime::Backend as _;
-        let config = SelectedBackend::runner_config();
         let tabbing = self.automatic_window_tabbing;
         let size = self.initial_window_size;
         SelectedBackend::run_host(move |host| {
@@ -161,7 +159,7 @@ impl RunnerBuilder {
             if let Some((width, height)) = size {
                 SelectedBackend::set_initial_window_size(width, height);
             }
-            make(host, &config)
+            make(host)
         })
     }
 }

@@ -54,12 +54,12 @@ root:
       - type: Image
         id: frame
         source: {bind: {path: frame}}
-        style: {placement: {height: 128}}
+        style: {placement: {width: 160, height: 120}}
       - type: Tab
         id: pages
-        position: Left
+        position: Top
         selected: {bind: {path: page, mode: TwoWay}}
-        style: {placement: {height: 140}}
+        style: {placement: {height: 120}}
         pages:
           - id: video
             title: {literal: Video}
@@ -77,7 +77,7 @@ root:
         id: options
         position: Top
         selected: {bind: {path: option, mode: TwoWay}}
-        style: {placement: {height: 140}}
+        style: {placement: {height: 120}}
         pages:
           - id: general
             title: {literal: General}
@@ -105,9 +105,6 @@ root:
           padding: 20
           gap: 12
           children:
-            - type: Label
-              id: dialog_title
-              text: {literal: Settings}
             - type: Button
               id: dismiss
               text: {literal: Done}

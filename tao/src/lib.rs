@@ -4,7 +4,6 @@ mod controls;
 mod driver;
 mod input;
 mod layout;
-mod lifecycle;
 mod menu;
 mod scheduler;
 pub mod shortcut;
@@ -259,7 +258,7 @@ struct Inner {
     menu_attached: RefCell<Vec<(usize, muda::Submenu)>>,
     menu_order: Cell<usize>,
     subscriptions: RefCell<Vec<Subscription>>,
-    lifecycle: lifecycle::Lifecycle,
+    lifecycle: panechord_runtime::Lifecycle,
     quit_request: RefCell<Option<Rc<dyn Fn()>>>,
     /// HIG Return/Escape targets per open dialog node id: the footer accept
     /// and cancel click keys plus whether accept is destructive. The driver
@@ -320,17 +319,6 @@ impl Inner {
 impl Drop for Inner {
     fn drop(&mut self) {
         self.shutdown();
-    }
-}
-
-/// Backend-resolved run configuration for this host. AppKit consumes the
-/// first installed submenu as the application menu, so on macOS the menubar
-/// needs an explicit leading application menu; elsewhere the binding stays
-/// vacant and backends keep it out of the menubar.
-pub fn runner_config() -> panechord_runtime::RunnerConfig {
-    panechord_runtime::RunnerConfig {
-        application_menu: cfg!(target_os = "macos"),
-        menu_quit_in_file: !cfg!(target_os = "macos"),
     }
 }
 
@@ -399,7 +387,7 @@ impl View {
             menu_attached: RefCell::default(),
             menu_order: Cell::new(0),
             subscriptions: RefCell::default(),
-            lifecycle: lifecycle::Lifecycle::default(),
+            lifecycle: panechord_runtime::Lifecycle::default(),
             quit_request: RefCell::default(),
             footers: RefCell::default(),
             invalidate: RefCell::default(),
@@ -1045,6 +1033,8 @@ impl View {
         Ok(())
     }
     pub fn meter(&self, parent: &Parent, id: &str, value: Binding<f64>) {
+        // iced's ProgressBar exposes no accessibility label; screens pair the
+        // meter with a visible caption (as the gallery does) instead.
         let node = self.add(parent, id, Kind::Content);
         let current = Rc::new(Cell::new(0.0f32));
         let out = current.clone();
@@ -1756,12 +1746,6 @@ fn panic_error(panic: Box<dyn std::any::Any + Send>) -> String {
     )
 }
 /// Owns the native loop and UI-local scheduler. Main thread only; no GTK4 in this process.
-pub fn run(make: impl FnOnce(Rc<dyn Executor>) -> View + 'static) -> Result<(), String> {
-    run_host(move |host| {
-        host.present(&make(panechord_runtime::UiHost::executor(host.as_ref())));
-        Ok(())
-    })
-}
 pub struct TaoHost {
     executor: Rc<scheduler::Scheduler>,
     views: RefCell<Vec<(usize, View)>>,

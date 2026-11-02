@@ -71,12 +71,12 @@ cargo build --locked -p panechord-demo --example minimal
 cargo build --locked -p panechord-demo
 output=$(timeout "$native_timeout" xvfb-run -a cargo run --locked -p panechord-demo -- --smoke)
 printf '%s\n' "$output"
-printf '%s\n' "$output" | grep -q '^PROTOTYPE2 PASS '
+printf '%s\n' "$output" | grep -q '^PROTOTYPE2 PASS templates=item+content virtualization=1000 conversions=checked validation=async menu=dynamic saves=2 closed=true$'
 cargo build --locked -p panechord-demo --example minimal --no-default-features --features backend-tao
 cargo build --locked -p panechord-demo --no-default-features --features backend-tao
 output=$(timeout "$native_timeout" xvfb-run -a cargo run --locked -p panechord-demo --no-default-features --features backend-tao -- --smoke)
 printf '%s\n' "$output"
-printf '%s\n' "$output" | grep -q '^PROTOTYPE2 PASS '
+printf '%s\n' "$output" | grep -q '^PROTOTYPE2 PASS templates=item+content virtualization=1000 conversions=checked validation=async menu=dynamic saves=2 closed=true$'
 cargo build --locked -p panechord-tao --example native_smoke
 output=$(timeout "$native_timeout" xvfb-run -a cargo run --locked -p panechord-tao --example native_smoke)
 printf '%s\n' "$output"

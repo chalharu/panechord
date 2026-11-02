@@ -36,7 +36,7 @@ printf '%s\n' "$output" | grep -q '^MENUS3 PASS nested typed-argument parent-ena
 printf '%s\n' "$output" | grep -q '^DIALOG3 PASS readonly hidden-parent close-reopen$'
 output=$(cargo run --locked -p panechord-demo --no-default-features --features backend-macos -- --smoke)
 printf '%s\n' "$output"
-printf '%s\n' "$output" | grep -q '^PROTOTYPE2 PASS '
+printf '%s\n' "$output" | grep -q '^PROTOTYPE2 PASS templates=item+content virtualization=1000 conversions=checked validation=async menu=dynamic saves=2 closed=true$'
 output=$(cargo run --locked -p panechord-macos --example multiwindow)
 printf '%s\n' "$output"
 printf '%s\n' "$output" | grep -q '^MACOS3 PASS single-session repeated-attach foreign-attach-and-registration-rejected$'

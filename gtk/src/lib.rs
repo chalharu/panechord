@@ -21,7 +21,7 @@ use futures::future::{AbortHandle, Abortable, LocalBoxFuture};
 use gtk4::{gio, glib, prelude::*};
 use panechord_runtime::{
     Binding, Command, Executor, Keyed, Layout, MenuItem, MenuRole, Session, Shortcut,
-    ShutdownPhase, Store, Style, Subscription, UiHost, Viewport, WindowHooks,
+    ShutdownPhase, Store, Style, Subscription, UiHost, Viewport, WindowHooks, canonical_or_raw,
 };
 
 /// A native container, not a second runtime parent descriptor.
@@ -871,8 +871,12 @@ impl View {
     }
 
     /// Dialog footer: the framework-level OK/Cancel control. Order follows
-    /// the GNOME HIG (cancel first, affirmative second); the dialog owner
-    /// keeps Return/Escape so capture sessions hold precedence.
+    /// the GNOME HIG (cancel first, affirmative second).
+    ///
+    /// HIG Return/Escape: a non-destructive accept becomes the dialog
+    /// window's default widget (Return activates it) and Escape activates
+    /// cancel. This applies only inside a real modal dialog window, never
+    /// the main window; a destructive accept gets no default widget.
     pub fn dialog_footer(
         &self,
         parent: &Parent,
@@ -910,10 +914,32 @@ impl View {
         if footer.destructive {
             accept.add_css_class("destructive-action");
         } else {
-            // Visual default marking only (no native default-widget grab:
-            // Return/Escape stay with the dialog owner so capture sessions
-            // keep precedence over footer keys).
+            // Visual default marking only (the native default-widget grab
+            // below is dialog-scoped; Return/Escape stay with the dialog
+            // owner outside real dialog windows so capture sessions keep
+            // precedence over footer keys).
             accept.add_css_class("suggested-action");
+        }
+        // HIG Return/Escape, dialog windows only: a non-destructive accept
+        // is the default widget, Escape always activates cancel. The main
+        // window never gains a default widget or an Escape grab.
+        if let Some(window) = row.root().and_downcast::<gtk4::Window>()
+            && window != self.0.window
+            && window.is_modal()
+        {
+            if !footer.destructive {
+                window.set_default_widget(Some(&accept));
+            }
+            let cancel_click = cancel.clone();
+            let escape = gtk4::ShortcutController::new();
+            escape.add_shortcut(gtk4::Shortcut::new(
+                Some(gtk4::ShortcutTrigger::parse_string("Escape").expect("static Escape trigger")),
+                Some(gtk4::CallbackAction::new(move |_, _| {
+                    cancel_click.emit_clicked();
+                    glib::Propagation::Stop
+                })),
+            ));
+            window.add_controller(escape);
         }
     }
 
@@ -1083,15 +1109,6 @@ impl View {
         self.0.lists.borrow().get(id).and_then(|list| list.error())
     }
 
-    pub fn menu(
-        &self,
-        id: &str,
-        title: Binding<String>,
-        items: Binding<Vec<MenuItem>>,
-        dispatch: Rc<dyn Fn(String) -> bool>,
-    ) {
-        self.typed_menu(id, title, items, dispatch);
-    }
     pub fn typed_menu<A: Clone + 'static>(
         &self,
         id: &str,
@@ -1512,12 +1529,9 @@ impl View {
     }
 }
 
-// Canonical common grammar first; raw GTK trigger strings are legacy-only.
+// Canonical grammar first; the raw value stays as the GTK-native fallback.
 fn parse_shortcut(value: &str) -> Option<gtk4::ShortcutTrigger> {
-    match Shortcut::parse(value) {
-        Ok(shortcut) => gtk4::ShortcutTrigger::parse_string(&shortcut.to_gtk()),
-        Err(_) => gtk4::ShortcutTrigger::parse_string(value),
-    }
+    gtk4::ShortcutTrigger::parse_string(&canonical_or_raw(value, Shortcut::to_gtk))
 }
 
 fn pixels(value: f32) -> i32 {

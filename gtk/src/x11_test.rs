@@ -134,7 +134,10 @@ impl X11 {
         self.press(keysym);
         self.release();
     }
-    #[allow(dead_code)] // GTK4 tests compose; Tao shares only the physical key driver.
+    // Shared X11 driver, also path-included by the Tao driver tests:
+    // `compose` is only exercised by the GTK suite, so the Tao embedding
+    // would otherwise flag it as dead code.
+    #[allow(dead_code)]
     pub(crate) fn compose(&mut self, text: &str) {
         // GTK IMContextSimple's Unicode entry, not an external Japanese IME.
         for ch in text.chars() {

@@ -62,8 +62,10 @@ about the oldest OS or Intel hardware.
   drain is capped at five seconds. `run` remains the single-window compatible
   entry. External reactor integration is a separate task.
 - `DialogFooter` is a right-aligned row, Cancel first; a destructive accept sets
-  `NSButton.hasDestructiveAction` (macOS 11+). Return/Escape stay with the
-  dialog owner — the backend owns visual order and emphasis only.
+  `NSButton.hasDestructiveAction` (macOS 11+). A non-destructive accept is the
+  default button (Return) and cancel always answers Escape; a destructive
+  accept keeps no Return equivalent — the backend owns visual order, emphasis
+  and key equivalents.
 - TextBox delegates to the AppKit field editor: selection, undo, clipboard and
   marked IME text belong to the OS. While marked text is present, model
   notifications must not replace the `stringValue`. This is not a general edit

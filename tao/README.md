@@ -139,7 +139,6 @@ upgrade and call close only when ready; retain that token with `View::keep`.
 An on_close callback closes the Store when the View actually ends. Never capture
 View strongly in a callback/token stored on that same View. keep ownership and
 template-scoped token eviction are unchanged.
-`run_async` returns an unsupported-external-host error without constructing a View.
 Call `run` on the main thread, at most once per process. Do not initialize GTK4
 in the same process, or install a competing process-global muda event handler.
 

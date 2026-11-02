@@ -360,7 +360,7 @@ fn main() -> Result<(), String> {
         view.activate_menu("typed/integer").unwrap();
         assert_eq!(typed_argument.get(), 42);
         println!("MACOS3 PASS typed-menu integer-argument");
-        let valid_menu = MenuItem {
+        let valid_menu: MenuItem<String> = MenuItem {
             id: "save".into(),
             label: "Save".into(),
             argument: "original".into(),
@@ -372,7 +372,7 @@ fn main() -> Result<(), String> {
         let transaction = Store::new(vec![valid_menu.clone()], executor.clone());
         let arguments = Rc::new(RefCell::new(Vec::new()));
         let output = arguments.clone();
-        view.menu(
+        view.typed_menu(
             "transaction",
             Binding::constant("Transaction".into()),
             transaction.bind(Clone::clone, None),
@@ -461,12 +461,12 @@ fn main() -> Result<(), String> {
         let enabled = Store::new(true, executor.clone());
         let clicks = Rc::new(Cell::new(0));
         let counter = clicks.clone();
-        view.menu(
+        view.typed_menu(
             "actions",
             Binding::constant("Actions".into()),
             enabled.bind(
                 |enabled| {
-                    vec![MenuItem {
+                    vec![MenuItem::<String> {
                         id: "save".into(),
                         label: "Save".into(),
                         argument: "save".into(),

@@ -1035,10 +1035,14 @@ impl View {
     /// Dialog footer: the framework-level OK/Cancel control. Builds one
     /// end-aligned horizontal row (gap 12) with Cancel first, per the Apple
     /// HIG, and binds both buttons exactly like `button` (caption plus
-    /// command enablement; clicks invoke the commands). Sub-ids
+    /// command enablement; clicks invoke the commands).
+    ///
+    /// HIG Return/Escape: a non-destructive accept gets the Return key
+    /// equivalent (default button), and cancel always gets Escape — property
+    /// channels 20/21 in the AppKit bridge. A destructive accept is never a
+    /// Return target. Sub-ids
     /// (`{id}/accept`, `{id}/cancel`) keep handlers and bindings scoped so
-    /// footer teardown stays within `remove`. No key wiring: Return/Escape
-    /// stay with the dialog owner per the runtime contract.
+    /// footer teardown stays within `remove`.
     pub fn dialog_footer(
         &self,
         parent: &Parent,
@@ -1069,13 +1073,22 @@ impl View {
         // (`NSButton.hasDestructiveAction` in the AppKit bridge): a
         // destructive accept renders with the system destructive style,
         // a normal one stays unmarked rather than reading as default.
-        // No default-widget grab here: Return/Escape stay with the dialog
-        // owner per the runtime contract.
+        // Return/Escape travel on channels 20/21 (key equivalents); only a
+        // non-destructive accept answers Return.
         self.set(
             &format!("{id}/accept"),
             if destructive { "1" } else { "0" },
             19,
         );
+        // HIG Return/Escape: non-destructive accept is the default button
+        // (Return), cancel always answers Escape. A destructive accept keeps
+        // no Return equivalent.
+        self.set(
+            &format!("{id}/accept"),
+            if destructive { "0" } else { "1" },
+            20,
+        );
+        self.set(&format!("{id}/cancel"), "1", 21);
     }
 
     pub fn items<T: Clone + 'static>(
@@ -1267,15 +1280,6 @@ impl View {
                 .clone()
                 .or_else(|| list.error.borrow().clone())
         })
-    }
-    pub fn menu(
-        &self,
-        id: &str,
-        title: Binding<String>,
-        items: Binding<Vec<MenuItem>>,
-        dispatch: Rc<dyn Fn(String) -> bool>,
-    ) {
-        self.typed_menu(id, title, items, dispatch);
     }
     pub fn typed_menu<A: Clone + 'static>(
         &self,

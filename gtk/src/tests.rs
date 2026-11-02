@@ -1062,7 +1062,7 @@ fn native_x11_japanese_compose_focus_clipboard_and_rejection() {
 fn native_close_requests_weak_and_reentrant() {
     gtk4::init().expect("native_close_requests_weak_and_reentrant requires Xvfb");
     let view = View::new(Binding::constant("close requests".into()));
-    view.menu(
+    view.typed_menu(
         "file",
         Binding::constant("File".into()),
         Binding::constant(vec![menu_item("quit", MenuRole::Quit, None)]),
@@ -1207,7 +1207,7 @@ fn native_close_request_handler_precedes_coordinator_and_menu_falls_back() {
     let view = View::new(Binding::constant("coordinator fallback".into()));
     host.coordinate_close(&view, &session, Duration::from_secs(30))
         .unwrap();
-    view.menu(
+    view.typed_menu(
         "file",
         Binding::constant("File".into()),
         Binding::constant(vec![menu_item("quit", MenuRole::Quit, None)]),
@@ -1302,7 +1302,7 @@ fn native_canonical_shortcut_semantics() {
     let view = View::new(Binding::constant("shortcuts".into()));
     let calls = Rc::new(Cell::new(0));
     let count = calls.clone();
-    view.menu(
+    view.typed_menu(
         "file",
         Binding::constant("File".into()),
         Binding::constant(vec![
@@ -2324,7 +2324,7 @@ fn native_menu_namespaces() {
     let dispatched = Rc::new(RefCell::new(Vec::new()));
     for id in ["file", "tools"] {
         let seen = dispatched.clone();
-        view.menu(
+        view.typed_menu(
             id,
             Binding::constant(id.into()),
             items.bind(Clone::clone, None),
@@ -2770,7 +2770,7 @@ fn native_contract() {
     );
     let dispatched = Rc::new(RefCell::new(Vec::new()));
     let seen = dispatched.clone();
-    view.menu(
+    view.typed_menu(
         "menu",
         model.bind(|s| s.title.clone(), None),
         model.bind(|s| s.menus.clone(), None),
@@ -3132,7 +3132,7 @@ fn native_contract() {
         executor.spawn(Box::pin(async move {
             glib::timeout_future(Duration::from_millis(20)).await;
             let view = View(weak.upgrade().unwrap());
-            view.menu(
+            view.typed_menu(
                 "quit-menu",
                 Binding::constant("Quit".into()),
                 Binding::constant(vec![menu_item("quit", MenuRole::Quit, None)]),
@@ -3257,6 +3257,150 @@ fn native_dialog_footer_marks_destructive_without_default() {
             .any(|c| c == "destructive-action")
     );
     assert!(!accept.css_classes().iter().any(|c| c == "suggested-action"));
+    view.close();
+}
+
+#[test]
+#[ignore = "isolated Xvfb, optional libXtst"]
+fn native_dialog_footer_wires_default_and_escape_in_dialog_windows() {
+    gtk4::init().unwrap();
+    let Some(mut keys) = x11::X11::optional() else {
+        return;
+    };
+    let host = GtkHost::attach();
+    let model = Store::new(0i32, host.executor());
+    let accept = model.command(
+        |_| true,
+        |store, ()| {
+            let _ = store.update(|count| *count += 1);
+        },
+        Binding::constant(()),
+    );
+    let cancel = model.command(
+        |_| true,
+        |store, ()| {
+            let _ = store.update(|count| *count -= 1);
+        },
+        Binding::constant(()),
+    );
+    let noop = || model.command(|_| true, |_, ()| {}, Binding::constant(()));
+    let view = View::new(Binding::constant("Footer keys".into()));
+    // Inline footer in the main window: no default widget, no Escape grab.
+    view.dialog_footer(
+        &view.root(),
+        "inline",
+        panechord_runtime::DialogFooter {
+            accept: panechord_runtime::FooterButton {
+                text: Binding::constant("Inline".into()),
+                command: noop(),
+            },
+            cancel: panechord_runtime::FooterButton {
+                text: Binding::constant("Close".into()),
+                command: noop(),
+            },
+            destructive: false,
+        },
+    );
+    view.present();
+    assert!(view.native_window().default_widget().is_none());
+    // Dialog footer: a non-destructive accept is the default widget.
+    let dialog = view.dialog(
+        &view.root(),
+        "dlg",
+        Binding::constant("Dialog".into()),
+        Binding::constant(true),
+    );
+    view.dialog_footer(
+        &dialog,
+        "actions",
+        panechord_runtime::DialogFooter {
+            accept: panechord_runtime::FooterButton {
+                text: Binding::constant("Save".into()),
+                command: accept,
+            },
+            cancel: panechord_runtime::FooterButton {
+                text: Binding::constant("Cancel".into()),
+                command: cancel,
+            },
+            destructive: false,
+        },
+    );
+    let row = view.widget::<gtk4::Box>("actions").unwrap();
+    let window = row.root().and_downcast::<gtk4::Window>().unwrap();
+    assert!(window.is_modal());
+    assert_ne!(window, view.native_window());
+    unsafe extern "C" {
+        fn gdk_x11_surface_get_xid(surface: *mut gtk4::gdk::ffi::GdkSurface) -> std::ffi::c_ulong;
+    }
+    settle();
+    // SAFETY: checked X11 backend and live mapped GTK surface.
+    keys.focus(unsafe { gdk_x11_surface_get_xid(window.surface().unwrap().as_ptr()) });
+    assert!(window.default_widget().is_some());
+    // Real Return reaches the default accept button.
+    keys.tap(0xff0d);
+    drive_until(|| model.snapshot() == 1);
+    assert_eq!(model.snapshot(), 1);
+    // Real Escape reaches the dialog and activates cancel.
+    keys.tap(0xff1b);
+    drive_until(|| model.snapshot() == 0);
+    assert_eq!(model.snapshot(), 0);
+    view.close();
+}
+
+#[test]
+#[ignore = "isolated Xvfb, optional libXtst"]
+fn native_dialog_footer_destructive_accept_has_no_default_but_keeps_escape() {
+    gtk4::init().unwrap();
+    let Some(mut keys) = x11::X11::optional() else {
+        return;
+    };
+    let host = GtkHost::attach();
+    let model = Store::new(0i32, host.executor());
+    let noop = || model.command(|_| true, |_, ()| {}, Binding::constant(()));
+    let cancel = model.command(
+        |_| true,
+        |store, ()| {
+            let _ = store.update(|count| *count -= 1);
+        },
+        Binding::constant(()),
+    );
+    let view = View::new(Binding::constant("Destructive keys".into()));
+    let dialog = view.dialog(
+        &view.root(),
+        "dlg",
+        Binding::constant("Dialog".into()),
+        Binding::constant(true),
+    );
+    view.dialog_footer(
+        &dialog,
+        "actions",
+        panechord_runtime::DialogFooter {
+            accept: panechord_runtime::FooterButton {
+                text: Binding::constant("Discard".into()),
+                command: noop(),
+            },
+            cancel: panechord_runtime::FooterButton {
+                text: Binding::constant("Keep editing".into()),
+                command: cancel,
+            },
+            destructive: true,
+        },
+    );
+    let row = view.widget::<gtk4::Box>("actions").unwrap();
+    let window = row.root().and_downcast::<gtk4::Window>().unwrap();
+    view.present();
+    settle();
+    unsafe extern "C" {
+        fn gdk_x11_surface_get_xid(surface: *mut gtk4::gdk::ffi::GdkSurface) -> std::ffi::c_ulong;
+    }
+    // SAFETY: checked X11 backend and live mapped GTK surface.
+    keys.focus(unsafe { gdk_x11_surface_get_xid(window.surface().unwrap().as_ptr()) });
+    assert!(window.default_widget().is_none());
+    window.activate_default();
+    assert_eq!(model.snapshot(), 0);
+    keys.tap(0xff1b);
+    drive_until(|| model.snapshot() == -1);
+    assert_eq!(model.snapshot(), -1);
     view.close();
 }
 

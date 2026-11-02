@@ -641,7 +641,7 @@ fn close_ready_subscription_is_kept_without_a_view_model_cycle() {
 fn quit_role_requests_close_without_dispatching_or_recursing() {
     use panechord_runtime::{MenuItem, MenuRole};
     let view = View::new(Binding::constant("quit".into()));
-    view.menu(
+    view.typed_menu(
         "file",
         Binding::constant("File".into()),
         Binding::constant(vec![MenuItem {
@@ -1088,12 +1088,6 @@ fn native_scroll_message_moves_range_without_snapback_and_has_fractional_oversca
 }
 
 #[test]
-fn unsupported_host_does_not_construct_view() {
-    let result = futures::executor::block_on(run_async(|_| panic!("must not construct")));
-    assert!(result.unwrap_err().contains("external reactor host"));
-}
-
-#[test]
 fn real_iced_wheel_event_reports_offset_and_virtualizes_the_visible_rows() {
     use iced_winit::runtime::user_interface::{Cache, UserInterface};
     struct Clipboard;
@@ -1170,7 +1164,7 @@ fn dynamic_menu_snapshots_replace_arguments_enabled_hotkeys_and_native_items() {
     let received = Rc::new(RefCell::new(Vec::new()));
     let out = received.clone();
     let view = View::new(Binding::constant("menus".into()));
-    view.menu(
+    view.typed_menu(
         "file",
         state.bind(|s| s.0.clone(), Some(|s, v| s.0 = v)),
         state.bind(|s| s.1.clone(), Some(|s, v| s.1 = v)),
@@ -1236,14 +1230,14 @@ fn dynamic_menu_snapshots_replace_arguments_enabled_hotkeys_and_native_items() {
 // Linux/Windows; macOS coverage comes from the native review harness.
 #[cfg(not(target_os = "macos"))]
 #[test]
-fn linux_quit_shim_closes_owner_without_dispatch_or_ownership_cycle() {
+fn linux_vetoed_quit_closes_owner_without_dispatch_or_ownership_cycle() {
     use panechord_runtime::{MenuItem, MenuRole};
     let view = View::new(Binding::constant("quit".into()));
     let owner = Rc::downgrade(&view.0);
     let closed = Rc::new(Cell::new(0));
     let out = closed.clone();
     view.on_close(Rc::new(move || out.set(out.get() + 1)));
-    view.menu(
+    view.typed_menu(
         "file",
         Binding::constant("File".into()),
         Binding::constant(vec![MenuItem {
@@ -1255,7 +1249,7 @@ fn linux_quit_shim_closes_owner_without_dispatch_or_ownership_cycle() {
             enabled: true,
             visible: true,
         }]),
-        Rc::new(|_| panic!("Quit is not an application command alias")),
+        Rc::new(|_: String| panic!("Quit is not an application command alias")),
     );
     let item = view.0.menus().items()[0].as_submenu().unwrap().items()[0].clone();
     assert!(item.as_menuitem().is_some());
@@ -1299,7 +1293,7 @@ fn native_menu_append_failure(hierarchical: bool) {
     use gtk::prelude::*;
     use panechord_runtime::{MenuItem, MenuNode, MenuRole};
     let h = Harness::new();
-    let save = MenuItem {
+    let save: MenuItem<String> = MenuItem {
         id: "save".into(),
         label: "Save".into(),
         argument: "old argument".into(),
@@ -1308,7 +1302,7 @@ fn native_menu_append_failure(hierarchical: bool) {
         enabled: true,
         visible: true,
     };
-    let quit = MenuItem {
+    let quit: MenuItem<String> = MenuItem {
         id: "quit".into(),
         label: "Quit".into(),
         argument: "never dispatch".into(),
@@ -1344,7 +1338,7 @@ fn native_menu_append_failure(hierarchical: bool) {
             dispatch,
         );
     } else {
-        view.menu(
+        view.typed_menu(
             "file",
             state.bind(|s| s.0.clone(), None),
             state.bind(|s| s.1.clone(), None),
@@ -1687,5 +1681,132 @@ fn dialog_footer_enabled_binding_toggles_sensitivity() {
     assert!(view.click("footer/cancel").is_err());
     h.pump();
     assert_eq!(cancel_calls.get(), 0);
+    view.close();
+}
+
+#[test]
+fn dialog_footer_registers_return_and_escape_targets() {
+    use tao::keyboard::KeyCode;
+    let h = Harness::new();
+    let accept_on = h.store(true);
+    let cancel_on = h.store(true);
+    let accept_cmd = accept_on.command(|on| *on, |_, ()| {}, Binding::constant(()));
+    let cancel_cmd = cancel_on.command(|on| *on, |_, ()| {}, Binding::constant(()));
+    let view = View::new(Binding::constant("keys".into()));
+    // Footer outside any dialog: no key wiring.
+    view.dialog_footer(
+        &view.root(),
+        "loose",
+        panechord_runtime::DialogFooter {
+            accept: panechord_runtime::FooterButton {
+                text: Binding::constant("Save".into()),
+                command: accept_cmd.clone(),
+            },
+            cancel: panechord_runtime::FooterButton {
+                text: Binding::constant("Cancel".into()),
+                command: cancel_cmd.clone(),
+            },
+            destructive: false,
+        },
+    );
+    assert!(view.dialog_key_action(KeyCode::Enter).is_none());
+    assert!(view.dialog_key_action(KeyCode::Escape).is_none());
+    // Footer inside an open dialog: Return targets accept, Escape targets cancel.
+    let open = h.store(true);
+    let dialog = view.dialog(
+        &view.root(),
+        "dlg",
+        Binding::constant("Dialog".into()),
+        open.bind(Clone::clone, Some(|open: &mut bool, value| *open = value)),
+    );
+    view.dialog_footer(
+        &dialog,
+        "actions",
+        panechord_runtime::DialogFooter {
+            accept: panechord_runtime::FooterButton {
+                text: Binding::constant("Save".into()),
+                command: accept_cmd,
+            },
+            cancel: panechord_runtime::FooterButton {
+                text: Binding::constant("Cancel".into()),
+                command: cancel_cmd,
+            },
+            destructive: false,
+        },
+    );
+    assert!(matches!(
+        view.dialog_key_action(KeyCode::Enter),
+        Some(Message::Click(key)) if key == "actions/accept"
+    ));
+    assert!(matches!(
+        view.dialog_key_action(KeyCode::NumpadEnter),
+        Some(Message::Click(key)) if key == "actions/accept"
+    ));
+    assert!(matches!(
+        view.dialog_key_action(KeyCode::Escape),
+        Some(Message::Click(key)) if key == "actions/cancel"
+    ));
+    assert!(view.dialog_key_action(KeyCode::Space).is_none());
+    // Disabled accept: Return does nothing, Escape still cancels.
+    assert!(accept_on.update(|on| *on = false));
+    h.pump();
+    assert!(view.dialog_key_action(KeyCode::Enter).is_none());
+    assert!(matches!(
+        view.dialog_key_action(KeyCode::Escape),
+        Some(Message::Click(key)) if key == "actions/cancel"
+    ));
+    assert!(accept_on.update(|on| *on = true));
+    h.pump();
+    // Disabled cancel: Return still fires, Escape does not.
+    assert!(cancel_on.update(|on| *on = false));
+    h.pump();
+    assert!(matches!(
+        view.dialog_key_action(KeyCode::Enter),
+        Some(Message::Click(key)) if key == "actions/accept"
+    ));
+    assert!(view.dialog_key_action(KeyCode::Escape).is_none());
+    assert!(cancel_on.update(|on| *on = true));
+    h.pump();
+    // Closed dialog: no key wiring.
+    assert!(open.update(|open| *open = false));
+    h.pump();
+    assert!(view.dialog_key_action(KeyCode::Enter).is_none());
+    assert!(view.dialog_key_action(KeyCode::Escape).is_none());
+    view.close();
+}
+
+#[test]
+fn dialog_footer_destructive_accept_is_never_a_return_target() {
+    use tao::keyboard::KeyCode;
+    let h = Harness::new();
+    let enabled = h.store(true);
+    let view = View::new(Binding::constant("destructive keys".into()));
+    let open = h.store(true);
+    let dialog = view.dialog(
+        &view.root(),
+        "dlg",
+        Binding::constant("Dialog".into()),
+        open.bind(Clone::clone, Some(|open: &mut bool, value| *open = value)),
+    );
+    view.dialog_footer(
+        &dialog,
+        "actions",
+        panechord_runtime::DialogFooter {
+            accept: panechord_runtime::FooterButton {
+                text: Binding::constant("Discard".into()),
+                command: enabled.command(|on| *on, |_, ()| {}, Binding::constant(())),
+            },
+            cancel: panechord_runtime::FooterButton {
+                text: Binding::constant("Keep editing".into()),
+                command: enabled.command(|on| *on, |_, ()| {}, Binding::constant(())),
+            },
+            destructive: true,
+        },
+    );
+    assert!(view.dialog_key_action(KeyCode::Enter).is_none());
+    assert!(matches!(
+        view.dialog_key_action(KeyCode::Escape),
+        Some(Message::Click(key)) if key == "actions/cancel"
+    ));
     view.close();
 }

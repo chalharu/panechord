@@ -1,6 +1,6 @@
 use super::*;
 use muda::{IsMenuItem, PredefinedMenuItem, accelerator::Accelerator};
-use panechord_runtime::{MenuItem, MenuNode, MenuRole, Shortcut, visible_tree};
+use panechord_runtime::{MenuItem, MenuNode, MenuRole, Shortcut, canonical_or_raw, visible_tree};
 
 #[derive(Clone)]
 pub(super) struct Action {
@@ -8,17 +8,15 @@ pub(super) struct Action {
     dispatch: Rc<dyn Fn(String) -> bool>,
     pub(super) close: Option<Rc<dyn Fn()>>,
 }
-fn quit_shim(role: &MenuRole) -> bool {
+/// Quit must go through the ordinary-item path (not a predefined Quit item):
+/// predefined Quit terminates the native loop/app directly, bypassing the
+/// vetoable close-request hooks. Only Quit gets this treatment.
+fn vetoed_quit(role: &MenuRole) -> bool {
     *role == MenuRole::Quit
 }
 pub fn parse_shortcut(value: &str) -> Result<Accelerator, String> {
-    // Canonical first; historical muda Code syntax remains a legacy fallback.
-    let canonical = Shortcut::parse(value)
-        .ok()
-        .map(|shortcut| shortcut.to_muda());
-    canonical
-        .as_deref()
-        .unwrap_or(value)
+    // Canonical grammar first; the raw value stays as the muda-native fallback.
+    canonical_or_raw(value, Shortcut::to_muda)
         .parse::<Accelerator>()
         .map_err(|e| format!("invalid menu shortcut {value:?}: {e}"))
 }
@@ -30,7 +28,7 @@ fn validate<A>(items: &[MenuItem<A>]) -> Result<(), String> {
         }
         if let Some(shortcut) = &item.shortcut {
             parse_shortcut(shortcut)?;
-            if item.role != MenuRole::Normal && !quit_shim(&item.role) {
+            if item.role != MenuRole::Normal && !vetoed_quit(&item.role) {
                 return Err(format!(
                     "custom shortcut on predefined native role is unsupported: {}",
                     item.id
@@ -39,7 +37,7 @@ fn validate<A>(items: &[MenuItem<A>]) -> Result<(), String> {
         }
         if item.role != MenuRole::Normal
             && item.role != MenuRole::Separator
-            && !quit_shim(&item.role)
+            && !vetoed_quit(&item.role)
             && !item.enabled
         {
             return Err(format!("muda cannot disable predefined role: {}", item.id));
@@ -61,7 +59,7 @@ fn predefined<A>(item: &MenuItem<A>) -> PredefinedMenuItem {
                 ..Default::default()
             }),
         ),
-        MenuRole::Quit => unreachable!("Quit must use the vetoable ordinary-item shim"),
+        MenuRole::Quit => unreachable!("Quit must use the vetoable ordinary-item path"),
         MenuRole::Separator => PredefinedMenuItem::separator(),
         MenuRole::Normal => unreachable!(),
     }
@@ -155,15 +153,6 @@ impl View {
         dispatch: Rc<dyn Fn(A) -> bool>,
     ) {
         self.install_menu(id, title, items, dispatch);
-    }
-    pub fn menu(
-        &self,
-        id: &str,
-        title: Binding<String>,
-        items: Binding<Vec<MenuItem>>,
-        dispatch: Rc<dyn Fn(String) -> bool>,
-    ) {
-        self.typed_menu(id, title, items, dispatch);
     }
     pub fn typed_menu<A: Clone + 'static>(
         &self,
@@ -261,7 +250,7 @@ impl View {
                     visible: item.visible,
                 };
                 let key = format!("{menu_id}/{}", item.id);
-                if item.role == MenuRole::Normal || quit_shim(&item.role) {
+                if item.role == MenuRole::Normal || vetoed_quit(&item.role) {
                     let accelerator = item
                         .shortcut
                         .as_deref()
@@ -272,7 +261,7 @@ impl View {
                     ids.push((entry.id().clone(), key.clone()));
                     // Predefined Quit directly terminates the native loop/app on
                     // Windows/macOS (not vetoable). Always use an ordinary item.
-                    let close = if quit_shim(&item.role) {
+                    let close = if vetoed_quit(&item.role) {
                         let owner = weak.clone();
                         Some(Rc::new(move || {
                             if let Some(inner) = owner.upgrade() {
@@ -619,11 +608,11 @@ mod tests {
             item.enabled = false;
             assert_eq!(
                 validate(&[item.clone()]).is_ok(),
-                role == MenuRole::Separator || quit_shim(&role)
+                role == MenuRole::Separator || vetoed_quit(&role)
             );
             item.enabled = true;
             item.shortcut = Some("Ctrl+KeyS".into());
-            assert_eq!(validate(&[item]).is_ok(), quit_shim(&role));
+            assert_eq!(validate(&[item]).is_ok(), vetoed_quit(&role));
         }
     }
 }

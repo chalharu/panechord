@@ -32,6 +32,15 @@ pub use tao::{
 };
 type Template<T> = Rc<dyn Fn(&View, &Parent, &str, Store<T>)>;
 
+/// Dialog-footer key targets: node ids whose click messages the driver
+/// sends for plain Return (accept, unless destructive) and Escape (cancel).
+#[derive(Clone)]
+struct FooterKeys {
+    accept: String,
+    cancel: String,
+    destructive: bool,
+}
+
 #[derive(Clone, Debug)]
 pub enum Message {
     Edit(String, String),
@@ -249,6 +258,10 @@ struct Inner {
     on_close_request: RefCell<Option<Rc<dyn Fn()>>>,
     quit_request: RefCell<Option<Rc<dyn Fn()>>>,
     requesting_close: Cell<bool>,
+    /// HIG Return/Escape targets per open dialog node id: the footer accept
+    /// and cancel click keys plus whether accept is destructive. The driver
+    /// consults this when plain Return/Escape is pressed inside a dialog.
+    footers: RefCell<HashMap<String, FooterKeys>>,
     invalidate: RefCell<Option<Rc<dyn Fn()>>>,
     visible: Cell<bool>,
     closed: Cell<bool>,
@@ -393,6 +406,7 @@ impl View {
             on_close_request: RefCell::default(),
             quit_request: RefCell::default(),
             requesting_close: Cell::new(false),
+            footers: RefCell::default(),
             invalidate: RefCell::default(),
             visible: Cell::new(false),
             closed: Cell::new(false),
@@ -894,11 +908,13 @@ impl View {
     }
     /// Dialog footer: the framework-level OK/Cancel control. Two buttons in
     /// one end-aligned horizontal row with gap 12: accept-first on Windows,
-    /// cancel-first elsewhere (GNOME/macOS order). No key wiring:
-    /// Return/Escape stay with the dialog owner so capture sessions keep
-    /// precedence over footer keys. The non-destructive accept uses the
-    /// codebase's `primary` emphasis (see tab headers); a destructive accept
-    /// uses `danger` instead and is never marked default.
+    /// cancel-first elsewhere (GNOME/macOS order).
+    ///
+    /// HIG Return/Escape: when the footer sits inside an open dialog, plain
+    /// Return clicks a non-destructive enabled accept and Escape clicks
+    /// cancel. The driver consumes those presses before widgets see them;
+    /// a destructive accept is never a Return target. Footers outside
+    /// dialogs get no key wiring.
     pub fn dialog_footer(
         &self,
         parent: &Parent,
@@ -957,7 +973,46 @@ impl View {
                 ..Style::default()
             });
         }
+        // Register Return/Escape targets under the enclosing dialog, if any.
+        // Footers outside dialogs keep no key wiring.
+        let mut cursor = Some(parent.0.clone());
+        while let Some(node) = cursor {
+            if matches!(&*node.kind.borrow(), Kind::Dialog(_)) {
+                self.0.footers.borrow_mut().insert(
+                    node.id.clone(),
+                    FooterKeys {
+                        accept: format!("{id}/accept"),
+                        cancel: format!("{id}/cancel"),
+                        destructive: footer.destructive,
+                    },
+                );
+                break;
+            }
+            cursor = node.parent.upgrade();
+        }
         self.0.refresh();
+    }
+
+    /// Map a plain Return/Escape press to the active dialog's footer click:
+    /// Return clicks an enabled non-destructive accept, Escape clicks an
+    /// enabled cancel. Returns None when no open dialog owns a footer, the
+    /// key is not a footer key, or the target is disabled — then the event
+    /// flows to widgets (entries keep Return, IME keeps composition keys).
+    pub(crate) fn dialog_key_action(&self, code: NativeKeyCode) -> Option<Message> {
+        let dialog = self.active_dialog()?;
+        let keys = self.0.footers.borrow().get(&dialog.id).cloned()?;
+        let target = match code {
+            NativeKeyCode::Enter | NativeKeyCode::NumpadEnter if !keys.destructive => &keys.accept,
+            NativeKeyCode::Escape => &keys.cancel,
+            _ => return None,
+        };
+        let node = self.find(target)?;
+        match &*node.handler.borrow() {
+            Some(Handler::Button(command)) if command.enabled.get() => {
+                Some(Message::Click(target.clone()))
+            }
+            _ => None,
+        }
     }
     /// Genuine extension point for application-defined iced/advanced widgets.
     /// `subscriptions` are owned by this mount and dropped when its row is evicted.
@@ -1782,10 +1837,3 @@ pub fn run_host(
 ) -> Result<(), String> {
     driver::run(make)
 }
-/// Rejects external reactor integration; use `run` on the main thread instead.
-pub async fn run_async(
-    _make: impl FnOnce(Rc<dyn Executor>) -> View + 'static,
-) -> Result<(), String> {
-    Err("external reactor host is unsupported; use panechord_tao::run on the main thread".into())
-}
-// Attached-host execution is intentionally rejected rather than starting a nested loop.

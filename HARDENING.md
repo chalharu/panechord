@@ -23,7 +23,6 @@ One document describes one window. Window creation, ownership, reopen and shutdo
 remain typed host/application composition, not a global YAML graph. TaoHost keeps
 one WindowId-routed loop, per-window painter/clipboard/surface state and a shared
 scheduler. Close/reopen and coordinated veto/drain are native-tested on Linux/macOS.
-Its legacy external-reactor entry still rejects instead of creating a nested loop.
 
 The schema has 25 control/layout variants. CheckBox, Radio, stepped Slider f64,
 Combo Choice IDs, shared RGBA ImageFrame, retained Tab pages and nonblocking Dialog

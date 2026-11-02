@@ -1528,7 +1528,14 @@ public func set(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<UIn
     let value = host(pointer)
     let id = string(idBytes, idCount)
     let text = string(textBytes, textCount)
-    if property == 19, let button = value.nodes[id] as? NSButton {
+    if property == 20, let button = value.nodes[id] as? NSButton {
+        // HIG default button: Return activates a non-destructive accept.
+        // A destructive accept keeps no Return equivalent.
+        button.keyEquivalent = text == "1" ? "\r" : ""
+    } else if property == 21, let button = value.nodes[id] as? NSButton {
+        // HIG cancel: Escape always activates cancel, destructive or not.
+        button.keyEquivalent = text == "1" ? "\u{1b}" : ""
+    } else if property == 19, let button = value.nodes[id] as? NSButton {
         // Destructive emphasis for dialog footers (macOS 11+, the minimum
         // deployment target): renders the accept button with the system
         // destructive style instead of leaving it unmarked.

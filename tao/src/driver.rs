@@ -24,7 +24,7 @@ use std::{
     time::Instant,
 };
 use tao::{
-    event::{Event, WindowEvent},
+    event::{ElementState as NativeElementState, Event, WindowEvent},
     event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy},
     platform::run_return::EventLoopExtRunReturn,
     window::{Window, WindowBuilder},
@@ -702,16 +702,30 @@ impl Desktop {
             let Painter {
                 cursor, modifiers, ..
             } = &mut *painter;
-            let mapped = input::convert(
-                event,
-                self.window.scale_factor(),
-                self.offset(),
-                cursor,
-                modifiers,
-            );
-            mapped
-                .map(|e| painter.pump(&self.view, self.bounds(), e, false))
-                .unwrap_or_default()
+            // HIG dialog keys: plain Return/Escape inside an open dialog
+            // clicks the footer before widgets see the press. Entries keep
+            // Return when no dialog is open, and IME composition keys never
+            // arrive here as presses.
+            if let WindowEvent::KeyboardInput { event, .. } = event
+                && event.state == NativeElementState::Pressed
+                && !event.repeat
+                && modifiers.is_empty()
+                && let code = event.physical_key
+                && let Some(message) = self.view.dialog_key_action(code)
+            {
+                vec![message]
+            } else {
+                let mapped = input::convert(
+                    event,
+                    self.window.scale_factor(),
+                    self.offset(),
+                    cursor,
+                    modifiers,
+                );
+                mapped
+                    .map(|e| painter.pump(&self.view, self.bounds(), e, false))
+                    .unwrap_or_default()
+            }
         };
         dispatch(&self.view, messages);
         self.refresh();

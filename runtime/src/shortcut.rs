@@ -3,8 +3,10 @@
 //! trimmed. Modifiers: Primary, Ctrl, Cmd, Alt, Shift (no duplicates).
 //! Primary resolves to Cmd on macOS, Ctrl elsewhere. This is not a promise of
 //! physical-key/layout identity: GTK uses keyvals, muda's Accelerator uses Code.
-//! Backend-specific legacy syntax is deliberately NOT parsed here.
-use std::{fmt, str::FromStr};
+//! Backend-specific legacy syntax is deliberately NOT parsed here; use
+//! `canonical_or_raw` to sequence the canonical grammar ahead of a
+//! backend-native fallback in one shared place.
+use std::{borrow::Cow, fmt, str::FromStr};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShortcutTarget {
@@ -215,6 +217,18 @@ impl Shortcut {
             },
         );
         parts.join("+")
+    }
+}
+
+/// Canonical grammar first, raw value as the backend-native fallback: renders
+/// the canonical form when `value` parses, otherwise borrows `value` so the
+/// backend parser can try its own legacy syntax. Both GTK (`to_gtk`) and Tao
+/// (`to_muda`) sequence the same two attempts through this helper instead of
+/// duplicating the fallback.
+pub fn canonical_or_raw(value: &str, render: impl FnOnce(&Shortcut) -> String) -> Cow<'_, str> {
+    match Shortcut::parse(value) {
+        Ok(shortcut) => Cow::Owned(render(&shortcut)),
+        Err(_) => Cow::Borrowed(value),
     }
 }
 

@@ -46,7 +46,7 @@ mod native {
         );
         let writer = model.clone();
         let name = id.to_owned();
-        view.menu(
+        view.typed_menu(
             "file",
             Binding::constant("File".into()),
             Binding::constant(vec![MenuItem {

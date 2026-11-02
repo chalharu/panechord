@@ -253,7 +253,7 @@ fn main() -> Result<(), String> {
         );
         let invoked = Rc::new(Cell::new(false));
         let out = invoked.clone();
-        view.menu(
+        view.typed_menu(
             "file",
             Binding::constant("File".into()),
             Binding::constant(vec![

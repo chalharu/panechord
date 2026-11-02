@@ -44,7 +44,7 @@ cargo build --locked -p panechord-tao --example multiwindow
 native_run -p panechord-tao --example multiwindow
 printf '%s\n' "$output" | grep -q '^TAO3 PASS multiwindow drawn shared-store primary-close reopen foreign-and-closed-rejected veto-drain-close recoverable-auxiliary-error-isolated$'
 native_run -p panechord-demo --no-default-features --features backend-tao -- --smoke
-printf '%s\n' "$output" | grep -q '^PROTOTYPE2 PASS '
+printf '%s\n' "$output" | grep -q '^PROTOTYPE2 PASS templates=item+content virtualization=1000 conversions=checked validation=async menu=dynamic saves=2 closed=true$'
 native_run -p panechord-library --no-default-features --features backend-tao -- --smoke
 printf '%s\n' "$output" | grep -q '^LIBRARY3 tao PASS native-events scan filter selection invalid-folder recovery rescan$'
 printf '%s\n' "$output" | grep -q '^LIBRARY3 tao PASS native-close model-closed$'

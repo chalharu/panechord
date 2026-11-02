@@ -22,6 +22,7 @@ struct Controls {
     renderers: Vec<Choice>,
     frame: Option<ImageFrame>,
     page: String,
+    option: String,
     menu_tree: Vec<panechord_runtime::MenuNode<String>>,
     menu_title: String,
     open: bool,
@@ -164,6 +165,7 @@ fn main() -> Result<(), String> {
                 ],
                 frame: Some(ImageFrame::new(160, 120, Arc::from(pixels)).unwrap()),
                 page: "video".into(),
+                option: "general".into(),
                 menu_tree: vec![panechord_runtime::MenuNode::Submenu {
                     id: "states".into(),
                     label: "States".into(),
@@ -296,6 +298,10 @@ fn main() -> Result<(), String> {
             probe
                 .tab_position("pages", panechord_runtime::TabPosition::Left)
                 .unwrap();
+            probe.select("options", "advanced").unwrap();
+            assert_eq!(model.snapshot().option, "advanced");
+            probe.select("options", "general").unwrap();
+            assert_eq!(model.snapshot().option, "general");
             assert!(
                 probe
                     .tab_position("missing", panechord_runtime::TabPosition::Left)

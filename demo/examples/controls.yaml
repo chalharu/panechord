@@ -73,6 +73,24 @@ root:
               type: Label
               id: audio_content
               text: {literal: Audio Settings}
+      - type: Tab
+        id: options
+        position: Top
+        selected: {bind: {path: option, mode: TwoWay}}
+        style: {placement: {height: 140}}
+        pages:
+          - id: general
+            title: {literal: General}
+            content:
+              type: Label
+              id: general_content
+              text: {literal: General Options}
+          - id: advanced
+            title: {literal: Advanced}
+            content:
+              type: Label
+              id: advanced_content
+              text: {literal: Advanced Options}
       - type: Button
         id: open_dialog
         text: {literal: Settings}

@@ -1,195 +1,138 @@
 # macOS AppKit Backend
 
-第3試作のmacOS向け主backend。既存nerustとは未接続。
-SwiftのAppKit部品を薄いC ABI経由で共通runtime・proc macroへ接続する。
-Tao/icedの置換実装ではなく、NSWindow / NSTextField / NSButton / NSMenuを使う。
+macOS 向け backend。Swift の AppKit 部品を薄い C ABI 経由で共通 runtime・proc macro へ
+接続する。Tao/iced の置換実装ではなく、NSWindow / NSTextField / NSButton / NSMenu を使う。
 
 ## 起動
 
-macOSの対話デスクトップ、Rust 1.95以上、Xcode Command Line ToolsのSwiftが必要。
-このworkspaceのルートから、backendを一つだけ選んで実行する。
+macOS の対話デスクトップ、Rust 1.95 以上、Xcode Command Line Tools の Swift が必要。
+このリポジトリの root から、backend を一つだけ選んで実行する。
 
 ```sh
 env -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH -u DYLD_INSERT_LIBRARIES \
-  cargo run --locked -p panechord-library --no-default-features --features backend-macos -- --folder /path/to/roms
+  cargo run --locked -p panechord-library --no-default-features --features backend-macos -- --folder /path/to/files
 sh scripts/verify-macos.sh
 sh scripts/measure-macos.sh
 ```
 
-`DYLD_LIBRARY_PATH=/opt/homebrew/lib`を継承すると、OSのImageIOがHomebrewの
-PNG codecへ解決され、native画像取得中にSIGBUSとなることを実機で確認した。
-手順はこのプロセスのDYLD探索・注入設定だけを除き、グローバル環境は変更しない。
+`DYLD_LIBRARY_PATH=/opt/homebrew/lib` を継承すると、OS の ImageIO が Homebrew の
+PNG codec へ解決され、native 画像取得中に SIGBUS となることを実機で確認した。
+手順はこのプロセスの DYLD 探索・注入設定だけを除き、グローバル環境は変更しない。
 
-アプリのbuild.rsやUI契約crateは不要。backend内部のbuild.rsだけがSwiftをコンパイルする。
-Swiftモード5、SDK付属のAppKit、追加Swift packageなし。
-bridgeのinstall nameは`@rpath/libPanechordAppKit.dylib`。
-`python3 scripts/bundle-macos.py --verify`でアプリ・bridge・相対rpathをbundleへ配置し、
-ad-hoc codesignと再配置後のsmokeを検証する。Libraryは`--package panechord-library`を指定する。
-Cargoの単体exampleはCargoのloader設定を使うため、binaryだけのコピーは配布手順ではない。
-Developer ID署名・notarizationは未認証で、ad-hoc署名の成功から推定しない。
-deployment targetの既定は11.0だが、最低OSやIntelでの実機動作を確認した意味ではない。
+アプリの build.rs や UI 契約 crate は不要。backend 内部の build.rs だけが Swift を
+コンパイルする。Swift モード 5、SDK 付属の AppKit、追加 Swift package なし。
+bridge の install name は `@rpath/libPanechordAppKit.dylib`。
+`python3 scripts/bundle-macos.py --verify` でアプリ・bridge・相対 rpath を bundle へ配置し、
+ad-hoc codesign と再配置後の smoke を検証する。Library は `--package panechord-library`
+を指定する。Cargo の単体 example は Cargo の loader 設定を使うため、binary だけの
+コピーは配布手順ではない。Developer ID 署名・notarization は未認証で、ad-hoc 署名の
+成功から推定しない。deployment target の既定は 11.0 だが、最低 OS や Intel での
+実機動作を確認した意味ではない。
 
 ## 契約
 
-- 主な対象は設定と一覧の二画面。Stack、Label、TextBox、Button、固定高ItemsControl、Menu。
-  CheckBox、Radio、Slider、Combo、Image、Tab、Dialogと保持型visible/enabled/Style Binding、
-  typed submenuも共通契約で検証する。本体への組込みは必須の移行目的である。
-  Grid/Flex/Absoluteは実行時エラー。ContentControl/custom meterはAPI未実装でコンパイル不可。
-  GTK/Tao全galleryとの完全な機能互換は主張しない。
-- main threadの`MacHost`が共通loopを駆動する。UiHost/Sessionへ接続し、複数Windowを保持する。
-  `run_host`と`register_view(session,id,view,hooks)`を使い、終了所有権は明示hookへ置く。
-  Window closeは個別、app QuitはSession全体。共通delegateとactive Window別menuを使う。
-  1 hostにつきSessionは一つ。同じSessionのcloneの再attachは冪等、別Sessionのattachと
-  窓登録は副作用前に拒否する。`register_view`は最初のSessionを自動attachする。
-  closed Viewはattach前に拒否し、Sessionや窓登録を変更しない。
-  active窓を閉じたら生存窓へmenuとQuitを引き継ぐ。再`present()`は不要。
-  全窓の確認には期限を置かず、承認後のdrainだけを5秒に制限する。
-  `run`は既存単窓の互換入口。外部reactorとの統合は別途必要。
-- TextBoxはAppKit field editorを利用し、選択、undo、clipboard、IME marked textをOSへ委ねる。
-  marked text中はモデル通知によるstringValue置換を抑止する。これは汎用編集transactionや
+- 主な対象は demo と一覧の二画面。Stack、Label、TextBox、Button、固定高 ItemsControl、Menu。
+  CheckBox、Radio、Slider、Combo、Image、Tab、Dialog と保持型 visible/enabled/Style Binding、
+  typed submenu も共通契約 (`API.md`) で検証する。
+  Grid/Flex/Absolute は実行時エラー。ContentControl/custom meter は API 未実装でコンパイル不可。
+  GTK/Tao 全 gallery との完全な機能互換は主張しない。
+- main thread の `MacHost` が共通 loop を駆動する。UiHost/Session へ接続し、複数 Window を保持する。
+  `run_host` と `register_view(session,id,view,hooks)` を使い、終了所有権は明示 hook へ置く。
+  Window close は個別、app Quit は Session 全体。共通 delegate と active Window 別 menu を使う。
+  1 host につき Session は一つ。同じ Session の clone の再 attach は冪等、別 Session の attach と
+  窓登録は副作用前に拒否する。`register_view` は最初の Session を自動 attach する。
+  closed View は attach 前に拒否し、Session や窓登録を変更しない。
+  active 窓を閉じたら生存窓へ menu と Quit を引き継ぐ。再 `present()` は不要。
+  全窓の確認には期限を置かず、承認後の drain だけを 5 秒に制限する。
+  `run` は既存単窓の互換入口。外部 reactor との統合は別途必要。
+- DialogFooter は Cancel 先行の右端 row で、destructive な accept には
+  `NSButton.hasDestructiveAction` を設定する (macOS 11 以降)。
+  Return/Escape の配送は dialog 所有者が持ち、backend は見た目の順序と強調だけを持つ。
+- TextBox は AppKit field editor を利用し、選択、undo、clipboard、IME marked text を OS へ委ねる。
+  marked text 中はモデル通知による stringValue 置換を抑止する。これは汎用編集 transaction や
   外部モデル更新との競合解決を保証するものではない。
-- captionが`<field_id>_caption`ならその文字列をAX labelへ渡す。
-  入力はAXTextField、部品には安定したaccessibility identifierを設定する。
-  宣言順のkey-view loopを作り、動的node削除時に参照も更新する。
-- Cmd+S等は共通Shortcutからnative key equivalentへ変換する。
-  Edit menuはnative responder chainへ接続し、WM close / Cmd+Qは終了要求へ接続する。
-  動的Menuは全ID・shortcutの検証後にnative表示とhandlerを交換する。不正更新は旧Menuを保持し、
-  `menu_error(id)`で報告する。正常更新でそのMenuのエラーを解除し、hostは終了しない。
-- Viewは購読tokenを持ち、callback側はWeakViewを使う。強制closeは冪等。
-  アプリの確認・保存待ちは既存の配線を再利用する。
-- 一覧は全keyを検査し、表示範囲の行だけmountする。同じkey/Storeの可視行は移動して保持する。
-  conformanceではfield editor identity、marked text、selectionをreorder時に保持することを検査する。
-  固定行高、viewport count、native scrollerを使用する。編集行probeは56pxで、template全体が収まる必要がある。
-  countは1..256、行高は有限な1..4096で、共通runtimeと静的literalが同じ条件を検査する。
-  初期不正ならmountせず、不正更新は前の正常表示を保持する。正常値への復帰と末尾ページをnative検査する。
-  readonly/literalでも受理済みviewportをローカルに移動し、モデルへの書込はTwoWayだけで行う。
-  `item_keys`は全sourceでなくmount済みkeyを返す。行高変更は既存mountにも反映する。
-  行の退避では入れ子一覧のregistry、viewport handler、scoped tokenも解放する。
-  Template中の`keep`も行scopeへ保持し、退去でvalidationを中断してpendingを解除する。
-  画面外の行変更はvalidationを開始せず、再mountによる購読の蓄積を防ぐ。
-  不正なsource更新後も、保持した正常sourceでスクロールできる。
-- control IDと内部eventはABIの種別で分離する。`__close`、`rows@viewport`、`__title`も
-  通常controlとして扱い、終了・scroll・title操作へ誤配送しない。
-- padding/marginはnative frame insetへ合算する限定契約。任意のplacement、CSS互換、
-  backend間のpixel一致は対象外。幅640px以上を対象とし、縦方向はnative scrollを使う。
+- caption が `<field_id>_caption` ならその文字列を AX label へ渡す。
+  入力は AXTextField、部品には安定した accessibility identifier を設定する。
+  宣言順の key-view loop を作り、動的 node 削除時に参照も更新する。
+- Cmd+S 等は共通 Shortcut から native key equivalent へ変換する。
+  Edit menu は native responder chain へ接続し、WM close / Cmd+Q は終了要求へ接続する。
+  動的 Menu は全 ID・shortcut の検証後に native 表示と handler を交換する。不正更新は旧 Menu を保持し、
+  `menu_error(id)` で報告する。正常更新でその Menu のエラーを解除し、host は終了しない。
+- View は購読 token を持ち、callback 側は WeakView を使う。強制 close は冪等。
+- 一覧は全 key を検査し、表示範囲の行だけ mount する。同じ key/Store の可視行は移動して保持する。
+  conformance では field editor identity、marked text、selection を reorder 時に保持することを検査する。
+  固定行高、viewport count、native scroller を使用する。編集行 probe は 56px で、template 全体が収まる必要がある。
+  count は 1..256、行高は有限な 1..4096 で、共通 runtime と静的 literal が同じ条件を検査する。
+  初期不正なら mount せず、不正更新は前の正常表示を保持する。正常値への復帰と末尾ページを native 検査する。
+  readonly/literal でも受理済み viewport をローカルに移動し、モデルへの書込は TwoWay だけで行う。
+  `item_keys` は全 source でなく mount 済み key を返す。行高変更は既存 mount にも反映する。
+  行の退避では入れ子一覧の registry、viewport handler、scoped token も解放する。
+  Template 中の `keep` も行 scope へ保持し、退去で validation を中断して pending を解除する。
+  画面外の行変更は validation を開始せず、再 mount による購読の蓄積を防ぐ。
+  不正な source 更新後も、保持した正常 source でスクロールできる。
+- control ID と内部 event は ABI の種別で分離する。`__close`、`rows@viewport`、`__title` も
+  通常 control として扱い、終了・scroll・title 操作へ誤配送しない。
+- padding/margin は native frame inset へ合算する限定契約。任意の placement、CSS 互換、
+  backend 間の pixel 一致は対象外。幅 640px 以上を対象とし、縦方向は native scroll を使う。
 
 ## 公平性
 
-macOS版の両アプリは`Store::with_dispatch_budget(..., NonZeroUsize(64))`を選択する。
-既定の`Store::new` / `with_limits`は同期契約を維持する。
-予算付きStoreは1回のdrainで指定件数を処理した後、Weakな継続futureへ渡す。
-FIFO、容量制限、watchのcoalescing、closeによる未実行処理の破棄は維持する。
+macOS 版の両アプリは `Store::with_dispatch_budget(..., NonZeroUsize(64))` を選択する。
+既定の `Store::new` / `with_limits` は同期契約を維持する。
+予算付き Store は 1 回の drain で指定件数を処理した後、Weak な継続 future へ渡す。
+FIFO、容量制限、watch の coalescing、close による未実行処理の破棄は維持する。
 受付済みの書き込みが呼出しから戻る時点で反映済みとは限らない。
 
-ホストはnativeイベントを1件配送してから最大32 futureを1回ずつpollする。
-新規futureは次ターンへ回し、Pendingはwakeまでpollしない。
-ready taskがなければnative側で最大8ms待ち、workerのwakeも次ターンで確認する。
-一つのcallback / Clone / projection / pollは分割・中断できないため、時間上限や
-リアルタイム性の保証ではない。1回のpollが長ければOSイベント処理も遅れる。
+ホストは native イベントを 1 件配送してから最大 32 future を 1 回ずつ poll する。
+新規 future は次ターンへ回し、Pending は wake まで poll しない。
+ready task がなければ native 側で最大 8ms 待ち、worker の wake も次ターンで確認する。
+一つの callback / Clone / projection / poll は分割・中断できないため、時間上限や
+リアルタイム性の保証ではない。1 回の poll が長ければ OS イベント処理も遅れる。
 
 ## 検証範囲
 
-実行環境: Apple Silicon、macOS 15.7.5、rustc 1.99.0、Swift 6.2.4。
-
 | 項目 | 自動検証の範囲 |
 |---|---|
-| 設定 | 共通smoke: Draft保持、readonly、保存、終了veto、保存待ち、再確認、最終JSON |
-| 一覧 | 共通smoke + sandboxで60編集/20 burst、Latest結果、失敗復帰、選択、終了 |
-| 入力 | field editorへmarked textと日本語commitを注入、実OS clipboardでcopy/cut/paste、Tab/逆Tab |
-| Menu | native key equivalentでPrimary/Cmd+S、有効/無効、動的再構築 |
-| 型付きMenu | `MenuItem<i32>`をString変換なしで配送 |
-| 三窓 | 共有Store、補助窓の再生成、active窓close後のmenu引き継ぎ、再presentなしのQuit確認hook到達・拒否、confirm/cancel/drain/close順序 |
-| Session制限 | 同一cloneの再attach、別Sessionとclosed Viewの窓登録拒否、失敗後に別Sessionをattach可能 |
-| validation scope | 4回の退去/再mount、pending解除、画面外更新の無反応、購読の非蓄積 |
-| Accessibility | role、identifierの読み返し。スクリーンリーダーによる操作ではない |
-| 一覧mount | 100行Model、6行mount、範囲変更、順序変更、不正key拒否と復帰 |
-| Viewport契約 | 初期不正は0 mount、count/行高の範囲外を拒否してmount保持、正常値復帰、usize::MAXの末尾ページ |
-| readonly viewport | ローカル移動でモデルは不変、後続のモデル通知を反映。automationはnative scrollと同じhandlerを利用 |
-| Menu拒否 | 不正ID・重複ID・後続項目の不正shortcutでも旧handler/引数を保持し、正常候補へ復帰 |
-| 入れ子cleanup | 同じkeyで3回mount/退避し、registry消去・古いscrollの無効化・テンプレート資源の弱参照失効 |
-| 動的行高 | `frame_height`で実native frameの32→64→32を読み返し、テンプレート再生成なしを確認 |
-| 過負荷 | 8万更新、20合成キーを各連鎖完了前に配送、WeakView・closeの検査 |
-| 描画 | 640/960pxのnative bitmap、連鎖中のAppKit描画CPU時間 |
+| demo / 一覧 | 共通 smoke: Draft 保持、readonly、保存、終了 veto、保存待ち、再確認、最終 JSON / sandbox で編集 burst、Latest 結果、失敗復帰、選択、終了 |
+| 入力 | field editor へ marked text と日本語 commit を注入、実 OS clipboard で copy/cut/paste、Tab/逆 Tab |
+| Menu | native key equivalent で Primary/Cmd+S、有効/無効、動的再構築 |
+| 型付き Menu | `MenuItem<i32>` を String 変換なしで配送 |
+| 三窓 | 共有 Store、補助窓の再生成、active 窓 close 後の menu 引き継ぎ、再 present なしの Quit 確認 hook 到達・拒否、confirm/cancel/drain/close 順序 |
+| Session 制限 | 同一 clone の再 attach、別 Session と closed View の窓登録拒否、失敗後に別 Session を attach 可能 |
+| validation scope | 退去/再 mount、pending 解除、画面外更新の無反応、購読の非蓄積 |
+| Accessibility | role、identifier の読み返し。スクリーンリーダーによる操作ではない |
+| 一覧 mount | 100 行 Model、6 行 mount、範囲変更、順序変更、不正 key 拒否と復帰 |
+| Viewport 契約 | 初期不正は 0 mount、count/行高の範囲外を拒否して mount 保持、正常値復帰、usize::MAX の末尾ページ |
+| readonly viewport | ローカル移動でモデルは不変、後続のモデル通知を反映。automation は native scroll と同じ handler を利用 |
+| Menu 拒否 | 不正 ID・重複 ID・後続項目の不正 shortcut でも旧 handler/引数を保持し、正常候補へ復帰 |
+| 入れ子 cleanup | 同じ key で mount/退避を繰り返し、registry 消去・古い scroll の無効化・テンプレート資源の弱参照失効 |
+| 動的行高 | `frame_height` で実 native frame の変化を読み返し、テンプレート再生成なしを確認 |
+| 過負荷 | 大量更新、合成キーを各連鎖完了前に配送、WeakView・close の検査 |
+| 描画 | 640/960px の native bitmap、連鎖中の AppKit 描画 CPU 時間 |
 
-conformance例はmain threadで実行する。libtestのworker threadからAppKitを初期化しない。
-clipboardは試験前のデータへ復元する。画像は表示された専用temp directoryへ保存する。
-CPU描画はcompositor presentation/fenceではなく、合成キーは物理入力ではない。
-時間に合否閾値を置かず、入力が連鎖完了前に届くこと・状態・mount数をassertする。
-release観測は`measure-macos.sh`で再現し、数値を安定APIや性能保証と扱わない。
-CPU回帰予算は別途`sh scripts/measure.sh`で判定する。native入力時間の閾値ではない。
+conformance 例は main thread で実行する。libtest の worker thread から AppKit を初期化しない。
+clipboard は試験前のデータへ復元する。画像は表示された専用 temp directory へ保存する。
+CPU 描画は compositor presentation/fence ではなく、合成キーは物理入力ではない。
+時間に合否閾値を置かず、入力が連鎖完了前に届くこと・状態・mount 数を assert する。
+release 観測は `measure-macos.sh` で再現し、数値を安定 API や性能保証と扱わない。
+CPU 回帰予算は別途 `sh scripts/measure.sh` で判定する。native 入力時間の閾値ではない。
+GTK/Tao の native 試験は Linux 側の結果であり、macOS の試験数へ合算しない。
 
-2026-10-31のレビュー修正後は通常151試験成功、失敗0、helper 2件ignored。
-整形、strict Clippy、設定/一覧smoke、conformance、三窓例とrelease CPU予算も成功。
-`validation-scope`と`single-session`を正式ゲートの必須markerへ追加した。
-追加レビューのactive窓closeとclosed View登録も修正し、`active-close`と
-`closed-registration`を必須markerへ追加した。Mac上のTaoもstrict Clippy、実窓描画、
-system clipboard、gallery、設定/一覧smokeをmain-threadの専用processで実行して成功した。
-`verify-macos.sh`は`verify-tao-macos.sh`も実行する。Taoのclose/menu操作はAPI注入で、
-実OSのWM/accelerator配送や外部IMEの適合とは区別する。詳細は[../tao/README.md](../tao/README.md)。
-共通runtimeとGTK nativeの期限試験は、確認待ちが期限を超えても閉じず、
-承認後のdrainだけがtimeoutすることを実時間/native loopで検査する。
-2026-10-30の追加検証は通常150試験成功、失敗0、helper 2件ignoredだった。
-三窓例`cargo run -p panechord-macos --example multiwindow`と新規conformance markerも成功。
-YAML primary診断、参照シグネチャ、scoped更新、型付きMenuを正式ゲートに含む。
-このMac上のDockerでもLinux/Xvfbの`VERIFY3 PASS`とreleaseの`MEASURE3 PASS`を確認した。
-GTK/Taoのnative試験はLinux側の結果であり、macOSの151件へ合算しない。
-以下のcommit別数値は過去の基準記録で、最新件数と混同しない。
+macOS 上の Tao も strict Clippy、実窓描画、system clipboard、gallery、demo/一覧 smoke を
+main-thread の専用 process で実行する。`verify-macos.sh` は `verify-tao-macos.sh` も実行する。
+Tao の close/menu 操作は API 注入で、実 OS の WM/accelerator 配送や外部 IME の適合とは区別する。
+詳細は [../tao/README.md](../tao/README.md)。
 
-### 2026-10-30の実行結果
-
-AppKit追加時の基準commit `bea5cc2c5`では`verify-macos.sh`が142試験成功、失敗0、計測helper 2件は通常試験ではignored。
-内訳はruntime 59、markup 11、macros 31、AppKit executor 2、settings 25、library 14。
-整形、strict Clippy、両native画面smoke、conformanceも成功し、最終マーカーは
-`VERIFY3 MACOS PASS`。Linux GTK/Taoのnative試験をこのMacで再実行した意味ではない。
-
-`measure-macos.sh`は2件のhelperも実行し、`MEASURE3 MACOS PASS`を確認した。
-
-viewport共通化の検証では、これにruntimeの境界値2件、macro literalの1件を加える。
-AppKit conformanceの`viewport-contract` markerは正式ゲートで必須とする。
-再実行は145試験成功、失敗0、helper 2件ignored、設定/一覧smokeと全必須marker成功。
-内訳はruntime 61、markup 11、macros 32、AppKit executor 2、settings 25、library 14。
-GTK/Taoの全targetをmacOSでcompileできるが、native Viewを作るlibtest試験はmain-thread
-制約によりこの環境では実行しない。Taoの純粋なrange試験とAppKit専用runnerを分けて検証する。
-GTKのstrict Clippyは成功。Taoのstrict Clippyは既存の`driver.rs:47`の
-`needless_return`で停止し、無変更のコード由来と確認した後にそのlintだけを除外して成功した。
-この時点ではLinux/X11でのTao拒否/復帰試験とGTKの拡張native試験は未実行で、macOSの145件へ含めなかった。
-この追補ではrelease計測helperは再実行しておらず、下表は基準commit時の観測を保存する。
-
-レビュー5件への回帰検査は既存conformanceへ追加し、通常の145試験とは別に実行する。
-正式ゲートは`readonly-viewport`、`menu-transaction`、`nested-cleanup`、`dynamic-row-height`も
-必須markerとし、mount済みkeyの内容は既存`keyed-rows`検査で確認する。
-
-| release観測 | p50 | p95 |
-|---|---:|---:|
-| 反応連鎖中の合成キー配送、20回 | 12.750 ms | 26.974 ms |
-| 連鎖中のAppKit描画CPU、20回 | 0.408 ms | 0.532 ms |
-| sandbox検索連打の完了、20回 | 10.435 ms | 14.940 ms |
-| 検索中のAppKit描画CPU、20回 | 0.176 ms | 3.625 ms |
-| 設定3更新サイクル、100回 | 22.417 us | 23.500 us |
-| 一覧256行の要求・結果射影、20回 | 1.379 ms | 1.896 ms |
-
-キーはプロセス内postEventからモデル通知まで、検索は4ファイルのsandboxへの
-3連続編集から最新結果まで。描画はdisplayIfNeededのCPU時間であり、表示完了ではない。
-設定300更新・一覧5120行同一性検査も成功した。ホスト復帰の最大間隔には
-約180 msの観測もあり、厳密なフレーム時間上限や低遅延適合を示すものではない。
-macOSのfixtureコピーが古いmtimeを保持するため、子Cargo試験は初期コピー時だけ
-mtimeを現在へ設定する。YAML編集時にRustをtouchして再ビルドを偽装してはいない。
-
-## アルファ利用の手動ゲート
+## 手動ゲート (未実施)
 
 以下は未実施。自動試験が成功しても適合済みと扱わない。
 
-1. macOS日本語IMEでかな入力、候補表示、かな漢字変換、確定・取消。保存中と連続検索中にも行う。
-2. 変換中の別欄移動、別appへの切替、再フォーカス、Cmd操作後の修飾キー残留を実キーで確認する。
-3. Full Keyboard Accessの有無でTab/Shift+Tab、Space、Cmd+S/Q、未保存終了確認を操作する。
-4. VoiceOverで欄名、値、readonly、ボタン状態、一覧、保存状態とエラーの到達性を確認する。
-5. Instruments等で実入力から表示までの遅延とcompositor frameを確認する。
+1. macOS 日本語 IME でかな入力、候補表示、かな漢字変換、確定・取消。保存中と連続検索中にも行う。
+2. 変換中の別欄移動、別 app への切替、再フォーカス、Cmd 操作後の修飾キー残留を実キーで確認する。
+3. Full Keyboard Access の有無で Tab/Shift+Tab、Space、Cmd+S/Q、未保存終了確認を操作する。
+4. VoiceOver で欄名、値、readonly、ボタン状態、一覧、保存状態とエラーの到達性を確認する。
+5. Instruments 等で実入力から表示までの遅延と compositor frame を確認する。
 
-対象OSと主backendはmacOS/AppKit、Linux/X11/GTKとするが、このmacOS実装は限定アルファ。
-Windows、Wayland、外部IME、VoiceOver、配布packageまで含む安定版ではない。
-上記の実利用結果を得る前にAPI固定・本体移行は行わない。
-
-2026-10-31のレビュー指摘3件は、確認とdrain期限の分離、行validationのscope化、
-1 host/1 Sessionの明示制限で修正した。これらの自動回帰は実IME/VoiceOverの代用ではない。
-次は上記の実機ゲートと、映像surfaceのattach/detach・resize・終了の最小統合試験を行い、
-その結果を基に設定など一画面から段階移行する。方式比較用の別prototype追加は不要。
+対象 OS と主 backend は macOS/AppKit、Linux/X11/GTK とするが、この macOS 実装は限定アルファ。
+Windows、Wayland、外部 IME、VoiceOver、配布 package まで含む安定版ではない。
+上記の実機ゲートを完了する前に API 固定は行わない。

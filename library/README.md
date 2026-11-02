@@ -1,7 +1,7 @@
 # Standalone file library
 
-`panechord-library` is the second practical screen after settings. It is independent
-of nerust: no emulator integration, ROM parsing, contents reads, persistence or
+`panechord-library` is the second practical screen after the demo. It has
+no emulator integration, ROM parsing, content reads, persistence or
 user-folder writes. Only the isolated `--smoke` / test Sandbox creates fixtures.
 
 The folder and case-insensitive filename filter are editable while scanning.

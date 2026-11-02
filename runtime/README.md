@@ -72,7 +72,7 @@ already started. Check effect acceptance; a positive ingress capacity is necessa
 for eventual retry. The settings and library wiring contain executable examples
 of rejection recovery and generation checks.
 
-### Third-prototype reads and typed arguments
+### State reads and typed arguments
 
 `Store::watch(source, react) -> Subscription` connects state changes to a
 reaction `Fn(&Store<S>, T)`, without capturing a strong Store owner. Unlike a

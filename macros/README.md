@@ -238,7 +238,7 @@ Macro-boundary probes also reject oversized/deep/wide YAML and aliases/anchors.
 Existing markup tests cover schema and known fingerprint vectors; the rebuild
 probe additionally checks fingerprints of the actual before/after YAML bytes.
 
-Run `cargo test --offline -p panechord-runtime -p panechord-macros -- --nocapture` from `panechord`
+Run `cargo test --offline -p panechord-runtime -p panechord-macros -- --nocapture` from the repository root
 with the platform's normal Rust flags. No new dependencies are needed. Nested
 Cargo uses `/tmp/panechord-ui-check/<pid>-<nonce>/target`, shared only within that
 test process, never the outer Cargo target (avoiding its lock). Fixture copies

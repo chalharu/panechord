@@ -19,4 +19,4 @@ line/column and filename; structural errors retain the closest available YAML
 path. Not every semantic error can be mapped to an exact line after lowering.
 
 See `../macros/README.md` for precise executable syntax. Schema export helps
-schema-aware editors; this prototype does **not** implement a complete editor LSP.
+schema-aware editors; this crate does **not** implement a complete editor LSP.

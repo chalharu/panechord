@@ -1,7 +1,7 @@
 # GTK4 backend
 
 Implements the frozen `../API.md` View/Parent API using GTK4 widgets, Gio menus
-and actions, and a GLib-local executor. No dependency on prototype_1.
+and actions, and a GLib-local executor.
 
 ## Native extensions
 

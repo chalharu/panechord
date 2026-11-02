@@ -1,9 +1,10 @@
-# Prototype 3 implementation contract
+# Panechord implementation contract
 
-Panechord belongs to the nerust workspace. Earlier prototypes have been removed.
-No application build.rs is required.
-Inherited crate names keep the `panechord-` prefix; this workspace contains the third
-revision, and the practical application is `panechord-library`.
+Panechord is a standalone workspace. The public entry is the `panechord`
+facade crate, which re-exports the runtime and the declarative macros;
+backends are selected per application via the `native`/`gtk`/`tao`/`macos`
+features. The practical screens in this workspace are `panechord-demo`
+and `panechord-library`.
 
 ## Runtime API shared with codegen/backends
 
@@ -245,7 +246,7 @@ discard or continued editing; in-flight save is awaited, and newer edits prompt
 again. The app closes its Store explicitly in final View cleanup. Its settings
 validation is synchronous; inherited Latest async validation remains separately tested.
 
-Prototype boundaries remain explicit: legacy updates and scoped binding writes
+Boundaries remain explicit: legacy updates and scoped binding writes
 still clone S; clone-free replacement and dependency indexing require the scoped API.
 No OS-specific input/accessibility conformance without evidence; unsupported
 facilities return explicit errors, with no silent layout-kind fallback.

@@ -34,6 +34,9 @@ printf '%s\n' "$output" | grep -q '^CONTRACT3 PASS slider closed capacity conver
 printf '%s\n' "$output" | grep -q '^TABS3 PASS top bottom left right selection retained$'
 printf '%s\n' "$output" | grep -q '^MENUS3 PASS nested typed-argument parent-enablement$'
 printf '%s\n' "$output" | grep -q '^DIALOG3 PASS readonly hidden-parent close-reopen$'
+output=$(cargo run --locked -p panechord-demo --no-default-features --features backend-macos -- --smoke)
+printf '%s\n' "$output"
+printf '%s\n' "$output" | grep -q '^PROTOTYPE2 PASS '
 output=$(cargo run --locked -p panechord-macos --example multiwindow)
 printf '%s\n' "$output"
 printf '%s\n' "$output" | grep -q '^MACOS3 PASS single-session repeated-attach foreign-attach-and-registration-rejected$'

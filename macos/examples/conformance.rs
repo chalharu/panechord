@@ -50,11 +50,70 @@ fn main() -> Result<(), String> {
         recovery.request_close();
         recovery.request_close();
         assert_eq!(calls.get(), 2);
+        // All four layout kinds are supported: invalid geometry still
+        // rejects, but Grid/Flex/Absolute now build and place children.
         assert!(
             recovery
-                .try_layout(&recovery.root(), "unsupported", Layout::Absolute)
+                .try_layout(
+                    &recovery.root(),
+                    "invalid_grid",
+                    Layout::Grid {
+                        columns: u32::MAX,
+                        gap: 0.0
+                    }
+                )
                 .is_err()
         );
+        let grid = recovery
+            .try_layout(
+                &recovery.root(),
+                "grid",
+                Layout::Grid {
+                    columns: 2,
+                    gap: 8.0,
+                },
+            )
+            .expect("grid layout");
+        recovery.label(&grid, "grid_cell", Binding::constant("cell".into()));
+        recovery.style(
+            "grid_cell",
+            Style {
+                placement: panechord_runtime::Placement {
+                    row: 0,
+                    column: 1,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let flex = recovery
+            .try_layout(&recovery.root(), "flex", Layout::Flex { gap: 4.0 })
+            .expect("flex layout");
+        recovery.label(&flex, "flex_cell", Binding::constant("flow".into()));
+        let absolute = recovery
+            .try_layout(&recovery.root(), "absolute", Layout::Absolute)
+            .expect("absolute layout");
+        recovery.label(
+            &absolute,
+            "absolute_cell",
+            Binding::constant("placed".into()),
+        );
+        recovery.style(
+            "absolute_cell",
+            Style {
+                placement: panechord_runtime::Placement {
+                    x: 12.0,
+                    y: 4.0,
+                    width: Some(240.0),
+                    height: Some(24.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        assert!(recovery.text("grid_cell").as_deref() == Some("cell"));
+        assert!(recovery.text("absolute_cell").as_deref() == Some("placed"));
+        recovery.meter(&flex, "recovery_meter", Binding::constant(0.5));
         let number = Store::new(2i32, executor.clone());
         recovery.entry(
             &recovery.root(),
@@ -70,7 +129,7 @@ fn main() -> Result<(), String> {
         assert_eq!(recovery.text("normalized").as_deref(), Some("2"));
         recovery.close();
         println!(
-            "MACOS3 PASS close-recovery panic-flag-restored conversion-noop-normalized unsupported-layout-rejected"
+            "MACOS3 PASS close-recovery panic-flag-restored conversion-noop-normalized grid-flex-absolute-meter-supported"
         );
         let model = Store::new(Model::default(), executor.clone());
         let view = View::new(Binding::constant("Panechord macOS conformance".into()));

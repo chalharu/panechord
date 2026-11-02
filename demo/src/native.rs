@@ -35,3 +35,11 @@ pub fn meter(view: &backend::View, parent: &backend::Parent, id: &str, value: Bi
 pub fn meter(view: &backend::View, parent: &backend::Parent, id: &str, value: Binding<f64>) {
     view.meter(parent, id, value);
 }
+
+#[cfg(all(
+    feature = "backend-macos",
+    not(any(feature = "backend-gtk", feature = "backend-tao"))
+))]
+pub fn meter(view: &backend::View, parent: &backend::Parent, id: &str, value: Binding<f64>) {
+    view.meter(parent, id, value);
+}

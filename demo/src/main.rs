@@ -5,11 +5,22 @@ mod smoke;
 
 #[cfg(feature = "backend-gtk")]
 use panechord_gtk as backend;
+#[cfg(all(
+    feature = "backend-macos",
+    not(any(feature = "backend-gtk", feature = "backend-tao"))
+))]
+use panechord_macos as backend;
 #[cfg(all(feature = "backend-tao", not(feature = "backend-gtk")))]
 use panechord_tao as backend;
 #[cfg(any(
     all(feature = "backend-gtk", feature = "backend-tao"),
-    not(any(feature = "backend-gtk", feature = "backend-tao"))
+    all(feature = "backend-gtk", feature = "backend-macos"),
+    all(feature = "backend-tao", feature = "backend-macos"),
+    not(any(
+        feature = "backend-gtk",
+        feature = "backend-tao",
+        feature = "backend-macos"
+    ))
 ))]
 compile_error!("select exactly one backend");
 

@@ -457,6 +457,13 @@ impl View {
     pub fn tab(&self, parent: &Parent, id: &str, selected: Binding<String>) -> Parent {
         self.add(parent, id, 10, 0.0);
         self.set(id, if selected.is_writable() { "1" } else { "0" }, 1);
+        self.0.layouts.borrow_mut().insert(
+            id.into(),
+            Layout::Stack {
+                horizontal: false,
+                gap: 0.0,
+            },
+        );
         self.0
             .tabs
             .borrow_mut()
@@ -652,6 +659,13 @@ impl View {
         }
         self.add(parent, id, 11, 0.0);
         self.set(id, key, 8);
+        self.0.layouts.borrow_mut().insert(
+            id.into(),
+            Layout::Stack {
+                horizontal: false,
+                gap: 0.0,
+            },
+        );
         let page = Choice {
             id: key.into(),
             label: title.get(),
@@ -697,6 +711,13 @@ impl View {
     ) -> Parent {
         self.add(parent, id, 12, 0.0);
         self.set(id, if open.is_writable() { "1" } else { "0" }, 1);
+        self.0.layouts.borrow_mut().insert(
+            id.into(),
+            Layout::Stack {
+                horizontal: false,
+                gap: 0.0,
+            },
+        );
         let key = id.to_owned();
         self.bind(id, title, move |view, title| view.set(&key, &title, 9));
         self.boolean_control(id, open, 7);

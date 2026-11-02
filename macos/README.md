@@ -12,6 +12,8 @@ with Swift. From the repository root, pick exactly one backend:
 ```sh
 env -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH -u DYLD_INSERT_LIBRARIES \
   cargo run --locked -p panechord-library --no-default-features --features backend-macos -- --folder /path/to/files
+env -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH -u DYLD_INSERT_LIBRARIES \
+  cargo run --locked -p panechord-demo --no-default-features --features backend-macos -- --smoke
 sh scripts/verify-macos.sh
 sh scripts/measure-macos.sh
 ```
@@ -34,15 +36,18 @@ about the oldest OS or Intel hardware.
 
 ## Contract
 
-- The screens are the file list: Stack, Label, TextBox,
-  fixed-row ItemsControl, Menu, plus CheckBox, Radio, Slider, Combo, Image,
+- The screens are the file list and the demo gallery: Stack, Grid, Flex,
+  Absolute, Label, TextBox,
+  fixed-row ItemsControl, Menu, meter, plus CheckBox, Radio, Slider, Combo, Image,
   Tab, Dialog and retained visible/enabled/Style bindings, including typed
   submenus, all held to the shared contract in `API.md`.
   The demo contributes its controls probe (also runnable with `backend-macos`),
   and the `macos` examples cover conformance and multiwindow behavior.
-  Grid/Flex/Absolute are runtime errors. Custom meters (`Native`) are an
-  unimplemented API and fail to compile; ContentControl is supported —
-  there is no silent fallback, and no claim of full gallery parity with GTK/Tao.
+  Grid splits the available container width into equal tracks with the declared
+  gap; rows size from natural or explicit child heights, and spanned surplus
+  spreads evenly across the spanned rows. Flex wraps in mount order with the
+  declared gap. Absolute places children at style x/y. There is no silent
+  fallback, and no claim of pixel parity with GTK/Tao.
 - A main-thread `MacHost` drives the shared loop. It attaches to `UiHost` /
   `Session` and retains multiple windows. Use `run_host` with
   `register_view(session, id, view, hooks)`; shutdown ownership lives in

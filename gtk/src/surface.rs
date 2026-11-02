@@ -1,4 +1,4 @@
-use crate::{GtkHost, Parent, View, gtk};
+use crate::{GtkHost, Parent, View};
 #[cfg(any(
     target_os = "linux",
     target_os = "macos",

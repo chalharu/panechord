@@ -70,7 +70,7 @@ backend-specific. This does not unify other layout/style/menu error policies.
 `View` Clone, `Parent` Clone. `run(make: impl FnOnce(Rc<dyn Executor>)->View+'static)->Result<(),String>` native loop.
 
 - `View::new(title:Binding<String>)->Self`, `root()->Parent`.
-- `layout(&Parent,id:&str,layout:Layout)->Parent`; `try_layout` returns `Result<Parent,String>` and rejects invalid sizes, unavailable/foreign parents and duplicate IDs before mutation. AppKit only accepts Stack. The infallible wrapper panics on rejection.
+- `layout(&Parent,id:&str,layout:Layout)->Parent`; `try_layout` returns `Result<Parent,String>` and rejects invalid sizes, unavailable/foreign parents and duplicate IDs before mutation. The infallible wrapper panics on rejection.
 - `style(id:&str,Style)` applies leaf or container spacing/placement (root layout included).
 - `try_style(id:&str,Style)->Result<(),String>` validates before applying. Closed/unknown targets and invalid spacing/placement reject without mutation. Root is `__root`, never an arbitrary missing-ID alias. `style` records the same error through the backend error channel.
 - `label/entry(&Parent,id:&str,text:Binding<String>)`.
@@ -115,12 +115,13 @@ contracts: the complete template, including padding and wrapped text, must fit
 ### macOS practical-screen subset
 
 `panechord-macos` supplies `View`/`Parent`/`run` for the settings and library screens,
-with AppKit Stack, Label, TextBox, Button, ItemsControl, Menu and the seven required
+with AppKit Stack, Grid, Flex, Absolute, Label, TextBox, Button, meter,
+ItemsControl, Menu and the seven required
 controls. It uses the same
 code generation and existing application wiring; no runtime markup parser is added.
-The backend's internal build.rs compiles a Swift C ABI bridge. Grid/Flex/Absolute
-fail explicitly; custom meters (`Native`) are not implemented — ContentControl
-is. `MacHost`
+The backend's internal build.rs compiles a Swift C ABI bridge. Custom `Native`
+factories call `View::meter` like the other backends; ContentControl
+is supported. `MacHost`
 implements UiHost; `run_host(FnOnce(Rc<MacHost>)->Result<(),String>)` drives one
 app-wide loop. `register_view(&Session,id,&View,WindowHooks)` retains the window,
 keeps its registration in the View scope, and routes app Quit to the Session.
@@ -236,8 +237,12 @@ continues for the remaining windows and returns `ShutdownOutcome::Failed`.
 Grid has equal-width columns, a gap, and explicit zero-based row/column and spans;
 children left at the default (0,0) cell flow in declaration order through the
 shared `grid_position` helper. GTK uses homogeneous, expanding native columns;
-Tao divides the available width. Flex means horizontal wrapping with gap, not the
-full MAUI/CSS Flex feature set. Native font/minimum-size constraints, integer
+Tao divides the available width; AppKit splits the available container width
+into equal tracks and sizes rows from natural or explicit child heights
+(spanned surplus spreads evenly across the spanned rows). Flex means horizontal
+wrapping with gap, not the full MAUI/CSS Flex feature set: AppKit wraps
+in mount order like Tao. Absolute places children at style x/y with natural or
+explicit sizes. Native font/minimum-size constraints, integer
 rounding and pixel identity across backends are not abstracted away. GTK fixed
 size requests remain minimums, not guaranteed maximums.
 

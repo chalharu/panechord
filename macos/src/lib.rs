@@ -137,6 +137,26 @@ unsafe extern "C" {
     fn w3_set_automatic_window_tabbing(enabled: i32);
     fn w3_set_initial_window_size(width: f64, height: f64);
     fn w3_pick_file(output: *mut u8, capacity: usize) -> i32;
+    fn w3_add_grid(
+        host: *mut c_void,
+        parent: *const u8,
+        parent_len: usize,
+        id: *const u8,
+        id_len: usize,
+        columns: u32,
+        gap: f64,
+    );
+    fn w3_place(
+        host: *mut c_void,
+        id: *const u8,
+        id_len: usize,
+        row: i32,
+        column: i32,
+        row_span: i32,
+        column_span: i32,
+        x: f64,
+        y: f64,
+    );
 }
 
 #[derive(Clone)]
@@ -171,6 +191,10 @@ struct Inner {
     lists: RefCell<HashMap<String, Rc<List>>>,
     menu_errors: RefCell<HashMap<String, String>>,
     tabs: RefCell<HashMap<String, controls::TabState>>,
+    layouts: RefCell<HashMap<String, Layout>>,
+    parents: RefCell<HashMap<String, String>>,
+    grid_index: RefCell<HashMap<String, usize>>,
+    next_index: RefCell<HashMap<String, usize>>,
     close_handlers: RefCell<Vec<Rc<dyn Fn()>>>,
     close_request: RefCell<Option<Rc<dyn Fn()>>>,
     surface_event: RefCell<Option<SurfaceEventHandler>>,
@@ -425,6 +449,16 @@ impl View {
             lists: RefCell::new(HashMap::new()),
             menu_errors: RefCell::new(HashMap::new()),
             tabs: RefCell::new(HashMap::new()),
+            layouts: RefCell::new(HashMap::from([(
+                "__root".to_owned(),
+                Layout::Stack {
+                    horizontal: false,
+                    gap: 0.0,
+                },
+            )])),
+            parents: RefCell::new(HashMap::new()),
+            grid_index: RefCell::new(HashMap::new()),
+            next_index: RefCell::new(HashMap::new()),
             close_handlers: RefCell::new(Vec::new()),
             close_request: RefCell::new(None),
             surface_event: RefCell::new(None),
@@ -595,6 +629,24 @@ impl View {
             }
         }
     }
+    fn record(&self, parent: &Parent, id: &str) {
+        let index = self
+            .0
+            .next_index
+            .borrow()
+            .get(&parent.0)
+            .copied()
+            .unwrap_or(0);
+        self.0
+            .next_index
+            .borrow_mut()
+            .insert(parent.0.clone(), index + 1);
+        self.0.grid_index.borrow_mut().insert(id.into(), index);
+        self.0
+            .parents
+            .borrow_mut()
+            .insert(id.into(), parent.0.clone());
+    }
     fn add(&self, parent: &Parent, id: &str, kind: i32, number: f64) {
         if self.0.closed.get() {
             return;
@@ -605,6 +657,7 @@ impl View {
                 .replace(Some(format!("duplicate native node: {id}")));
             return;
         }
+        self.record(parent, id);
         unsafe {
             w3_add(
                 self.0.native.get(),
@@ -619,6 +672,22 @@ impl View {
     }
     fn remove(&self, prefix: &str) {
         self.0.nodes.borrow_mut().retain(|id| !within(id, prefix));
+        self.0
+            .grid_index
+            .borrow_mut()
+            .retain(|id, _| !within(id, prefix));
+        self.0
+            .parents
+            .borrow_mut()
+            .retain(|id, _| !within(id, prefix));
+        self.0
+            .layouts
+            .borrow_mut()
+            .retain(|id, _| !within(id, prefix));
+        self.0
+            .next_index
+            .borrow_mut()
+            .retain(|id, _| !within(id, prefix));
         self.0
             .slider_actions
             .borrow_mut()
@@ -663,14 +732,10 @@ impl View {
         }
     }
     pub fn layout(&self, parent: &Parent, id: &str, layout: Layout) -> Parent {
-        self.try_layout(parent, id, layout)
-            .expect("invalid or unsupported layout")
+        self.try_layout(parent, id, layout).expect("invalid layout")
     }
     pub fn try_layout(&self, parent: &Parent, id: &str, layout: Layout) -> Result<Parent, String> {
         layout.validate().map_err(str::to_owned)?;
-        let Layout::Stack { horizontal, gap } = layout else {
-            return Err("AppKit currently supports Stack layouts only".into());
-        };
         if self.0.closed.get()
             || !parent.1.ptr_eq(&Rc::downgrade(&self.0))
             || !self.0.nodes.borrow().contains(&parent.0)
@@ -680,7 +745,38 @@ impl View {
         if id.is_empty() || self.0.nodes.borrow().contains(id) {
             return Err("empty or duplicate layout id".into());
         }
-        self.add(parent, id, i32::from(horizontal), f64::from(gap));
+        match layout {
+            Layout::Stack { horizontal, gap } => {
+                self.add(parent, id, i32::from(horizontal), f64::from(gap));
+            }
+            Layout::Grid { columns, gap } => {
+                if !self.0.nodes.borrow_mut().insert(id.into()) {
+                    self.0
+                        .error
+                        .replace(Some(format!("duplicate native node: {id}")));
+                } else {
+                    self.record(parent, id);
+                    unsafe {
+                        w3_add_grid(
+                            self.0.native.get(),
+                            parent.0.as_ptr(),
+                            parent.0.len(),
+                            id.as_ptr(),
+                            id.len(),
+                            columns,
+                            f64::from(gap),
+                        );
+                    }
+                }
+            }
+            Layout::Flex { gap } => {
+                self.add(parent, id, 21, f64::from(gap));
+            }
+            Layout::Absolute => {
+                self.add(parent, id, 22, 0.0);
+            }
+        }
+        self.0.layouts.borrow_mut().insert(id.into(), layout);
         Ok(Parent(id.into(), Rc::downgrade(&self.0)))
     }
     pub fn try_scroll(
@@ -699,6 +795,13 @@ impl View {
             return Err("empty or duplicate scroll id".into());
         }
         self.add(parent, id, 15, f64::from(horizontal));
+        self.0.layouts.borrow_mut().insert(
+            id.into(),
+            Layout::Stack {
+                horizontal: false,
+                gap: 0.0,
+            },
+        );
         Ok(Parent(id.into(), Rc::downgrade(&self.0)))
     }
 
@@ -714,12 +817,18 @@ impl View {
         if id != "__root" && !self.0.nodes.borrow().contains(id) {
             return Err(format!("style target not mounted: {id}"));
         }
-        style
-            .validate(Layout::Stack {
+        // Validate against the actual parent container so Grid children may
+        // carry row/column spans and Absolute children may carry x/y.
+        // The root and unknown parents fall back to the Stack contract.
+        let parent_id = self.0.parents.borrow().get(id).cloned();
+        let parent_layout = parent_id
+            .as_ref()
+            .and_then(|parent| self.0.layouts.borrow().get(parent).copied())
+            .unwrap_or(Layout::Stack {
                 horizontal: false,
                 gap: 0.0,
-            })
-            .map_err(str::to_owned)?;
+            });
+        style.validate(parent_layout).map_err(str::to_owned)?;
         let padding = style.padding;
         let margin = style.margin;
         let placement = style.placement;
@@ -762,7 +871,62 @@ impl View {
                 colour[2],
             );
         }
+        // Forward explicit geometry to the native container. Grid children
+        // left at the default cell flow in declaration order through the
+        // shared helper, mirroring GTK/Tao; Absolute children carry x/y.
+        match parent_layout {
+            Layout::Grid { columns, .. } => {
+                let index = self.0.grid_index.borrow().get(id).copied().unwrap_or(0);
+                let (row, column) = placement.grid_position(index, columns);
+                let cols = columns.max(1) as i32;
+                let row = row.clamp(0, 4095);
+                let column = column.max(0).min(cols - 1);
+                let row_span = placement.row_span.clamp(1, 4096 - row);
+                let column_span = placement
+                    .column_span
+                    .clamp(1, 4096)
+                    .min(cols - column)
+                    .max(1);
+                unsafe {
+                    w3_place(
+                        self.0.native.get(),
+                        id.as_ptr(),
+                        id.len(),
+                        row,
+                        column,
+                        row_span,
+                        column_span,
+                        0.0,
+                        0.0,
+                    );
+                }
+            }
+            Layout::Absolute => unsafe {
+                w3_place(
+                    self.0.native.get(),
+                    id.as_ptr(),
+                    id.len(),
+                    0,
+                    0,
+                    1,
+                    1,
+                    f64::from(placement.x),
+                    f64::from(placement.y),
+                );
+            },
+            _ => {}
+        }
         Ok(())
+    }
+    /// Display-only progress meter (0..1 fraction), matching the GTK
+    /// `ProgressBar` and Tao `progress_bar` primitives used by `Native`
+    /// factories. Non-finite values clear to 0, like the other backends.
+    pub fn meter(&self, parent: &Parent, id: &str, value: Binding<f64>) {
+        self.add(parent, id, 18, 0.0);
+        let key = id.to_owned();
+        self.bind(id, value, move |view, value| {
+            view.set(&key, &value.to_string(), 6)
+        });
     }
     pub fn table(&self, parent: &Parent, id: &str, binding: Binding<panechord_runtime::Table>) {
         self.add(parent, id, 17, 0.0);

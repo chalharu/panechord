@@ -237,6 +237,174 @@ final class DocumentStack: NSStackView {
     override var isFlipped: Bool { true }
 }
 
+/// Equal-width grid with explicit placement. Children are the usual wrapper
+/// frames, positioned manually: the Rust side resolves default-cell flow via
+/// the shared `grid_position` helper and forwards final row/column/spans
+/// through `w3_place`, so Swift only honors what it is given. Row heights
+/// come from natural (or explicit style) child heights, distributed across
+/// spans like the Tao backend; columns split the available width evenly.
+@MainActor
+final class GridContainer: NSView {
+    var columns = 2
+    var gap: CGFloat = 8
+    var placements: [String: (row: Int, col: Int, rowSpan: Int, colSpan: Int)] = [:]
+    var explicitSizes: [String: NSSize] = [:]
+    private var lastTotal = NSSize(width: 0, height: 0)
+    override var isFlipped: Bool { true }
+
+    static func childKey(_ view: NSView) -> String? {
+        guard let raw = view.identifier?.rawValue, raw.hasPrefix("frame/") else { return nil }
+        return String(raw.dropFirst(6))
+    }
+    func measured(_ view: NSView, key: String) -> NSSize {
+        let fit = view.fittingSize
+        let exp = explicitSizes[key] ?? NSSize(width: -1, height: -1)
+        return NSSize(width: exp.width >= 0 ? exp.width : max(0, fit.width),
+                      height: exp.height >= 0 ? exp.height : max(0, fit.height))
+    }
+    private func compute(width: CGFloat) -> (cells: [(view: NSView, rect: NSRect)], total: NSSize) {
+        let cols = max(1, columns)
+        let cellW: CGFloat = width > 0 ? (width - gap * CGFloat(cols - 1)) / CGFloat(cols) : 0
+        var items: [(view: NSView, key: String, row: Int, col: Int, rowSpan: Int, colSpan: Int, size: NSSize)] = []
+        for sub in subviews {
+            guard let key = GridContainer.childKey(sub), !sub.isHidden else { continue }
+            let p = placements[key] ?? (row: 0, col: 0, rowSpan: 1, colSpan: 1)
+            let col = min(max(0, p.col), cols - 1)
+            let row = max(0, p.row)
+            let colSpan = min(max(1, p.colSpan), cols - col)
+            let rowSpan = max(1, p.rowSpan)
+            items.append((sub, key, row, col, rowSpan, colSpan, measured(sub, key: key)))
+        }
+        let rowCount = items.map { $0.row + $0.rowSpan }.max() ?? 0
+        var heights = [CGFloat](repeating: 0, count: rowCount)
+        for item in items where item.rowSpan == 1 {
+            heights[item.row] = max(heights[item.row], item.size.height)
+        }
+        for item in items where item.rowSpan > 1 {
+            let occupied = heights[item.row..<(item.row + item.rowSpan)].reduce(0, +)
+                + gap * CGFloat(item.rowSpan - 1)
+            if item.size.height > occupied {
+                let extra = (item.size.height - occupied) / CGFloat(item.rowSpan)
+                for r in item.row..<(item.row + item.rowSpan) { heights[r] += extra }
+            }
+        }
+        var tops = [CGFloat](repeating: 0, count: rowCount + 1)
+        for r in 0..<rowCount { tops[r + 1] = tops[r] + heights[r] + (r + 1 < rowCount ? gap : 0) }
+        var cells: [(view: NSView, rect: NSRect)] = []
+        for item in items {
+            let w: CGFloat
+            if width > 0 {
+                w = cellW * CGFloat(item.colSpan) + gap * CGFloat(item.colSpan - 1)
+            } else {
+                w = item.size.width
+            }
+            let h = heights[item.row..<(item.row + item.rowSpan)].reduce(0, +)
+                + gap * CGFloat(item.rowSpan - 1)
+            let x = width > 0 ? CGFloat(item.col) * (cellW + gap) : 0
+            cells.append((item.view, NSRect(x: x, y: tops[item.row], width: w, height: max(h, item.size.height))))
+        }
+        let total = NSSize(width: width, height: tops.last ?? 0)
+        return (cells, total)
+    }
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: lastTotal.height)
+    }
+    override func layout() {
+        super.layout()
+        let (cells, total) = compute(width: bounds.width)
+        for cell in cells { cell.view.frame = cell.rect }
+        if total != lastTotal {
+            lastTotal = total
+            invalidateIntrinsicContentSize()
+        }
+    }
+}
+
+/// Horizontal wrapping flow with a uniform gap. Child order is mount order
+/// (declaration order); each child takes its natural or explicit style size.
+@MainActor
+final class FlexContainer: NSView {
+    var gap: CGFloat = 8
+    var explicitSizes: [String: NSSize] = [:]
+    private var lastTotal = NSSize(width: 0, height: 0)
+    override var isFlipped: Bool { true }
+
+    private func compute(width: CGFloat) -> (cells: [(view: NSView, rect: NSRect)], total: NSSize) {
+        var cells: [(view: NSView, rect: NSRect)] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowH: CGFloat = 0
+        for sub in subviews {
+            guard let key = GridContainer.childKey(sub), !sub.isHidden else { continue }
+            let fit = sub.fittingSize
+            let exp = explicitSizes[key] ?? NSSize(width: -1, height: -1)
+            let w = exp.width >= 0 ? exp.width : max(0, fit.width)
+            let h = exp.height >= 0 ? exp.height : max(0, fit.height)
+            if width > 0, x > 0, x + w > width {
+                x = 0
+                y += rowH + gap
+                rowH = 0
+            }
+            cells.append((sub, NSRect(x: x, y: y, width: w, height: h)))
+            x += w + gap
+            rowH = max(rowH, h)
+        }
+        return (cells, NSSize(width: width, height: y + rowH))
+    }
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: lastTotal.height)
+    }
+    override func layout() {
+        super.layout()
+        let (cells, total) = compute(width: bounds.width)
+        for cell in cells { cell.view.frame = cell.rect }
+        if total != lastTotal {
+            lastTotal = total
+            invalidateIntrinsicContentSize()
+        }
+    }
+}
+
+/// Fixed-origin container. Positions arrive via `w3_place` (x/y in logical
+/// points, y growing downward like the flipped document stack); sizes are
+/// natural or explicit style sizes.
+@MainActor
+final class AbsoluteContainer: NSView {
+    var positions: [String: NSPoint] = [:]
+    var explicitSizes: [String: NSSize] = [:]
+    private var lastTotal = NSSize(width: 0, height: 0)
+    override var isFlipped: Bool { true }
+
+    private func compute() -> (cells: [(view: NSView, rect: NSRect)], total: NSSize) {
+        var cells: [(view: NSView, rect: NSRect)] = []
+        var extent = NSSize(width: 0, height: 0)
+        for sub in subviews {
+            guard let key = GridContainer.childKey(sub), !sub.isHidden else { continue }
+            let fit = sub.fittingSize
+            let exp = explicitSizes[key] ?? NSSize(width: -1, height: -1)
+            let w = exp.width >= 0 ? exp.width : max(0, fit.width)
+            let h = exp.height >= 0 ? exp.height : max(0, fit.height)
+            let origin = positions[key] ?? NSPoint.zero
+            cells.append((sub, NSRect(x: origin.x, y: origin.y, width: w, height: h)))
+            extent.width = max(extent.width, origin.x + w)
+            extent.height = max(extent.height, origin.y + h)
+        }
+        return (cells, extent)
+    }
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: max(0, lastTotal.width), height: lastTotal.height)
+    }
+    override func layout() {
+        super.layout()
+        let (cells, total) = compute()
+        for cell in cells { cell.view.frame = cell.rect }
+        if total != lastTotal {
+            lastTotal = total
+            invalidateIntrinsicContentSize()
+        }
+    }
+}
+
 @MainActor
 final class Scrolling: NSScrollView {
     let body = DocumentStack()
@@ -809,6 +977,13 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
             frame.isHidden = !visible
             return
         }
+        // Manually laid out containers skip hidden children in `layout()`,
+        // so a plain hidden flag collapses them without detaching.
+        if let parent = parents[id], isManualContainer(parent) {
+            frame.isHidden = !visible
+            (nodes[parent] as? NSView)?.needsLayout = true
+            return
+        }
         if visible {
             if frame.superview == nil,
                let parent = parents[id],
@@ -851,7 +1026,17 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
         emit(id, field.stringValue)
     }
 
+    /// Whether the named node hosts manually positioned children
+    /// (Grid/Flex/Absolute) rather than stack-arranged ones.
+    func isManualContainer(_ id: String) -> Bool {
+        nodes[id] is GridContainer || nodes[id] is FlexContainer || nodes[id] is AbsoluteContainer
+    }
+
     func attach(_ view: NSView, parent: String, id: String, floating: Bool = false) {
+        if !floating, isManualContainer(parent) {
+            attachManualChild(view, parent: parent, id: id)
+            return
+        }
         let container = (nodes[parent] as? Rows)?.body ?? (nodes[parent] as? Scrolling)?.body ?? nodes[parent] as? NSStackView
         let tab = (nodes[parent] as? Tabs)?.body
         guard floating || container != nil || tab != nil else { return }
@@ -907,6 +1092,39 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
         }
     }
 
+    /// Mount into a manually laid out container: the wrapper frame keeps its
+    /// internal view/frame width link but takes no container width or position
+    /// constraints — the container's `layout()` assigns frames from placements
+    /// and explicit sizes instead.
+    func attachManualChild(_ view: NSView, parent: String, id: String) {
+        guard nodes[parent] != nil else { return }
+        let frame = NSStackView()
+        frame.orientation = .vertical
+        frame.alignment = .leading
+        frame.spacing = 0
+        frame.identifier = NSUserInterfaceItemIdentifier("frame/" + id)
+        frame.addArrangedSubview(view)
+        frame.translatesAutoresizingMaskIntoConstraints = true
+        view.translatesAutoresizingMaskIntoConstraints = false
+        let contentWidth = view.widthAnchor.constraint(equalTo: frame.widthAnchor, constant: 0)
+        contentWidth.isActive = true
+        let contentHeight = view.heightAnchor.constraint(equalTo: frame.heightAnchor)
+        contentHeight.isActive = view is Tabs || view is Scrolling || view is TableControl
+        contentWidths[id] = contentWidth
+        contentHeights[id] = contentHeight
+        nodes[parent]?.addSubview(frame)
+        nodes[id] = view
+        parents[id] = parent
+        frames[id] = frame
+        view.identifier = NSUserInterfaceItemIdentifier(id)
+        view.setAccessibilityIdentifier(id)
+        if view is NSButton || (view as? NSTextField)?.isSelectable == true {
+            focusable.append(view)
+            keyLoop()
+        }
+        nodes[parent]?.needsLayout = true
+    }
+
     func keyLoop() {
         for (index, view) in focusable.enumerated() {
             view.nextKeyView = focusable[(index + 1) % focusable.count]
@@ -953,6 +1171,17 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
             parents.removeValue(forKey: id)
             visibility.removeValue(forKey: id)
             hiddenIndex.removeValue(forKey: id)
+            for node in nodes.values {
+                if let grid = node as? GridContainer {
+                    grid.placements = grid.placements.filter { !($0.key == id || $0.key.hasPrefix(id + "/")) }
+                    grid.explicitSizes = grid.explicitSizes.filter { !($0.key == id || $0.key.hasPrefix(id + "/")) }
+                } else if let flex = node as? FlexContainer {
+                    flex.explicitSizes = flex.explicitSizes.filter { !($0.key == id || $0.key.hasPrefix(id + "/")) }
+                } else if let absolute = node as? AbsoluteContainer {
+                    absolute.positions = absolute.positions.filter { !($0.key == id || $0.key.hasPrefix(id + "/")) }
+                    absolute.explicitSizes = absolute.explicitSizes.filter { !($0.key == id || $0.key.hasPrefix(id + "/")) }
+                }
+            }
             if let spacer = spacers.removeValue(forKey: id) {
                 if let stack = spacer.superview as? NSStackView {
                     stack.removeArrangedSubview(spacer)
@@ -1201,12 +1430,52 @@ public func add(_ pointer: UnsafeMutableRawPointer, _ parentBytes: UnsafePointer
         table.owner = value
         table.key = id
         view = table
+    case 18:
+        let meter = NSProgressIndicator()
+        meter.isIndeterminate = false
+        meter.minValue = 0
+        meter.maxValue = 1
+        meter.style = .bar
+        view = meter
+    case 21:
+        let flex = FlexContainer()
+        flex.gap = CGFloat(number)
+        view = flex
+    case 22:
+        view = AbsoluteContainer()
     default:
         let rows = Rows()
         rows.changed = { [weak value] start in value?.emit(id, String(start), kind: 2) }
         view = rows
     }
     value.attach(view, parent: string(parentBytes, parentCount), id: id, floating: kind == 12)
+}
+
+@_cdecl("w3_add_grid") @MainActor
+public func addGrid(_ pointer: UnsafeMutableRawPointer, _ parentBytes: UnsafePointer<UInt8>?, _ parentCount: Int,
+         _ idBytes: UnsafePointer<UInt8>?, _ idCount: Int, _ columns: UInt32, _ gap: Double) {
+    let value = host(pointer)
+    let id = string(idBytes, idCount)
+    let grid = GridContainer()
+    grid.columns = max(1, Int(columns))
+    grid.gap = CGFloat(gap)
+    value.attach(view: grid, parent: string(parentBytes, parentCount), id: id)
+}
+
+@_cdecl("w3_place") @MainActor
+public func place(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<UInt8>?, _ idCount: Int,
+           _ row: Int32, _ column: Int32, _ rowSpan: Int32, _ columnSpan: Int32, _ x: Double, _ y: Double) {
+    let value = host(pointer)
+    let id = string(idBytes, idCount)
+    guard let parent = value.parents[id] else { return }
+    if let grid = value.nodes[parent] as? GridContainer {
+        grid.placements[id] = (row: max(0, Int(row)), col: max(0, Int(column)),
+            rowSpan: max(1, Int(rowSpan)), colSpan: max(1, Int(columnSpan)))
+        grid.needsLayout = true
+    } else if let absolute = value.nodes[parent] as? AbsoluteContainer {
+        absolute.positions[id] = NSPoint(x: x, y: y)
+        absolute.needsLayout = true
+    }
 }
 
 @_cdecl("w3_set") @MainActor
@@ -1226,12 +1495,24 @@ public func set(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<UIn
         table.table.reloadData()
     } else if property == 17, let table = value.nodes[id] as? TableControl {
         table.setCursor(text)
-    } else if property == 16, let stack = value.nodes[id] as? NSStackView,
+    } else if property == 16,
        let data = text.data(using: .utf8), let keys = try? JSONDecoder().decode([String].self, from: data) {
-        for key in keys {
-            guard let frame = value.frames[key], stack.arrangedSubviews.contains(frame) else { continue }
-            stack.removeArrangedSubview(frame)
-            stack.addArrangedSubview(frame)
+        if let stack = value.nodes[id] as? NSStackView {
+            for key in keys {
+                guard let frame = value.frames[key], stack.arrangedSubviews.contains(frame) else { continue }
+                stack.removeArrangedSubview(frame)
+                stack.addArrangedSubview(frame)
+            }
+        } else if value.isManualContainer(id), let container = value.nodes[id] as? NSView {
+            // Manually laid out children keep mount order in `subviews`:
+            // re-append in the requested order so Repeat/Content reorder
+            // matches the stack behavior above, then relay out.
+            for key in keys {
+                guard let frame = value.frames[key], frame.superview === container else { continue }
+                frame.removeFromSuperview()
+                container.addSubview(frame)
+            }
+            container.needsLayout = true
         }
     } else if property == 15, let image = value.nodes[id] as? PointerImage {
         image.pointerEnabled = text == "1"
@@ -1276,6 +1557,9 @@ public func set(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<UIn
     } else if property == 6 {
         value.applying = true
         defer { value.applying = false }
+        if let meter = value.nodes[id] as? NSProgressIndicator {
+            meter.doubleValue = Double(text).map { $0.isFinite ? min(1.0, max(0.0, $0)) : 0.0 } ?? 0.0
+        }
         if let slider = value.nodes[id] as? NSSlider, let number = Double(text) { slider.doubleValue = number }
         if let combo = value.nodes[id] as? NSPopUpButton {
             combo.select(combo.itemArray.first { ($0.representedObject as? String) == text })
@@ -1435,6 +1719,31 @@ public func style(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<U
             : textRole == 4 ? NSColor.secondaryLabelColor : NSColor.labelColor
     }
     if let constraints = value.dimensions[id] { NSLayoutConstraint.deactivate(constraints) }
+    value.dimensions[id] = []
+    // Manually laid out children (Grid/Flex/Absolute) take no stack position
+    // constraints: the container assigns frames from placements and the sizes
+    // recorded here. Margins still fold into the frame insets; the view keeps
+    // filling its frame width like in stacks.
+    if let parent = value.parents[id], value.isManualContainer(parent) {
+        value.contentWidths[id]?.isActive = false
+        value.contentHeights[id]?.isActive = false
+        frame.edgeInsets = NSEdgeInsets(top: top, left: left, bottom: bottom, right: right)
+        let size = NSSize(width: width, height: height)
+        if let grid = value.nodes[parent] as? GridContainer {
+            grid.explicitSizes[id] = size
+            grid.needsLayout = true
+        } else if let flex = value.nodes[parent] as? FlexContainer {
+            flex.explicitSizes[id] = size
+            flex.needsLayout = true
+        } else if let absolute = value.nodes[parent] as? AbsoluteContainer {
+            absolute.explicitSizes[id] = size
+            absolute.needsLayout = true
+        }
+        value.contentWidths[id]?.isActive = true
+        value.contentWidths[id]?.constant = -(left + right)
+        value.contentHeights[id]?.constant = -(top + bottom)
+        return
+    }
     value.contentWidths[id]?.isActive = false
     value.contentHeights[id]?.isActive = false
     frame.edgeInsets = NSEdgeInsets(top: top, left: left, bottom: bottom, right: right)

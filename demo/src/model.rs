@@ -107,6 +107,13 @@ fn shortcut() -> String {
     {
         "Ctrl+KeyS".into()
     }
+    #[cfg(all(
+        feature = "backend-macos",
+        not(any(feature = "backend-gtk", feature = "backend-tao"))
+    ))]
+    {
+        "Primary+KeyS".into()
+    }
 }
 fn menu_item(id: &str, label: &str, argument: &str, shortcut: Option<String>) -> MenuItem {
     MenuItem {

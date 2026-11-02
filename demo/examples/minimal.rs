@@ -1,6 +1,11 @@
 //! User-facing minimum: a model, its behavior, and a view macro. No contract crate.
 #[cfg(feature = "backend-gtk")]
 use panechord_gtk as backend;
+#[cfg(all(
+    feature = "backend-macos",
+    not(any(feature = "backend-gtk", feature = "backend-tao"))
+))]
+use panechord_macos as backend;
 use panechord_runtime::Store;
 #[cfg(all(feature = "backend-tao", not(feature = "backend-gtk")))]
 use panechord_tao as backend;

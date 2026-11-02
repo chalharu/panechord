@@ -9,10 +9,10 @@ failure recovery.
 
 | Capability | GTK/Linux | Tao | AppKit |
 | --- | --- | --- | --- |
-| Demo gallery | Supported | Supported | Unsupported (the demo binary selects GTK/Tao only) |
+| Demo gallery | Supported | Supported | Supported |
 | Library screen | Supported | Supported | Supported |
 | Stack | Supported | Supported | Supported |
-| Grid/Flex/Absolute | Supported with documented geometry limits | Supported with documented geometry limits | Unsupported |
+| Grid/Flex/Absolute | Supported with documented geometry limits | Supported with documented geometry limits | Supported with documented geometry limits |
 | Items keyed retention | Supported | Supported | Supported, including editable reorder |
 | Optional Content template | Supported | Supported | Supported |
 | Coordinated multiwindow/attach | GtkHost | TaoHost under one owned loop | MacHost |
@@ -38,7 +38,7 @@ Combo and arbitrary Grid tracks remain outside the fixed supported subset.
 Layout values are finite and bounded at 1,000,000 logical pixels; Grid columns
 are 1..=4096. Combined margin/padding overflow rejects before native conversion.
 `try_layout` rejects unavailable/foreign parents and duplicate IDs before mutation;
-AppKit rejects unsupported layouts instead of returning a dangling Parent.
+invalid geometry rejects on every backend instead of returning a dangling Parent.
 
 ## Correctness Contract
 

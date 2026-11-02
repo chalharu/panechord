@@ -9,11 +9,12 @@ failure recovery.
 
 | Capability | GTK/Linux | Tao | AppKit |
 | --- | --- | --- | --- |
-| Demo/library screens | Supported | Supported | Supported |
+| Demo gallery | Supported | Supported | Unsupported (the demo binary selects GTK/Tao only) |
+| Library screen | Supported | Supported | Supported |
 | Stack | Supported | Supported | Supported |
 | Grid/Flex/Absolute | Supported with documented geometry limits | Supported with documented geometry limits | Unsupported |
 | Items keyed retention | Supported | Supported | Supported, including editable reorder |
-| Optional Content template | Supported | Supported | Unsupported |
+| Optional Content template | Supported | Supported | Supported |
 | Coordinated multiwindow/attach | GtkHost | TaoHost under one owned loop | MacHost |
 | Native controls | GTK | Software iced controls | AppKit |
 | Full external IME/accessibility certification | Not certified | Preedit/accessibility limitations | Not certified |
@@ -28,7 +29,8 @@ The schema has 25 control/layout variants. CheckBox, Radio, stepped Slider f64,
 Combo Choice IDs, shared RGBA ImageFrame, retained Tab pages and nonblocking Dialog
 content are declarative. Display-only TwoWay properties reject at their markup mode
 location. Grid has equal-width columns, a gap, and explicit zero-based row/column
-and spans; there is no implicit auto-flow. GTK uses homogeneous, expanding native
+and spans; children left at the default (0,0) cell flow in declaration order
+through the shared `grid_position` helper. GTK uses homogeneous, expanding native
 columns; Tao divides the available width. Fixed rows are not automatically enlarged
 by the window scroller. Arbitrary CSS patches, dynamic Tab-page graphs, editable
 Combo and arbitrary Grid tracks remain outside the fixed supported subset.

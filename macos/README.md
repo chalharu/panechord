@@ -34,13 +34,15 @@ about the oldest OS or Intel hardware.
 
 ## Contract
 
-- The screens are the demo and the file list: Stack, Label, TextBox,
+- The screens are the file list: Stack, Label, TextBox,
   fixed-row ItemsControl, Menu, plus CheckBox, Radio, Slider, Combo, Image,
   Tab, Dialog and retained visible/enabled/Style bindings, including typed
   submenus, all held to the shared contract in `API.md`.
-  Grid/Flex/Absolute are runtime errors. ContentControl and custom meters are
-  unimplemented APIs and fail to compile — there is no silent fallback, and no
-  claim of full gallery parity with GTK/Tao.
+  The demo contributes its controls probe (also runnable with `backend-macos`),
+  and the `macos` examples cover conformance and multiwindow behavior.
+  Grid/Flex/Absolute are runtime errors. Custom meters (`Native`) are an
+  unimplemented API and fail to compile; ContentControl is supported —
+  there is no silent fallback, and no claim of full gallery parity with GTK/Tao.
 - A main-thread `MacHost` drives the shared loop. It attaches to `UiHost` /
   `Session` and retains multiple windows. Use `run_host` with
   `register_view(session, id, view, hooks)`; shutdown ownership lives in
@@ -96,8 +98,10 @@ about the oldest OS or Intel hardware.
 
 ## Fairness
 
-Both macOS apps opt into `Store::with_dispatch_budget(..., NonZeroUsize(64))`;
-plain `Store::new` / `with_limits` keep their synchronous contract. A budgeted
+The macOS library opts into
+`Store::with_dispatch_budget(..., NonZeroUsize(64))`; the conformance example
+uses a budget of 8. Plain `Store::new` / `with_limits` keep their synchronous
+contract. A budgeted
 store drains up to its count per turn, then yields to a weak continuation
 future. FIFO order, capacity limits, watch coalescing and close-discards-queued
 semantics are unchanged. An accepted write may not be applied yet when the

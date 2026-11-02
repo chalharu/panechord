@@ -119,7 +119,8 @@ with AppKit Stack, Label, TextBox, Button, ItemsControl, Menu and the seven requ
 controls. It uses the same
 code generation and existing application wiring; no runtime markup parser is added.
 The backend's internal build.rs compiles a Swift C ABI bridge. Grid/Flex/Absolute
-fail explicitly; ContentControl/custom meter are not implemented. `MacHost`
+fail explicitly; custom meters (`Native`) are not implemented — ContentControl
+is. `MacHost`
 implements UiHost; `run_host(FnOnce(Rc<MacHost>)->Result<(),String>)` drives one
 app-wide loop. `register_view(&Session,id,&View,WindowHooks)` retains the window,
 keeps its registration in the View scope, and routes app Quit to the Session.
@@ -233,7 +234,8 @@ continues for the remaining windows and returns `ShutdownOutcome::Failed`.
 ## Common layout and settings contract
 
 Grid has equal-width columns, a gap, and explicit zero-based row/column and spans;
-there is no implicit auto-flow. GTK uses homogeneous, expanding native columns;
+children left at the default (0,0) cell flow in declaration order through the
+shared `grid_position` helper. GTK uses homogeneous, expanding native columns;
 Tao divides the available width. Flex means horizontal wrapping with gap, not the
 full MAUI/CSS Flex feature set. Native font/minimum-size constraints, integer
 rounding and pixel identity across backends are not abstracted away. GTK fixed

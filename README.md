@@ -55,7 +55,8 @@ root:
         command: greet
 ```
 
-This is the complete `demo/examples/minimal.rs` and `demo/ui/minimal.yaml`.
+This is `demo/examples/minimal.rs` and `demo/ui/minimal.yaml`, minus the `cfg`
+gates that switch the backend import between GTK and Tao.
 Run it with `cargo run --locked -p panechord-demo --example minimal`.
 
 Three ideas carry the whole design:
@@ -138,7 +139,8 @@ assistive-technology, or on-device Windows testing.
 - `API.md` — the frozen cross-backend contract both backends and codegen target.
 - `HARDENING.md` — supported scope, rejection contract, verification procedures.
 - `macros/README.md` — exact YAML syntax, generation rules, diagnostics.
-- `markup/README.md` — parser limits (1 MiB, depth 64, 16k nodes, no anchors).
+- `markup/README.md` — parser limits (1 MiB, depth 64, separate 16k value-node
+  and expanded-control budgets, no anchors).
 - `runtime/README.md` — scheduling, effects, shutdown, scope contracts.
 - `gtk/README.md`, `tao/README.md`, `macos/README.md` — backend behavior and limits.
 - `library/README.md` — the folder-scanning screen and its wiring pattern.

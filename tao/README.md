@@ -8,8 +8,9 @@ toolkit or an accessibility implementation.
 
 Stack, Grid (zero-based row/column and spans), wrapping Flex and Absolute have
 distinct advanced-widget layout paths. Placement width/height, outer margins and
-inner padding use logical pixels. Grid uses the supplied row/column, including
-the default cell (0,0); it does not silently substitute a stack or auto-flow.
+inner padding use logical pixels. Grid uses the supplied row/column, while
+children left at the default cell (0,0) flow in declaration order through the
+shared `grid_position` helper; it does not silently substitute a stack.
 Grid columns and row indices/spans are safety-bounded to 4096. Invalid/nonfinite
 spacing is rejected by `try_style` before mutation. A finite explicitly placed size is constrained by
 the enclosing available size. Root styling uses `__root`; missing IDs never
@@ -27,8 +28,9 @@ Common subset with GTK: Grid fills the available logical width with equal tracks
 of `(available - (columns-1)*gap)/columns`; children without explicit widths fill
 their track/span (minus margins), and spans include internal gaps. Explicit rows,
 columns and row/column spans are honored; unused rows still contribute gaps.
-Portable code supplies explicit placement, because GTK's unstyled children keep
-auto-flow while Tao's default is cell 0,0. GTK native minimum sizes and integer
+Both backends place default-cell children in declaration order through the
+shared `grid_position` helper, so explicit placement is only required to
+override that order or to span cells. GTK native minimum sizes and integer
 rounding can enlarge tracks or constrain window sizes; Tao bounds explicit sizes
 to available space. Neither backend promises pixel identity. Flex's common subset
 is only gap and horizontal wrapping, not MAUI-complete grow/shrink/alignment or

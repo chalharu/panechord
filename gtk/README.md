@@ -32,8 +32,9 @@ Grid uses homogeneous columns and expands across the available logical width.
 For `n` columns and gap `g`, a track is `(available - (n-1)*g)/n`; a column span
 occupies its tracks plus internal gaps. Empty declared columns retain a track.
 Explicit zero-based row/column and positive row/column spans are supported.
-GTK's unstyled children retain its existing auto-flow; portable code supplies
-explicit placement for every Grid child (Tao defaults to cell 0,0).
+Children left at the default (0,0) cell flow in declaration order through the
+shared `grid_position` helper on both backends; explicit placement overrides
+that order or spans cells.
 GTK native minimum sizes can enlarge tracks/window; integer allocation rounds
 tracks, so one logical pixel of difference is expected. Explicit width/height
 are minimum requests on GTK, not hard clipping constraints. Use feasible sizes.

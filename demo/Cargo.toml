@@ -1,25 +1,25 @@
 [package]
-name = "panechord-demo"
-description = "Control gallery and smoke demo for Panechord"
-repository.workspace = true
 categories = ["gui"]
-version.workspace = true
+description = "Control gallery and smoke demo for Panechord"
 edition.workspace = true
 license.workspace = true
+name = "panechord-demo"
+repository.workspace = true
 rust-version.workspace = true
+version.workspace = true
 
 [features]
-default = ["backend-gtk"]
-backend-gtk = ["dep:panechord-gtk", "dep:gtk4"]
-backend-tao = ["dep:panechord-tao"]
+backend-gtk = ["dep:gtk4", "dep:panechord-gtk"]
 backend-macos = ["dep:panechord-macos"]
+backend-tao = ["dep:panechord-tao"]
+default = ["backend-gtk"]
 
 [dependencies]
 futures.workspace = true
 futures-timer.workspace = true
-gtk4 = { workspace = true, optional = true }
-panechord-runtime.workspace = true
+gtk4 = { optional = true, workspace = true }
+panechord-gtk = { optional = true, workspace = true }
+panechord-macos = { optional = true, workspace = true }
 panechord-macros.workspace = true
-panechord-gtk = { workspace = true, optional = true }
-panechord-tao = { workspace = true, optional = true }
-panechord-macos = { workspace = true, optional = true }
+panechord-runtime.workspace = true
+panechord-tao = { optional = true, workspace = true }

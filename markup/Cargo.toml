@@ -1,17 +1,17 @@
 [package]
-name = "panechord-markup"
-description = "Strict schema-v2 YAML/JSON markup parser for Panechord"
-repository.workspace = true
 categories = ["gui"]
-version.workspace = true
+description = "Strict schema-v2 YAML/JSON markup parser for Panechord"
 edition.workspace = true
 license.workspace = true
+name = "panechord-markup"
+repository.workspace = true
 rust-version.workspace = true
+version.workspace = true
 
 [dependencies]
 panechord-runtime.workspace = true
 schemars.workspace = true
-serde = { workspace = true, features = ["derive"] }
+serde = { features = ["derive"], workspace = true }
+serde-saphyr.workspace = true
 serde_json.workspace = true
 serde_path_to_error.workspace = true
-serde-saphyr.workspace = true

@@ -1,12 +1,12 @@
 [package]
-name = "panechord-native"
-description = "Platform-default Panechord backend selection"
-repository.workspace = true
 categories = ["gui"]
-version.workspace = true
+description = "Platform-default Panechord backend selection"
 edition.workspace = true
 license.workspace = true
+name = "panechord-native"
+repository.workspace = true
 rust-version.workspace = true
+version.workspace = true
 
 [target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd", target_os = "dragonfly"))'.dependencies]
 panechord-gtk.workspace = true

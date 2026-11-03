@@ -1,12 +1,12 @@
 [package]
-name = "panechord-gtk"
-description = "GTK4 backend for Panechord declarative UI"
-repository.workspace = true
 categories = ["gui"]
-version.workspace = true
+description = "GTK4 backend for Panechord declarative UI"
 edition.workspace = true
 license.workspace = true
+name = "panechord-gtk"
+repository.workspace = true
 rust-version.workspace = true
+version.workspace = true
 
 [dependencies]
 futures.workspace = true
@@ -20,4 +20,6 @@ objc2-app-kit.workspace = true
 objc2-foundation.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_UI_Input_KeyboardAndMouse"] }
+windows-sys = { features = [
+  "Win32_UI_Input_KeyboardAndMouse",
+], workspace = true }

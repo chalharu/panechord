@@ -1,14 +1,14 @@
 [package]
-name = "panechord-ui-missing-field"
-version = "0.0.0"
 edition = "2024"
+name = "panechord-ui-missing-field"
 publish = false
+version = "0.0.0"
 
 [workspace]
 
 [dependencies]
-panechord-runtime = { path = "../../../../runtime" }
 panechord-macros = { path = "../../../../macros" }
+panechord-runtime = { path = "../../../../runtime" }
 
 [[bin]]
 name = "probe"

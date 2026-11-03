@@ -1,42 +1,42 @@
 [workspace]
 members = [
   ".",
-  "runtime",
-  "markup",
-  "macros",
-  "native",
-  "gtk",
-  "tao",
-  "macos",
   "demo",
+  "gtk",
   "library",
+  "macos",
+  "macros",
+  "markup",
+  "native",
+  "runtime",
+  "tao",
 ]
 resolver = "3"
 
 [package]
-name = "panechord"
-description = "Declarative Rust UI with shared state and native backends"
-repository.workspace = true
 categories = ["gui"]
-version.workspace = true
+description = "Declarative Rust UI with shared state and native backends"
 edition.workspace = true
 license.workspace = true
+name = "panechord"
+repository.workspace = true
 rust-version.workspace = true
+version.workspace = true
 
 [dependencies]
-panechord-runtime.workspace = true
+panechord-gtk = { optional = true, workspace = true }
+panechord-macos = { optional = true, workspace = true }
 panechord-macros.workspace = true
-panechord-native = { workspace = true, optional = true }
-panechord-gtk = { workspace = true, optional = true }
-panechord-tao = { workspace = true, optional = true }
-panechord-macos = { workspace = true, optional = true }
+panechord-native = { optional = true, workspace = true }
+panechord-runtime.workspace = true
+panechord-tao = { optional = true, workspace = true }
 
 [features]
 default = []
-native = ["dep:panechord-native"]
 gtk = ["dep:panechord-gtk"]
-tao = ["dep:panechord-tao"]
 macos = ["dep:panechord-macos"]
+native = ["dep:panechord-native"]
+tao = ["dep:panechord-tao"]
 
 [profile.dev]
 opt-level = 3
@@ -60,8 +60,16 @@ version = "0.1.0-dev"
 futures = { version = "=0.3.34" }
 futures-timer = { version = "=3.0" }
 gtk = { version = "=0.18.2" }
-gtk4 = { version = "=0.11.5", features = ["v4_8"] }
-iced = { version = "=0.14.0", default-features = false, features = ["tiny-skia", "x11", "wayland", "advanced", "thread-pool", "image-without-codecs", "lazy"] }
+gtk4 = { features = ["v4_8"], version = "=0.11.5" }
+iced = { default-features = false, features = [
+  "advanced",
+  "image-without-codecs",
+  "lazy",
+  "thread-pool",
+  "tiny-skia",
+  "wayland",
+  "x11",
+], version = "=0.14.0" }
 iced_tiny_skia = { version = "=0.14.1" }
 iced_winit = { version = "=0.14.1" }
 muda = { version = "=0.21.2" }
@@ -77,7 +85,9 @@ objc2-app-kit = { default-features = false, features = [
   "objc2-core-foundation",
   "objc2-quartz-core",
 ], version = "=0.3.2" }
-objc2-foundation = { default-features = false, features = ["NSString"], version = "=0.3.2" }
+objc2-foundation = { default-features = false, features = [
+  "NSString",
+], version = "=0.3.2" }
 panechord-gtk = { path = "gtk" }
 panechord-macos = { path = "macos" }
 panechord-macros = { path = "macros" }
@@ -85,17 +95,17 @@ panechord-markup = { path = "markup" }
 panechord-native = { path = "native" }
 panechord-runtime = { path = "runtime" }
 panechord-tao = { path = "tao" }
-proc-macro2 = { version = "=1.0" }
 proc-macro-crate = { version = "=3.5.0" }
+proc-macro2 = { version = "=1.0" }
 quote = { version = "=1.0" }
 raw-window-handle = { version = "=0.6.2" }
 rfd = { version = "=0.17.2" }
 schemars = { version = "=1.2.3" }
 serde = { default-features = false, version = "=1.0.229" }
+serde-saphyr = { version = "=2.0.0" }
 serde_json = { version = "=1.0.154" }
 serde_path_to_error = { version = "=0.1" }
-serde-saphyr = { version = "=2.0.0" }
-syn = { version = "=3.0.9", features = ["full", "extra-traits", "visit-mut"] }
+syn = { features = ["extra-traits", "full", "visit-mut"], version = "=3.0.9" }
 tao = { version = "=0.37.2" }
 window_clipboard = { version = "=0.5.1" }
 windows-sys = { version = "=0.61.2" }

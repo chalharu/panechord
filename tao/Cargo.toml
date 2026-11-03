@@ -1,12 +1,12 @@
 [package]
-name = "panechord-tao"
-description = "Tao software-widget backend for Panechord declarative UI"
-repository.workspace = true
 categories = ["gui"]
-version.workspace = true
+description = "Tao software-widget backend for Panechord declarative UI"
 edition.workspace = true
 license.workspace = true
+name = "panechord-tao"
+repository.workspace = true
 rust-version.workspace = true
+version.workspace = true
 
 [dependencies]
 futures.workspace = true
@@ -24,7 +24,10 @@ window_clipboard.workspace = true
 gtk.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+], workspace = true }
 
 [dev-dependencies]
 panechord-macros.workspace = true

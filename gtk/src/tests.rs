@@ -681,6 +681,32 @@ fn native_table_refresh_close_reopen_survives() {
         assert!(data.update(|table| *table = history_like(31)));
         settle();
         assert_eq!(data.snapshot().rows.len(), 31);
+        // Column-schema change (e.g. a language switch relabels headers):
+        // live size groups are replaced, so recycled row widgets must be
+        // released from the groups that own them, not the new ones
+        // (wrong-group removal warns `gtk_size_group_remove_widget` and
+        // leaks the dead widgets into the new groups).
+        assert!(data.update(|table| {
+            let mut renamed = history_like(31);
+            renamed.columns = Arc::from(
+                renamed
+                    .columns
+                    .iter()
+                    .map(|column| TableColumn {
+                        title: format!("{}!", column.title),
+                        ..column.clone()
+                    })
+                    .collect::<Vec<_>>(),
+            );
+            *table = renamed;
+        }));
+        settle();
+        assert!(
+            data.snapshot()
+                .columns
+                .iter()
+                .all(|column| column.title.ends_with('!'))
+        );
         view.close();
         settle();
     }

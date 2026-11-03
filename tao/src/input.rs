@@ -3,6 +3,63 @@ use tao::{
     event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
     keyboard as tk,
 };
+
+/// Native scroll kinds across event sources: tao wheel events (all
+/// platforms) and GTK scroll events (Linux, where tao renders through a
+/// GTK drawing area). Discrete clicks carry ±1 lines; smooth touchpad and
+/// high-resolution wheel deltas carry raw pixel-scale (dx, dy).
+///
+/// Only consumed by the Linux scroll bridge (plus tests everywhere), so
+/// other backends silence the dead-code lint instead of deleting the
+/// shared mapping.
+#[cfg_attr(
+    not(any(
+        test,
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "dragonfly"
+    )),
+    allow(dead_code)
+)]
+pub(super) enum NativeScroll {
+    Up,
+    Down,
+    Left,
+    Right,
+    Smooth(f64, f64),
+}
+
+/// Map a native scroll to an iced wheel delta. Discrete clicks become ±1
+/// lines; smooth deltas pass through as pixels (already pixel-scale, so no
+/// scale division like tao's `PixelDelta`). Shared by the tao event
+/// converter and the Linux GTK scroll-event bridge so both agree on
+/// direction and scale. Dropping `Smooth` here silently kills touchpad
+/// scrolling, the dominant scroll source on modern Linux.
+#[cfg_attr(
+    not(any(
+        test,
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "dragonfly"
+    )),
+    allow(dead_code)
+)]
+pub(super) fn scroll_delta(kind: NativeScroll) -> mouse::ScrollDelta {
+    match kind {
+        NativeScroll::Up => mouse::ScrollDelta::Lines { x: 0.0, y: 1.0 },
+        NativeScroll::Down => mouse::ScrollDelta::Lines { x: 0.0, y: -1.0 },
+        NativeScroll::Left => mouse::ScrollDelta::Lines { x: 1.0, y: 0.0 },
+        NativeScroll::Right => mouse::ScrollDelta::Lines { x: -1.0, y: 0.0 },
+        NativeScroll::Smooth(x, y) => mouse::ScrollDelta::Pixels {
+            x: x as f32,
+            y: y as f32,
+        },
+    }
+}
 pub(super) fn key(key: &tk::Key<'_>) -> k::Key {
     use k::key::Named;
     if let tk::Key::Character(text) = key {
@@ -195,6 +252,38 @@ mod tests {
         assert_eq!(
             key(&tk::Key::Backspace),
             k::Key::Named(k::key::Named::Backspace)
+        );
+    }
+
+    #[test]
+    fn scroll_mapping_covers_discrete_and_smooth_sources() {
+        // Discrete clicks: ±1 lines, matching the pre-existing GTK bridge.
+        assert_eq!(
+            scroll_delta(NativeScroll::Up),
+            mouse::ScrollDelta::Lines { x: 0.0, y: 1.0 }
+        );
+        assert_eq!(
+            scroll_delta(NativeScroll::Down),
+            mouse::ScrollDelta::Lines { x: 0.0, y: -1.0 }
+        );
+        assert_eq!(
+            scroll_delta(NativeScroll::Left),
+            mouse::ScrollDelta::Lines { x: 1.0, y: 0.0 }
+        );
+        assert_eq!(
+            scroll_delta(NativeScroll::Right),
+            mouse::ScrollDelta::Lines { x: -1.0, y: 0.0 }
+        );
+        // Smooth (touchpad/high-resolution wheel): raw pixel deltas pass
+        // through with their sign, so Linux touchpads scroll at all and in
+        // the same direction as discrete wheels (positive = down/right).
+        assert_eq!(
+            scroll_delta(NativeScroll::Smooth(0.0, 24.0)),
+            mouse::ScrollDelta::Pixels { x: 0.0, y: 24.0 }
+        );
+        assert_eq!(
+            scroll_delta(NativeScroll::Smooth(-3.5, -12.25)),
+            mouse::ScrollDelta::Pixels { x: -3.5, y: -12.25 }
         );
     }
 }

@@ -1865,3 +1865,299 @@ fn items_error_reports_rejections_per_list_and_clears_on_accept() {
     assert_eq!(view.items_error("rows"), None);
     view.close();
 }
+
+/// Notification-history shape: a Stretch table between a fixed toolbar and
+/// an End-aligned Close button must fit a bounded window. The table leaf is
+/// content-sized (lazy), so remainder distribution must give it exactly the
+/// share — growing it by its natural height pushes Close out of the window.
+#[test]
+fn stretch_table_keeps_trailing_close_button_in_bounded_window() {
+    use iced::{
+        Size,
+        advanced::{layout::Limits, widget::Tree},
+    };
+    use panechord_runtime::{Table, TableCell, TableColumn, TableRow, TextOverflow};
+    let harness = Harness::new();
+    let view = View::new(Binding::constant("Notification history".into()));
+    let content = view.layout(
+        &view.root(),
+        "content",
+        Layout::Stack {
+            horizontal: false,
+            gap: 12.0,
+        },
+    );
+    view.style(
+        "content",
+        Style {
+            padding: panechord_runtime::Edges {
+                top: 16.0,
+                right: 16.0,
+                bottom: 16.0,
+                left: 16.0,
+            },
+            vertical_alignment: Some(panechord_runtime::Alignment::Stretch),
+            ..Default::default()
+        },
+    );
+    let toolbar = view.layout(
+        &content,
+        "toolbar",
+        Layout::Stack {
+            horizontal: true,
+            gap: 12.0,
+        },
+    );
+    view.label(&toolbar, "level_label", Binding::constant("Level".into()));
+    let filter_model = harness.store("all".to_owned());
+    view.combo(
+        &toolbar,
+        "filter",
+        Binding::constant(vec![
+            panechord_runtime::Choice {
+                id: "all".into(),
+                label: "All".into(),
+            },
+            panechord_runtime::Choice {
+                id: "warn".into(),
+                label: "Warnings".into(),
+            },
+        ]),
+        filter_model.bind(Clone::clone, Some(|state, value| *state = value)),
+    );
+    view.style(
+        "filter",
+        Style {
+            placement: panechord_runtime::Placement {
+                width: Some(110.0),
+                ..Default::default()
+            },
+            vertical_alignment: Some(panechord_runtime::Alignment::Center),
+            ..Default::default()
+        },
+    );
+    let clear_model = harness.store(());
+    view.button(
+        &toolbar,
+        "clear",
+        Binding::constant("Clear History".into()),
+        clear_model.command(|_| true, |_, ()| {}, Binding::constant(())),
+    );
+    view.label(&toolbar, "count", Binding::constant("5 items".into()));
+    let widths = [Some(160.0), Some(80.0), Some(150.0), None];
+    let columns: Arc<[TableColumn]> = ["Datetime", "Level", "Module", "Message"]
+        .into_iter()
+        .enumerate()
+        .map(|(index, title)| TableColumn {
+            title: title.into(),
+            width: widths[index],
+            text: Default::default(),
+            overflow: match index {
+                2 => TextOverflow::EllipsizeMiddle,
+                3 => TextOverflow::Wrap,
+                _ => TextOverflow::Clip,
+            },
+            stretch: index == 3,
+            hide_empty: false,
+        })
+        .collect::<Vec<_>>()
+        .into();
+    let rows: Arc<[Arc<TableRow>]> = (0..30)
+        .map(|index| {
+            Arc::new(TableRow {
+                key: index.to_string(),
+                cells: vec![
+                    TableCell {
+                        text: format!("2026-11-04 07:36:{index:02}"),
+                        foreground: None,
+                    },
+                    TableCell {
+                        text: "Info".into(),
+                        foreground: None,
+                    },
+                    TableCell {
+                        text: "notifications".into(),
+                        foreground: None,
+                    },
+                    TableCell {
+                        text: format!("row {index} message"),
+                        foreground: None,
+                    },
+                ],
+            })
+        })
+        .collect::<Vec<_>>()
+        .into();
+    let data = harness.store(Table {
+        columns,
+        rows,
+        empty_text: "No rows".into(),
+        column_gap: 12.0,
+        row_gap: 2.0,
+        row_inset: 0.0,
+    });
+    view.table(&content, "table", data.bind(Clone::clone, None));
+    view.style(
+        "table",
+        Style {
+            vertical_alignment: Some(panechord_runtime::Alignment::Stretch),
+            ..Default::default()
+        },
+    );
+    let model = harness.store(());
+    view.button(
+        &content,
+        "close",
+        Binding::constant("Close".into()),
+        model.command(|_| true, |_, ()| {}, Binding::constant(())),
+    );
+    view.style(
+        "close",
+        Style {
+            horizontal_alignment: Some(panechord_runtime::Alignment::End),
+            vertical_alignment: Some(panechord_runtime::Alignment::End),
+            ..Default::default()
+        },
+    );
+    harness.pump();
+    let renderer = iced_tiny_skia::Renderer::new(iced::Font::default(), iced::Pixels(16.0));
+    let mut element = view.root().0.element();
+    let mut tree = Tree::new(element.as_widget());
+    let frame = element.as_widget_mut().layout(
+        &mut tree,
+        &renderer,
+        &Limits::new(Size::ZERO, Size::new(660.0, 520.0)),
+    );
+    let content_node = &frame.children()[0].children()[0].children()[0];
+    assert_eq!(content_node.children().len(), 3);
+    let table_bounds = content_node.children()[1].bounds();
+    let close_bounds = content_node.children()[2].bounds();
+    assert!(
+        close_bounds.y >= table_bounds.y + table_bounds.height,
+        "close overlaps table: table {table_bounds:?} close {close_bounds:?}"
+    );
+    assert!(
+        close_bounds.y + close_bounds.height <= 520.0,
+        "close pushed out of window: table {table_bounds:?} close {close_bounds:?}"
+    );
+    view.close();
+}
+
+/// Input-tab skeleton: Scroll > TabItems > padded Stack > Repeat(rows).
+/// Guards the same Stretch double-count for the settings pages: the
+/// scrollable content must stay near its natural height so the outer
+/// Scroll has a sane range (no doubled dead space, no pushed siblings).
+#[test]
+fn input_tab_scroll_content_stays_near_natural_height() {
+    use iced::{
+        Size,
+        advanced::{layout::Limits, widget::Tree},
+    };
+    let harness = Harness::new();
+    let view = View::new(Binding::constant("Settings".into()));
+    let input_title = harness.store("Input".into());
+    let nes_title = harness.store("NES".into());
+    let click_model = harness.store(());
+    let rows: Vec<Keyed<String>> = (0..8)
+        .map(|index| Keyed::new(index.to_string(), harness.store(format!("row {index}"))))
+        .collect();
+    let models = harness.store(rows);
+    let pages = view.tab_items(
+        &view.root(),
+        "pages",
+        Binding::constant(vec![Keyed::new("input", input_title)]),
+        Binding::constant("input".into()),
+        Rc::new(|model| model.bind(Clone::clone, None)),
+        Rc::new({
+            let nes_title = nes_title.clone();
+            let click_model = click_model.clone();
+            let models = models.clone();
+            move |view, parent, scope, _| {
+                let scroll = view
+                    .try_scroll(parent, "input_scroll", false)
+                    .expect("scroll mounts under the input page");
+                let tabs = view.tab_items(
+                    &scroll,
+                    "input_tabs",
+                    Binding::constant(vec![Keyed::new("nes", nes_title.clone())]),
+                    Binding::constant("nes".into()),
+                    Rc::new(|model| model.bind(Clone::clone, None)),
+                    Rc::new({
+                        let click_model = click_model.clone();
+                        let models = models.clone();
+                        move |view, parent, scope, _| {
+                            let page = view.layout(
+                                parent,
+                                &format!("{scope}/fields"),
+                                Layout::Stack {
+                                    horizontal: false,
+                                    gap: 6.0,
+                                },
+                            );
+                            view.style(
+                                &format!("{scope}/fields"),
+                                Style {
+                                    padding: panechord_runtime::Edges {
+                                        top: 6.0,
+                                        right: 6.0,
+                                        bottom: 6.0,
+                                        left: 6.0,
+                                    },
+                                    ..Default::default()
+                                },
+                            );
+                            let rows: Vec<Keyed<String>> = Vec::new();
+                            let _ = rows;
+                            view.repeat(
+                                &page,
+                                "bindings",
+                                models.bind(Clone::clone, None),
+                                8.0,
+                                Rc::new({
+                                    let click_model = click_model.clone();
+                                    move |view, parent, scope, model| {
+                                        view.label(
+                                            parent,
+                                            &format!("{scope}/label"),
+                                            model.bind(Clone::clone, None),
+                                        );
+                                        view.button(
+                                            parent,
+                                            &format!("{scope}/change"),
+                                            Binding::constant("Change".into()),
+                                            click_model.command(
+                                                |_| true,
+                                                |_, ()| {},
+                                                Binding::constant(()),
+                                            ),
+                                        );
+                                    }
+                                }),
+                            );
+                        }
+                    }),
+                );
+                let _ = tabs;
+            }
+        }),
+    );
+    let _ = pages;
+    harness.pump();
+    let renderer = iced_tiny_skia::Renderer::new(iced::Font::default(), iced::Pixels(16.0));
+    let mut element = view.root().0.element();
+    let mut tree = Tree::new(element.as_widget());
+    let frame = element.as_widget_mut().layout(
+        &mut tree,
+        &renderer,
+        &Limits::new(Size::ZERO, Size::new(660.0, 520.0)),
+    );
+    // Window root > body > pages tab. The tab body must fit the window:
+    // a doubled Stretch descendant would blow the body past 520.
+    let body = &frame.children()[0].children()[0];
+    assert!(
+        body.bounds().height <= 520.0,
+        "tab body overflows window: {:?}",
+        body.bounds()
+    );
+    view.close();
+}

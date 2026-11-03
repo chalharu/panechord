@@ -4,8 +4,11 @@ use std::sync::Arc;
 
 #[derive(Clone)]
 struct MountedRow {
-    body: glib::WeakRef<gtk4::Box>,
     cells: Vec<glib::WeakRef<gtk4::ToggleButton>>,
+    /// Column size groups this row's widgets were added to. Live groups are
+    /// replaced on a column-schema change, so removal must target the groups
+    /// that own the widgets, not the current ones.
+    groups: Vec<gtk4::SizeGroup>,
 }
 
 struct TableState {
@@ -101,30 +104,25 @@ fn set_selected(button: &gtk4::ToggleButton, active: bool) {
 }
 
 impl TableState {
-    fn unmount(&self, body: &gtk4::Box) {
-        let key = body.widget_name();
-        let mut mounted = self.mounted.borrow_mut();
-        if mounted
-            .get(key.as_str())
-            .and_then(|row| row.body.upgrade())
-            .is_some_and(|current| current == *body)
-        {
-            mounted.remove(key.as_str());
-        }
-    }
-
-    /// Release a row body's children from the column size groups and detach
-    /// them. Size groups hold strong widget references: without removal every
-    /// rebind leaks the previous row widgets into the group, and the group
-    /// later measures finalized (dead) widgets — crashing a later layout,
-    /// teardown, or reopen of the same view.
+    /// Release a row body's children from the column size groups they were
+    /// added to, then detach them. Size groups hold strong widget references:
+    /// without removal every rebind leaks the previous row widgets into the
+    /// group, and the group later measures finalized (dead) widgets —
+    /// crashing a later layout, teardown, or reopen of the same view.
+    /// Removal targets the groups stored with the mounted row: after a
+    /// column-schema change the live groups no longer own the recycled
+    /// widgets, and removing them from the wrong group warns
+    /// (`gtk_size_group_remove_widget` assertion) without releasing anything.
     fn clear_body(&self, body: &gtk4::Box) {
-        let groups = self.groups.borrow();
+        let key = body.widget_name();
+        let entry = self.mounted.borrow_mut().remove(key.as_str());
         let mut child = body.first_child();
         let mut index = 0;
         while let Some(widget) = child {
             child = widget.next_sibling();
-            if let Some(group) = groups.get(index) {
+            if let Some(groups) = entry.as_ref().map(|row| &row.groups)
+                && let Some(group) = groups.get(index)
+            {
                 group.remove_widget(&widget);
             }
             body.remove(&widget);
@@ -303,7 +301,8 @@ impl View {
                 .unwrap();
             let row = row.borrow::<Arc<TableRow>>();
             let body = item.child().unwrap().downcast::<gtk4::Box>().unwrap();
-            state.unmount(&body);
+            // Pops the previous mount entry and releases its widgets from
+            // the groups that own them (see `clear_body`).
             state.clear_body(&body);
             let data = state.data.borrow().clone();
             body.set_spacing(data.column_gap.round() as i32);
@@ -380,8 +379,8 @@ impl View {
             state.mounted.borrow_mut().insert(
                 row.key.clone(),
                 MountedRow {
-                    body: body.downgrade(),
                     cells: mounted,
+                    groups: state.groups.borrow().clone(),
                 },
             );
         });
@@ -393,7 +392,6 @@ impl View {
                 .and_then(|child| child.downcast::<gtk4::Box>().ok())
             {
                 if let Some(state) = weak.upgrade() {
-                    state.unmount(&body);
                     state.clear_body(&body);
                 } else {
                     while let Some(child) = body.first_child() {

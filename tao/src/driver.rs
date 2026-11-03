@@ -1,6 +1,6 @@
 //! Native loop adapted from prototype_1; rendering and futures remain UI-local.
 use super::{Message, TaoHost, View, input, panic_error, scheduler::Scheduler};
-use iced::{Length, Size, mouse, widget};
+use iced::{Size, mouse};
 #[cfg(not(any(
     target_os = "linux",
     target_os = "freebsd",
@@ -554,13 +554,25 @@ impl Desktop {
             let scroll = window
                 .gtk_window()
                 .connect_scroll_event(move |window, event| {
-                    let (horizontal, vertical) = match event.direction() {
-                        gtk::gdk::ScrollDirection::Up => (0.0, 1.0),
-                        gtk::gdk::ScrollDirection::Down => (0.0, -1.0),
-                        gtk::gdk::ScrollDirection::Left => (1.0, 0.0),
-                        gtk::gdk::ScrollDirection::Right => (-1.0, 0.0),
+                    // Discrete wheel clicks and smooth (touchpad and
+                    // high-resolution wheel) deltas share the iced mapping
+                    // through `input::scroll_delta`. Anything else (e.g. an
+                    // unknown direction) is not ours: let GTK have it.
+                    // Smooth must be handled: dropping it silently kills
+                    // touchpad scrolling, the dominant scroll source on
+                    // modern Linux (settings Input tab feels dead).
+                    let kind = match event.direction() {
+                        gtk::gdk::ScrollDirection::Up => input::NativeScroll::Up,
+                        gtk::gdk::ScrollDirection::Down => input::NativeScroll::Down,
+                        gtk::gdk::ScrollDirection::Left => input::NativeScroll::Left,
+                        gtk::gdk::ScrollDirection::Right => input::NativeScroll::Right,
+                        gtk::gdk::ScrollDirection::Smooth => {
+                            let (x, y) = event.delta();
+                            input::NativeScroll::Smooth(x, y)
+                        }
                         _ => return gtk::glib::Propagation::Proceed,
                     };
+                    let delta = input::scroll_delta(kind);
                     if let (Some(painter), Some(view), Some(area)) =
                         (out.upgrade(), owner.upgrade(), surface.upgrade())
                     {
@@ -580,12 +592,7 @@ impl Desktop {
                                         area.allocated_width() as f32,
                                         area.allocated_height() as f32,
                                     ),
-                                    iced::Event::Mouse(mouse::Event::WheelScrolled {
-                                        delta: mouse::ScrollDelta::Lines {
-                                            x: horizontal,
-                                            y: vertical,
-                                        },
-                                    }),
+                                    iced::Event::Mouse(mouse::Event::WheelScrolled { delta }),
                                     false,
                                 )
                             };

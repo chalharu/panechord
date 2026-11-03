@@ -1787,8 +1787,14 @@ public func image(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<U
         picture.updateSourceSize(Int(width), Int(height))
         // Data arriving after styling fills the natural axes with the
         // source size (explicit axes already hold exact style constraints).
+        // Points, not pixels: the frame carries physical pixels while layout
+        // runs in points, so an unscaled size feeds a window-size feedback
+        // loop (capture tracks the window). Breakable priority, so content
+        // never forces the window (no growth, no resize snap-back); small
+        // images still render at source size with no required opposition.
         let value = host(pointer)
         let id = string(idBytes, idCount)
+        let scale = max(1, value.window.backingScaleFactor)
         for constraint in picture.naturalDims { constraint.isActive = false }
         if var dims = value.dimensions[id] {
             dims.removeAll { old in picture.naturalDims.contains { $0 === old } }
@@ -1796,20 +1802,25 @@ public func image(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<U
         }
         picture.naturalDims = []
         var added: [NSLayoutConstraint] = []
+        func natural(_ anchor: NSLayoutDimension, _ constant: CGFloat) {
+            let constraint = anchor.constraint(equalToConstant: constant)
+            constraint.priority = .defaultHigh
+            added.append(constraint)
+        }
         if let frame = value.frames[id] {
             let stretchWidth = picture.styleHorizontal == 0 || picture.styleHorizontal == 4
             if picture.styleWidth < 0 {
                 if stretchWidth, value.directVerticalParent(of: id) {
-                    added.append(picture.widthAnchor.constraint(equalToConstant: max(0, Double(picture.sourceWidth) - picture.styleLeft - picture.styleRight)))
+                    natural(picture.widthAnchor, max(0, picture.sourceWidth / scale - CGFloat(picture.styleLeft + picture.styleRight)))
                     value.contentWidths[id]?.isActive = false
                 } else if stretchWidth {
-                    added.append(frame.widthAnchor.constraint(equalToConstant: Double(picture.sourceWidth)))
+                    natural(frame.widthAnchor, picture.sourceWidth / scale)
                 } else {
-                    added.append(picture.widthAnchor.constraint(equalToConstant: max(0, Double(picture.sourceWidth) - picture.styleLeft - picture.styleRight)))
+                    natural(picture.widthAnchor, max(0, picture.sourceWidth / scale - CGFloat(picture.styleLeft + picture.styleRight)))
                 }
             }
             if picture.styleHeight < 0 {
-                added.append(frame.heightAnchor.constraint(equalToConstant: Double(picture.sourceHeight)))
+                natural(frame.heightAnchor, picture.sourceHeight / scale)
             }
         }
         NSLayoutConstraint.activate(added)

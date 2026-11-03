@@ -735,9 +735,12 @@ impl View {
 
     pub fn image(&self, parent: &Parent, id: &str, source: Binding<Option<ImageFrame>>) {
         let picture = gtk4::Picture::new();
-        picture.set_can_shrink(true);
+        // Natural source size per the shared layout priority: the picture
+        // must neither collapse (can_shrink squeezed it to 0x0 in a
+        // height-bounded box, hiding unsized images) nor invite filling.
+        picture.set_can_shrink(false);
         picture.set_halign(gtk4::Align::Center);
-        picture.set_vexpand(true);
+        picture.set_vexpand(false);
         self.mount_native(parent, id, &picture);
         self.0
             .nodes

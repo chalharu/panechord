@@ -110,7 +110,7 @@ root:
           children:
             - type: DialogFooter
               id: actions
-              accept_text: {literal: Done}
+              accept_text: {literal: Save}
               accept_command: dismiss
               cancel_text: {literal: Cancel}
               cancel_command: dismiss

@@ -199,10 +199,6 @@ struct Inner {
     /// the layout registry; `click`/`require_interactive` consult this map.
     footer_buttons: RefCell<HashMap<String, gtk4::Button>>,
     tabs: RefCell<HashMap<String, Rc<controls::Tab>>>,
-    /// Parsed shortcut triggers by raw shortcut string: menu items recur with
-    /// the same strings on every emission, so parse once per distinct string.
-    /// `None` records a failed parse to skip re-parsing invalid input too.
-    trigger_cache: RefCell<HashMap<String, Option<gtk4::ShortcutTrigger>>>,
     lifecycle: panechord_runtime::Lifecycle,
     coordinated_close: RefCell<Option<Rc<CoordinatedClose>>>,
     image_updates: Cell<usize>,
@@ -391,7 +387,6 @@ impl View {
             control_actions: RefCell::default(),
             footer_buttons: RefCell::default(),
             tabs: RefCell::default(),
-            trigger_cache: RefCell::default(),
             menu_states: RefCell::default(),
             lifecycle: panechord_runtime::Lifecycle::default(),
             coordinated_close: RefCell::default(),
@@ -1280,18 +1275,7 @@ impl View {
             }
             let trigger = match item.shortcut.as_deref() {
                 None => None,
-                Some(raw) => {
-                    if let Some(hit) = self.0.trigger_cache.borrow().get(raw) {
-                        hit.clone()
-                    } else {
-                        let parsed = parse_shortcut(raw);
-                        self.0
-                            .trigger_cache
-                            .borrow_mut()
-                            .insert(raw.to_owned(), parsed.clone());
-                        parsed
-                    }
-                }
+                Some(raw) => parse_shortcut(raw),
             };
             if item.shortcut.is_some() && trigger.is_none() {
                 self.0

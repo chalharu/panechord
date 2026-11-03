@@ -201,9 +201,6 @@ struct Inner {
     /// so a title tick can never prove the content identical — it just
     /// doesn't touch it.
     menu_native_items: RefCell<HashMap<String, serde_json::Value>>,
-    /// Bridge shortcut strings by raw shortcut: items recur with the same
-    /// strings on every emission, so parse and render once per distinct one.
-    bridge_cache: RefCell<HashMap<String, String>>,
     tabs: RefCell<HashMap<String, controls::TabState>>,
     layouts: RefCell<HashMap<String, Layout>>,
     parents: RefCell<HashMap<String, String>>,
@@ -438,7 +435,6 @@ impl View {
             lists: RefCell::new(HashMap::new()),
             menu_errors: RefCell::new(HashMap::new()),
             menu_native_items: RefCell::new(HashMap::new()),
-            bridge_cache: RefCell::new(HashMap::new()),
             tabs: RefCell::new(HashMap::new()),
             layouts: RefCell::new(HashMap::from([("__root".to_owned(), Layout::default())])),
             parents: RefCell::new(HashMap::new()),
@@ -1306,27 +1302,16 @@ impl View {
                 }
                 let shortcut = match item.shortcut.as_deref() {
                     None => String::new(),
-                    Some(raw) => {
-                        if let Some(hit) = view.0.bridge_cache.borrow().get(raw) {
-                            hit.clone()
-                        } else {
-                            let rendered = match Shortcut::parse_cached(raw) {
-                                Ok(parsed) => shortcut::to_bridge(&parsed),
-                                Err(error) => {
-                                    view.0
-                                        .menu_errors
-                                        .borrow_mut()
-                                        .insert(key.clone(), error.to_string());
-                                    return;
-                                }
-                            };
+                    Some(raw) => match Shortcut::parse(raw) {
+                        Ok(parsed) => shortcut::to_bridge(&parsed),
+                        Err(error) => {
                             view.0
-                                .bridge_cache
+                                .menu_errors
                                 .borrow_mut()
-                                .insert(raw.to_owned(), rendered.clone());
-                            rendered
+                                .insert(key.clone(), error.to_string());
+                            return;
                         }
-                    }
+                    },
                 };
                 let argument = item.argument.clone();
                 let invoke = dispatch.clone();
@@ -1574,7 +1559,7 @@ impl View {
         if self.0.lifecycle.is_closed() {
             return Err("view is closed".into());
         }
-        let shortcut = Shortcut::parse_cached(shortcut)
+        let shortcut = Shortcut::parse(shortcut)
             .map_err(|error| error.to_string())
             .map(|shortcut| shortcut::to_bridge(&shortcut))?;
         Ok(unsafe { w3_shortcut(self.0.native.get(), shortcut.as_ptr(), shortcut.len()) } == 1)

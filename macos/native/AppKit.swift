@@ -1118,6 +1118,8 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
         contentHeight.isActive = view is Tabs || view is Scrolling || view is TableControl
         contentWidths[id] = contentWidth
         contentHeights[id] = contentHeight
+        // Images center within their frame like the other backends.
+        if view is PointerImage { frame.alignment = .centerX }
     }
 
     /// Record a mounted control and wire it into the key-view loop.
@@ -1131,6 +1133,18 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
             focusable.append(view)
             keyLoop()
         }
+    }
+
+    /// Whether an explicit width belongs on the content node rather than
+    /// its frame: true under vertical stacks (and unknown parents, which
+    /// default vertical). Horizontal parents keep the frame-width path
+    /// (verified by the rows meter). An exact frame width under a
+    /// vertical stack lets AppKit derive the window width from content.
+    func directVerticalParent(of id: String) -> Bool {
+        guard let parent = parents[id] else { return true }
+        if isManualContainer(parent) { return false }
+        if let stack = nodes[parent] as? NSStackView { return stack.orientation == .vertical }
+        return true
     }
 
     /// Fold margin/padding into the frame insets and update the content
@@ -1780,7 +1794,7 @@ public func image(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<U
         if let frame = value.frames[id] {
             let stretchWidth = picture.styleHorizontal == 0 || picture.styleHorizontal == 4
             if picture.styleWidth < 0 {
-                if stretchWidth, frame.orientation == .vertical {
+                if stretchWidth, value.directVerticalParent(of: id) {
                     added.append(picture.widthAnchor.constraint(equalToConstant: max(0, Double(picture.sourceWidth) - picture.styleLeft - picture.styleRight)))
                     value.contentWidths[id]?.isActive = false
                 } else if stretchWidth {
@@ -1835,8 +1849,11 @@ public func style(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<U
     value.contentWidths[id]?.isActive = false
     value.contentHeights[id]?.isActive = false
     value.applyFrameInsets(id, top: top, right: right, bottom: bottom, left: left)
+    // Images stay centered (linkContent); style alignment must not reset it.
     if frame.orientation == .vertical {
-        frame.alignment = horizontal == 2 ? .centerX : horizontal == 3 ? .trailing : .leading
+        if !(value.nodes[id] is PointerImage) {
+            frame.alignment = horizontal == 2 ? .centerX : horizontal == 3 ? .trailing : .leading
+        }
     } else if horizontal == 3 {
         // End alignment on horizontal stacks means right-aligned children:
         // alignment only selects the cross axis here, so a flexible leading
@@ -1880,7 +1897,7 @@ public func style(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<U
     var widthConstraints: [NSLayoutConstraint] = []
     var heightConstraints: [NSLayoutConstraint] = []
     if effWidth >= 0 {
-        if stretchWidth, frame.orientation == .vertical,
+        if stretchWidth, value.directVerticalParent(of: id),
            let node = value.nodes[id], node !== frame {
             // Explicit widths in vertical stacks go on the content node,
             // not the frame: an exact frame width lets AppKit derive the

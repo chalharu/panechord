@@ -580,12 +580,13 @@ final class Tabs: NSStackView, NSTableViewDataSource, NSTableViewDelegate {
         syncTopBodyHeight()
     }
 
-    /// Size the Tabs to its content, stretched to fill the window when the
-    /// content is short (footers stay visible without scrolling) while tall
-    /// content still grows the document and scrolls. An inequality floor
-    /// alone cannot shrink an oversized Tabs back down (the solver never
-    /// volunteers a shrink), so short content takes an exact height and
-    /// tall content takes a floor. Returns whether anything changed.
+    /// Size the Tabs to its content: tall content grows the document and
+    /// scrolls (with a floor keeping the Tabs at least viewport-tall so
+    /// the footer siblings never overlap it), while short content takes
+    /// its natural height like the other backends. Deliberately no
+    /// stretch-to-fill: forcing short tabs to the viewport height leaves
+    /// a blank band between the body and the footer. Returns whether
+    /// anything changed.
     @discardableResult
     func updateFloor() -> Bool {
         guard let clip = enclosingScrollView?.contentView, clip.bounds.height > 0 else { return false }
@@ -638,27 +639,18 @@ final class Tabs: NSStackView, NSTableViewDataSource, NSTableViewDelegate {
                 floorConstraint = floor
                 return true
             }
-        } else if let exact = exactHeight {
-            if let floor = floorConstraint, floor.isActive {
-                floor.isActive = false
-            }
-            if exact.constant != fill {
-                exact.constant = fill
-                exact.isActive = true
-                return true
-            }
-            if !exact.isActive {
-                exact.isActive = true
-                return true
-            }
         } else {
+            // Short content: natural height (no stretch-to-fill). A forced
+            // viewport fill would leave a blank band between a short body
+            // and the footer siblings, unlike the other backends.
+            if let exact = exactHeight, exact.isActive {
+                exact.isActive = false
+                return true
+            }
             if let floor = floorConstraint, floor.isActive {
                 floor.isActive = false
+                return true
             }
-            let exact = heightAnchor.constraint(equalToConstant: fill)
-            exact.isActive = true
-            exactHeight = exact
-            return true
         }
         return false
     }

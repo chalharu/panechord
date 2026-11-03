@@ -340,10 +340,6 @@ impl View {
         root.set_vexpand(true);
         let menus = gio::Menu::new();
         let bar = gtk4::PopoverMenuBar::from_model(Some(&menus));
-        // macOS builds hide the in-window bar; menus are unavailable there.
-        // Menu logic still builds the gio models; hiding only affects presentation.
-        #[cfg(target_os = "macos")]
-        bar.set_visible(false);
         outer.append(&bar);
         let canvas = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         canvas.set_vexpand(true);

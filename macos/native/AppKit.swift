@@ -915,7 +915,12 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
     func windowDidBecomeKey(_ notification: Notification) {
         guard !closed else { return }
         ApplicationDelegate.shared.active = self
-        if ownsAppMenu { NSApp.mainMenu = bar }
+        // Windows that installed any menu own the shared menubar while key.
+        // Hosts without menus (dialogs, secondary windows) never touch it,
+        // so they keep showing the main window's menus. The "app" menu is
+        // just the HIG stub replacement; a main window without one (File,
+        // States, ...) still needs its bar installed.
+        if ownsAppMenu || !menus.isEmpty { NSApp.mainMenu = bar }
         // Reconcile tab floors now that the window is displayed and sibling
         // fitting sizes are valid (in-flight layout passes can deadlock on
         // pre-layout zeros, pushing footers below the fold).
@@ -2072,6 +2077,9 @@ public func menu(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<UI
         submenu.addItem(native)
         value.menuItems[key] = native
     }
+    // Late menus (installed after the window already became key) still need
+    // to take over the shared menubar; windows without menus never call here.
+    if value.window.isKeyWindow { NSApp.mainMenu = value.bar }
 }
 
 @_cdecl("w3_menu_remove") @MainActor

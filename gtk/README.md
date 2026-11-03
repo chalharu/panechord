@@ -85,6 +85,12 @@ focus/clipboard, open a native AboutDialog, or request View closure. Clipboard r
 require a focused widget that implements the respective GTK action. No claim is
 made about OS-wide shortcut registration, all IME paths, or accessibility
 conformance merely because GTK widgets are used.
+Views on an Application register their actions app-wide (`app.*`) and mirror
+the active view's menus via `Application::set_menubar` (native global menu on
+macOS, shells elsewhere); the shared menubar only resolves Application
+actions, so window-group actions would stay disabled there. Views without an
+Application keep window-group actions. On macOS the in-window bar is hidden
+to avoid duplicating the global menu.
 
 ## Loop ownership and shutdown
 

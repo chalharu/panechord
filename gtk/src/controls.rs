@@ -224,50 +224,50 @@ impl View {
         );
         let weak = self.downgrade();
         let key = id.to_owned();
-        let token = checked.subscribe(Rc::new(move |tree| {
-            fn menu<A>(
-                view: &View,
-                key: &str,
-                tree: &[panechord_runtime::MenuNode<A>],
-            ) -> gio::Menu {
-                let result = gio::Menu::new();
-                let mut section = gio::Menu::new();
-                for node in tree {
-                    match node {
-                        panechord_runtime::MenuNode::Item(item) => {
-                            if !item.visible {
-                                continue;
-                            }
-                            if item.role == MenuRole::Separator {
-                                if section.n_items() > 0 {
-                                    result.append_section(None, &section);
-                                    section = gio::Menu::new();
+        let render = Rc::new(
+            move |view: &View, tree: Vec<panechord_runtime::MenuNode<A>>| {
+                fn menu<A>(
+                    view: &View,
+                    key: &str,
+                    tree: &[panechord_runtime::MenuNode<A>],
+                ) -> gio::Menu {
+                    let result = gio::Menu::new();
+                    let mut section = gio::Menu::new();
+                    for node in tree {
+                        match node {
+                            panechord_runtime::MenuNode::Item(item) => {
+                                if !item.visible {
+                                    continue;
                                 }
-                                continue;
+                                if item.role == MenuRole::Separator {
+                                    if section.n_items() > 0 {
+                                        result.append_section(None, &section);
+                                        section = gio::Menu::new();
+                                    }
+                                    continue;
+                                }
+                                if let Some(action) =
+                                    view.0.actions.borrow().get(&format!("{key}/{}", item.id))
+                                {
+                                    section.append(
+                                        Some(&item.label),
+                                        Some(&format!("{}.{}", view.action_prefix(), action.name)),
+                                    );
+                                }
                             }
-                            if let Some(action) =
-                                view.0.actions.borrow().get(&format!("{key}/{}", item.id))
-                            {
-                                section.append(
-                                    Some(&item.label),
-                                    Some(&format!("panechord.{}", action.name)),
-                                );
-                            }
+                            panechord_runtime::MenuNode::Submenu {
+                                label, children, ..
+                            } => section.append_submenu(Some(label), &menu(view, key, children)),
                         }
-                        panechord_runtime::MenuNode::Submenu {
-                            label, children, ..
-                        } => section.append_submenu(Some(label), &menu(view, key, children)),
                     }
+                    if section.n_items() > 0 {
+                        result.append_section(None, &section);
+                    }
+                    result
                 }
-                if section.n_items() > 0 {
-                    result.append_section(None, &section);
-                }
-                result
-            }
-            if let Some(view) = weak.upgrade() {
                 let state = view.0.menu_states.borrow().get(&key).cloned();
                 if let Some(state) = state {
-                    let nested = menu(&view, &key, &tree);
+                    let nested = menu(view, &key, &tree);
                     state.menu.remove_all();
                     // An empty section link still occupies the menubar model:
                     // only attach non-empty content so vacant menus stay out.
@@ -276,9 +276,31 @@ impl View {
                     }
                     view.sync_menu_membership(&key);
                 }
+            },
+        );
+        let token = checked.subscribe(Rc::new({
+            let weak = weak.clone();
+            let render = render.clone();
+            move |tree| {
+                if let Some(view) = weak.upgrade() {
+                    render(&view, tree);
+                }
             }
         }));
         self.keep(token);
+        // Re-runnable structure for Application attach (see
+        // `rescope_menus`): replays the accepted tree against the fresh
+        // actions. Runs after the flat apply (insertion order).
+        {
+            let inputs = checked.clone();
+            let render = render.clone();
+            self.0
+                .rescope
+                .borrow_mut()
+                .push(Rc::new(move |view: &View| {
+                    render(view, inputs.get());
+                }));
+        }
     }
     pub fn visible(&self, id: &str, binding: Binding<bool>) {
         let frame = self.0.nodes.borrow().get(id).map(|node| node.frame.clone());

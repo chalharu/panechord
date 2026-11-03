@@ -16,6 +16,7 @@ use std::{
     collections::{HashMap, HashSet},
     panic::{AssertUnwindSafe, catch_unwind},
     rc::{Rc, Weak},
+    sync::atomic::{AtomicU64, Ordering},
     time::Duration,
 };
 
@@ -185,6 +186,11 @@ struct Inner {
     root: Parent,
     menus: gio::Menu,
     menu_states: RefCell<HashMap<String, Rc<MenuState>>>,
+    /// Re-registration closures (flat apply, then nested structure, per
+    /// menu): re-run when an Application appears, since the first build
+    /// predates registration and the shared menubar only resolves
+    /// Application actions.
+    rescope: RefCell<Vec<Rc<dyn Fn(&View)>>>,
     group: gio::SimpleActionGroup,
     shortcuts: gtk4::ShortcutController,
     serial: Cell<u64>,
@@ -251,10 +257,20 @@ impl Inner {
             }
         }
         for (_, action) in self.actions.take() {
-            self.group.remove_action(&action.name);
+            self.forget_action(&action.name);
         }
         self.lifecycle
             .finish_shutdown(|error| _ = self.error.replace(Some(error)));
+    }
+
+    /// Drop one menu action wherever it was registered. Unknown names are a
+    /// no-op, so window-group and Application actions share this path across
+    /// pre/post-registration rebuilds.
+    fn forget_action(&self, name: &str) {
+        self.group.remove_action(name);
+        if let Some(app) = self.window.application() {
+            app.remove_action(name);
+        }
     }
 }
 
@@ -283,6 +299,12 @@ pub fn set_allows_automatic_window_tabbing(enabled: bool) {
         let _ = enabled;
     }
 }
+
+// Process-wide action serial for Application-registered menu actions: the
+// shared menubar outlives any single view, so app-level names must never
+// collide across views. Window-group actions (no Application: tests,
+// embedding) keep the per-view serial and its existing snapshots.
+static APP_ACTION_SERIAL: AtomicU64 = AtomicU64::new(0);
 
 // Remembered main-window size (logical points) consumed once by the next
 // built window; falls back to the default when unset or invalid.
@@ -340,6 +362,10 @@ impl View {
         root.set_vexpand(true);
         let menus = gio::Menu::new();
         let bar = gtk4::PopoverMenuBar::from_model(Some(&menus));
+        // macOS surfaces the Application menubar natively (see
+        // `sync_app_menubar`); the in-window bar would only duplicate it.
+        #[cfg(target_os = "macos")]
+        bar.set_visible(false);
         outer.append(&bar);
         let canvas = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         canvas.set_vexpand(true);
@@ -384,6 +410,7 @@ impl View {
             footer_buttons: RefCell::default(),
             tabs: RefCell::default(),
             menu_states: RefCell::default(),
+            rescope: RefCell::default(),
             lifecycle: panechord_runtime::Lifecycle::default(),
             coordinated_close: RefCell::default(),
             image_updates: Cell::new(0),
@@ -397,6 +424,31 @@ impl View {
                 View(inner).request_close();
             }
             glib::Propagation::Stop
+        });
+        view.signal("", &view.0.window, signal);
+        // The Application menubar is shared: the active window's menus own
+        // it while key. Views without menus never touch it, so secondary
+        // windows keep showing the main window's menus.
+        let weak = Rc::downgrade(&view.0);
+        let signal = view.0.window.connect_is_active_notify(move |window| {
+            if window.is_active()
+                && let Some(inner) = weak.upgrade().filter(|inner| !inner.lifecycle.is_closed())
+            {
+                View(inner).sync_app_menubar();
+            }
+        });
+        view.signal("", &view.0.window, signal);
+        // Actions move app-wide once an Application appears (the first
+        // build predates registration); re-register then so the shared
+        // menubar resolves them. Tests and embedding never attach, so
+        // their window-group snapshots stay untouched.
+        let weak = Rc::downgrade(&view.0);
+        let signal = view.0.window.connect_application_notify(move |window| {
+            if window.application().is_some()
+                && let Some(inner) = weak.upgrade().filter(|inner| !inner.lifecycle.is_closed())
+            {
+                View(inner).rescope_menus();
+            }
         });
         view.signal("", &view.0.window, signal);
         view.bind_native("", title, &view.0.window, |window, title| {
@@ -1161,6 +1213,24 @@ impl View {
         );
         let weak = Rc::downgrade(&self.0);
         let menu_id = id.to_owned();
+        // Re-runnable registration for Application attach (see
+        // `rescope_menus`): replays the current inputs, skipping menus
+        // evicted since (their tokens died with the scope).
+        {
+            let inputs = items.clone();
+            let rescope_dispatch = dispatch.clone();
+            let rescope_id = menu_id.clone();
+            self.0
+                .rescope
+                .borrow_mut()
+                .push(Rc::new(move |view: &View| {
+                    if !view.0.lifecycle.is_closed()
+                        && view.0.menu_states.borrow().contains_key(&rescope_id)
+                    {
+                        view.apply_menu(&rescope_id, inputs.get(), rescope_dispatch.clone());
+                    }
+                }));
+        }
         self.keep_at(
             id,
             items.subscribe(Rc::new(move |items| {
@@ -1211,6 +1281,52 @@ impl View {
                 .menus
                 .append_submenu(Some(&state.title.borrow()), &state.menu);
         }
+        self.sync_app_menubar();
+    }
+
+    /// Action namespace for this view's menu model. The shared Application
+    /// menubar (macOS global menu, shells) only resolves Application
+    /// actions, so views on an Application register `app.*` names; views
+    /// without one (tests, embedding) keep the window-group `panechord.*`
+    /// namespace. Both resolve from the in-window bar and shortcuts.
+    fn action_prefix(&self) -> &'static str {
+        if self.0.window.application().is_some() {
+            "app"
+        } else {
+            "panechord"
+        }
+    }
+
+    /// Re-register every menu's actions after the Application appears: the
+    /// first build predates registration (tests and embedding never
+    /// attach), so the shared menubar would otherwise keep resolving
+    /// nothing. Flat applies run before their nested structure (insertion
+    /// order), so lookups always hit the fresh actions.
+    pub(crate) fn rescope_menus(&self) {
+        if self.0.lifecycle.is_closed() {
+            return;
+        }
+        let rescopes = self.0.rescope.borrow().clone();
+        for rescope in &rescopes {
+            rescope(self);
+        }
+        self.sync_app_menubar();
+    }
+
+    /// Mirror this view's menus into the shared Application menubar when the
+    /// window is active. The model object is shared, so later content edits
+    /// propagate without re-setting; only membership (this rebuild) and
+    /// focus switches need a sync. Vacant views stay out, like the
+    /// in-window bar membership above.
+    pub(crate) fn sync_app_menubar(&self) {
+        if self.0.lifecycle.is_closed() || self.0.menus.n_items() == 0 {
+            return;
+        }
+        if self.0.window.is_active()
+            && let Some(app) = self.0.window.application()
+        {
+            app.set_menubar(Some(&self.0.menus));
+        }
     }
 
     fn clear_menu(&self, id: &str) {
@@ -1227,7 +1343,7 @@ impl View {
         for id in state.actions.take() {
             let action = self.0.actions.borrow_mut().remove(&id);
             if let Some(action) = action {
-                self.0.group.remove_action(&action.name);
+                self.0.forget_action(&action.name);
             }
         }
         for shortcut in state.shortcuts.take() {
@@ -1298,6 +1414,11 @@ impl View {
             return;
         };
         let mut section = gio::Menu::new();
+        // Bound once per rebuild: registration cannot change mid-rebuild,
+        // so naming and registration below always agree with each other and
+        // with the nested-structure pass over the same snapshot.
+        let app = self.0.window.application();
+        let prefix = if app.is_some() { "app" } else { "panechord" };
         for (item, trigger) in items.into_iter().zip(triggers) {
             if item.role == MenuRole::Separator {
                 if section.n_items() > 0 {
@@ -1308,8 +1429,17 @@ impl View {
             }
             let serial = self.0.serial.get();
             self.0.serial.set(serial + 1);
-            let name = format!("action{serial}");
-            let detailed = format!("panechord.{name}");
+            // Application actions need process-wide unique names (the shared
+            // menubar outlives any single view); window-group actions keep
+            // the per-view serial and its existing snapshots.
+            let name = match &app {
+                Some(_) => {
+                    let n = APP_ACTION_SERIAL.fetch_add(1, Ordering::Relaxed);
+                    format!("m{n}")
+                }
+                None => format!("action{serial}"),
+            };
+            let detailed = format!("{prefix}.{name}");
             let action = gio::SimpleAction::new(&name, None);
             action.set_enabled(item.enabled);
             let weak = Rc::downgrade(&self.0);
@@ -1327,7 +1457,10 @@ impl View {
                 }
             });
             self.signal(&format!("{id}/@actions"), &action, signal);
-            self.0.group.add_action(&action);
+            match &app {
+                Some(app) => app.add_action(&action),
+                None => self.0.group.add_action(&action),
+            }
             self.0
                 .actions
                 .borrow_mut()

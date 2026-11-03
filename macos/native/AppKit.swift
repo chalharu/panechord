@@ -740,6 +740,10 @@ final class PointerImage: NSImageView {
     weak var owner: Host?
     var key = ""
     var pointerEnabled = false
+    /// Fill mode (game surface): the view fills the window like the
+    /// tao/gtk surfaces instead of sizing from source pixels. Natural-size
+    /// constraints never apply; aspect is kept by imageScaling.
+    var fill = false
     private var pointerArea: NSTrackingArea?
     /// Source pixel size (0 when no image); drives natural sizing per the
     /// shared layout priority (explicit placement wins, natural source
@@ -1121,6 +1125,7 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
         contentWidth.isActive = true
         let contentHeight = view.heightAnchor.constraint(equalTo: frame.heightAnchor)
         contentHeight.isActive = view is Tabs || view is Scrolling || view is TableControl
+            || (view as? PointerImage)?.fill == true
         contentWidths[id] = contentWidth
         contentHeights[id] = contentHeight
         // Images center within their frame like the other backends.
@@ -1197,6 +1202,12 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
         if let container = container, container.orientation == .vertical, !floating, tab == nil {
             frame.widthAnchor.constraint(equalTo: container.widthAnchor,
                 constant: -(container.edgeInsets.left + container.edgeInsets.right)).isActive = true
+        }
+        // Game surfaces fill the visible area in both axes (no scrolling);
+        // content images size from their pixels instead.
+        if (view as? PointerImage)?.fill == true, !floating, tab == nil,
+           let clip = (self.window.contentView as? NSScrollView)?.contentView {
+            frame.heightAnchor.constraint(equalTo: clip.heightAnchor).isActive = true
         }
         registerNode(view, frame: frame, parent: parent, id: id)
     }
@@ -1485,7 +1496,7 @@ public func add(_ pointer: UnsafeMutableRawPointer, _ parentBytes: UnsafePointer
         stack.alignment = .leading
         stack.spacing = 8
         view = stack
-    case 13:
+    case 13, 23:
         let image = PointerImage()
         image.owner = value
         image.key = id
@@ -1493,6 +1504,9 @@ public func add(_ pointer: UnsafeMutableRawPointer, _ parentBytes: UnsafePointer
         image.imageAlignment = .alignCenter
         image.setContentHuggingPriority(.defaultLow, for: .horizontal)
         image.setContentHuggingPriority(.defaultLow, for: .vertical)
+        // Game surfaces (kind 23) fill the window; content images (kind 13)
+        // keep natural source sizing.
+        image.fill = kind == 23
         view = image
     case 15:
         view = Scrolling(horizontal: number != 0)
@@ -1783,7 +1797,7 @@ public func image(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<U
     let image = NSImage(size: NSSize(width: Int(width), height: Int(height)))
     image.addRepresentation(bitmap)
     imageView.image = image
-    if let picture = imageView as? PointerImage {
+    if let picture = imageView as? PointerImage, !picture.fill {
         picture.updateSourceSize(Int(width), Int(height))
         // Data arriving after styling fills the natural axes with the
         // source size (explicit axes already hold exact style constraints).

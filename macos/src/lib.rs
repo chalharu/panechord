@@ -509,10 +509,12 @@ impl View {
             self.0.error.replace(Some(panic_error(panic)));
         }
     }
-    /// Mounts a `PointerImage` node (kind 13) and mirrors the staged frame
-    /// into it, clearing on `None` like the GTK picture path.
+    /// Mounts a fill `PointerImage` node (kind 23: game surface, fills the
+    /// window like the tao/gtk surfaces) and mirrors the staged frame into
+    /// it, clearing on `None` like the GTK picture path. Content images
+    /// keep kind 13 with natural source sizing.
     pub fn surface(&self, parent: &Parent, id: &str, source: Binding<Option<ImageFrame>>) {
-        self.add(parent, id, 13, 0.0);
+        self.add(parent, id, 23, 0.0);
         let key = id.to_owned();
         self.bind(id, source, move |view, frame| {
             if let Some(frame) = frame.as_ref() {

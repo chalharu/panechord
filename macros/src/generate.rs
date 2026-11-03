@@ -857,6 +857,13 @@ fn control_inner(
         }
     };
     let appearance = appearance(c, quote!(&__id))?;
+    // DialogFooter manages its own end-alignment (HIG trailing buttons):
+    // it has no style field, so the generic default (Start) would overwrite
+    // the End set inside `dialog_footer` (seen as a second w3_style Start
+    // right after End, leaving Cancel/Save left-aligned). Skip it.
+    if matches!(c, &Control::DialogFooter { .. }) {
+        return Ok(quote!({let __id = #id; #code #appearance}));
+    }
     Ok(quote!({let __id = #id; #code __panechord_view.style(&__id,#s); #appearance}))
 }
 fn layout(

@@ -444,6 +444,28 @@ impl View {
             {
                 view.0.error.replace(Some("native image rejected".into()));
             }
+            // Window minimum floor (logical points, 1:1 source): narrowing
+            // must keep source pixels instead of squeezing, matching tao's
+            // LogicalSize floor. Recompute the max across live images and
+            // push only on change (image data ticks every frame; size only
+            // on resolution change/unload).
+            view.0.image_sizes.borrow_mut().insert(key.clone(), (width, height));
+            let floor = view
+                .0
+                .image_sizes
+                .borrow()
+                .values()
+                .fold((0, 0), |(w, h), &(iw, ih)| (w.max(iw), h.max(ih)));
+            if view.0.image_floor.get() != floor {
+                view.0.image_floor.set(floor);
+                unsafe {
+                    w3_set_min_size(
+                        view.0.native.get(),
+                        f64::from(floor.0),
+                        f64::from(floor.1),
+                    );
+                }
+            }
         });
     }
 

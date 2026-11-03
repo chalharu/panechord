@@ -584,9 +584,14 @@ final class Tabs: NSStackView, NSTableViewDataSource, NSTableViewDelegate {
     /// scrolls (with a floor keeping the Tabs at least viewport-tall so
     /// the footer siblings never overlap it), while short content takes
     /// its natural height like the other backends. Deliberately no
-    /// stretch-to-fill: forcing short tabs to the viewport height leaves
-    /// a blank band between the body and the footer. Returns whether
-    /// anything changed.
+    /// stretch-to-fill for Top/Bottom tabs: forcing short tab bodies to
+    /// the viewport height leaves a blank band between the body and the
+    /// footer siblings. Vertical (Left/Right) tabs always fill: the rail
+    /// is a Finder-style sidebar that must stretch to the window height,
+    /// and the body fills alongside it (content stays top-aligned, so no
+    /// inter-view blank band); without this the Tabs collapses to content
+    /// height, the rail clips to a few rows, and the footer rides up.
+    /// Returns whether anything changed.
     @discardableResult
     func updateFloor() -> Bool {
         guard let clip = enclosingScrollView?.contentView, clip.bounds.height > 0 else { return false }
@@ -616,9 +621,13 @@ final class Tabs: NSStackView, NSTableViewDataSource, NSTableViewDelegate {
             content += header.fittingSize.height
         }
         guard content >= 0 else { return false }
-        if content >= fill {
-            // Tall content: floor only; the exact height must stay off or
-            // it fights the natural size.
+        // Vertical (Left/Right) tabs always fill the viewport: the rail is
+        // a sidebar that must stretch to the window height. Top/Bottom tabs
+        // keep the short-content natural height to avoid a blank band.
+        let verticalTabs = orientation == .horizontal
+        if content >= fill || verticalTabs {
+            // Tall content (or any vertical-tab content): floor only; the
+            // exact height must stay off or it fights the natural size.
             if let exact = exactHeight, exact.isActive {
                 exact.isActive = false
             }
@@ -640,9 +649,8 @@ final class Tabs: NSStackView, NSTableViewDataSource, NSTableViewDelegate {
                 return true
             }
         } else {
-            // Short content: natural height (no stretch-to-fill). A forced
-            // viewport fill would leave a blank band between a short body
-            // and the footer siblings, unlike the other backends.
+            // Short Top/Bottom content: natural height (no stretch).
+            // Vertical tabs never reach here (always fill above).
             if let exact = exactHeight, exact.isActive {
                 exact.isActive = false
                 return true
@@ -1393,6 +1401,20 @@ public func toggleFullscreen(_ pointer: UnsafeMutableRawPointer) {
     host(pointer).window.toggleFullScreen(nil)
 }
 
+@_cdecl("w3_set_min_size") @MainActor
+public func setMinSize(_ pointer: UnsafeMutableRawPointer, _ width: Double, _ height: Double) {
+    // Logical points, not physical pixels: the image floor keeps source
+    // pixels from squeezing, matching tao's LogicalSize minimum and the
+    // spec's "window bounds win, content never resizes the window" floor.
+    // (0,0) clears the minimum (no image yet).
+    let value = host(pointer)
+    if width <= 0 || height <= 0 {
+        value.window.contentMinSize = .zero
+    } else {
+        value.window.contentMinSize = NSSize(width: width, height: height)
+    }
+}
+
 @_cdecl("w3_set_automatic_window_tabbing") @MainActor
 public func setAutomaticWindowTabbing(_ enabled: Int32) {
     NSWindow.allowsAutomaticWindowTabbing = enabled != 0
@@ -1905,6 +1927,38 @@ public func style(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<U
         if !(value.nodes[id] is PointerImage) {
             frame.alignment = horizontal == 2 ? .centerX : horizontal == 3 ? .trailing : .leading
         }
+        // End-aligned horizontal rows (dialog footers): the wrapper trailing
+        // above positions a shrinked row, but to be robust when the wrapper
+        // itself sizes to content, also make the row fill and push its
+        // buttons right with a leading spacer. Button wrappers hug so only
+        // the spacer stretches (otherwise .fill would stretch the buttons).
+        if horizontal == 3, let row = value.nodes[id] as? NSStackView,
+           row.orientation == .horizontal
+        {
+            row.distribution = .fill
+            if value.spacers[id] == nil {
+                let spacer = NSView()
+                spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+                spacer.setContentCompressionResistancePriority(.init(1), for: .horizontal)
+                spacer.translatesAutoresizingMaskIntoConstraints = false
+                value.spacers[id] = spacer
+                row.insertArrangedSubview(spacer, at: 0)
+            }
+            for sub in row.arrangedSubviews where sub !== value.spacers[id] {
+                sub.setContentHuggingPriority(.init(750), for: .horizontal)
+                sub.setContentCompressionResistancePriority(.init(750), for: .horizontal)
+            }
+            // Row must fill its wrapper for the spacer to absorb slack.
+            value.contentWidths[id]?.isActive = true
+        } else if horizontal != 3, let spacer = value.spacers[id],
+                  let row = value.nodes[id] as? NSStackView,
+                  row.arrangedSubviews.contains(spacer)
+        {
+            // Style changed away from End: remove the row spacer.
+            row.removeArrangedSubview(spacer)
+            spacer.removeFromSuperview()
+            value.spacers.removeValue(forKey: id)
+        }
     } else if horizontal == 3 {
         // End alignment on horizontal stacks means right-aligned children:
         // alignment only selects the cross axis here, so a flexible leading
@@ -1923,6 +1977,9 @@ public func style(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<U
         spacer.removeFromSuperview()
     }
     let stretchWidth = horizontal == 0 || horizontal == 4
+        // End-aligned horizontal rows (footers) fill their wrapper so the
+        // leading spacer can push buttons right. Safe (no exact width).
+        || (horizontal == 3 && (value.nodes[id] as? NSStackView)?.orientation == .horizontal)
     if let node = value.nodes[id], node !== frame {
         frame.removeView(node)
         frame.addView(node, in: vertical == 2 ? .center : vertical == 3 ? .bottom : .top)

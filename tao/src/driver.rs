@@ -255,34 +255,16 @@ impl Painter {
             self.deadline = None;
         }
         let root = &view.0.root.0;
-        // Window roots scroll on overflow instead of clipping (spec rule
-        // 3): AdaptiveHeight fills the viewport (scrolling inside) when
-        // bounded and shrinks to content when unbounded (dialogs), mirroring
-        // Kind::Scroll. Dialogs stay overlaid outside the scroll in scene().
-        let background = {
-            let node = root.clone();
-            super::layout::AdaptiveHeight::element(Rc::new(move |bounded| {
-                let body = super::layout::Panel::element(
-                    panechord_runtime::Layout::Stack {
-                        horizontal: false,
-                        gap: 0.0,
-                    },
-                    vec![(node.key(), node.style.get(), node.element())],
-                );
-                widget::scrollable(body)
-                    .direction(widget::scrollable::Direction::Vertical(
-                        widget::scrollable::Scrollbar::default(),
-                    ))
-                    .width(Length::Fill)
-                    .height(if bounded {
-                        Length::Fill
-                    } else {
-                        Length::Shrink
-                    })
-                    .into()
-            }))
-        };
-        let content = background;
+        // Window roots do NOT scroll: the root gets the bounded viewport
+        // height directly so Tab bodies (Fill when bounded) take the
+        // remainder and footers stay pinned. Tall pages scroll inside via
+        // their own Scroll (input, notifications) or ItemsControl viewport
+        // (system). Wrapping the whole window in a scrollable offers
+        // unbounded height to the root, sizing tall content to full height
+        // and pushing the footer out of view (see
+        // bounded_window_root_pins_footer_while_tall_page_scrolls_inside).
+        // Dialogs stay overlaid outside via scene().
+        let content = root.element();
         // Image floor: narrowing must keep source pixels instead of
         // squeezing them (spec rule 4), matching the other backends whose
         // toolkits derive window minima from content. Recompute only when

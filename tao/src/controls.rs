@@ -427,6 +427,7 @@ impl View {
         let writable = selected.is_writable();
         node.handler.replace(Some(Handler::Choice(selected, items)));
         let key = node.id.clone();
+        let enablement = node.clone();
         node.kind.replace(Kind::Leaf(Rc::new(move || {
             let choices = choices.borrow().clone();
             let selected = choices
@@ -434,15 +435,27 @@ impl View {
                 .find(|choice| choice.id == *current.borrow())
                 .cloned();
             let key = key.clone();
-            widget::pick_list(choices, selected, move |choice: Choice| {
-                if writable {
+            // Disabled ComboBoxes must look disabled (grayed) and never open:
+            // iced's pick_list has no Disabled status, so render a
+            // non-interactive button showing the selection instead. Covers
+            // both static (!writable, read-only binding) and dynamic
+            // (View::enabled false, e.g. status_area) cases. The overlay
+            // gate in layout.rs only applies to Panels, not Leafs, so a
+            // pick_list would still open even when disabled.
+            if !writable || !enablement.enabled.get() {
+                let label = selected
+                    .map(|choice| choice.label)
+                    .unwrap_or_default();
+                widget::button(widget::text(label))
+                    .width(Length::Fill)
+                    .into()
+            } else {
+                widget::pick_list(choices, selected, move |choice: Choice| {
                     Message::Select(key.clone(), choice.id)
-                } else {
-                    Message::Ignored
-                }
-            })
-            .width(Length::Fill)
-            .into()
+                })
+                .width(Length::Fill)
+                .into()
+            }
         })));
     }
     pub fn image_with_pointer(

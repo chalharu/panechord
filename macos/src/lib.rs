@@ -138,6 +138,10 @@ unsafe extern "C" {
     fn w3_surface_size(host: *mut c_void, width: *mut f64, height: *mut f64);
     fn w3_surface_scale(host: *mut c_void) -> f64;
     fn w3_toggle_fullscreen(host: *mut c_void);
+    /// Minimum content size in logical points (AppKit points, not physical
+    /// pixels): the image floor that keeps source pixels from squeezing,
+    /// matching tao's LogicalSize minimum. (0,0) clears the minimum.
+    fn w3_set_min_size(host: *mut c_void, width: f64, height: f64);
     fn w3_set_automatic_window_tabbing(enabled: i32);
     fn w3_set_initial_window_size(width: f64, height: f64);
     fn w3_pick_file(output: *mut u8, capacity: usize) -> i32;
@@ -217,6 +221,11 @@ struct Inner {
     executor: RefCell<Option<Rc<MacExecutor>>>,
     quit_request: RefCell<Option<Rc<dyn Fn()>>>,
     image_updates: Cell<usize>,
+    /// Source pixel size per image id ((0,0) when none): feeds the window
+    /// minimum so narrowing never squeezes images below source, matching
+    /// tao's LogicalSize floor. Points, not physical pixels (1:1 logical).
+    image_sizes: RefCell<HashMap<String, (u32, u32)>>,
+    image_floor: Cell<(u32, u32)>,
     error: RefCell<Option<String>>,
 }
 
@@ -465,6 +474,8 @@ impl View {
             executor: RefCell::new(None),
             quit_request: RefCell::new(None),
             image_updates: Cell::new(0),
+            image_sizes: RefCell::new(HashMap::new()),
+            image_floor: Cell::new((0, 0)),
             error: RefCell::new(None),
         });
         inner
@@ -734,6 +745,28 @@ impl View {
             .borrow_mut()
             .retain(|id, _| !within(id, prefix));
         drop((scopes, handlers, viewport_handlers, lists, tabs));
+        // Image floor tracks live images: dropping a page (e.g. closing a
+        // PPU viewer tab) must shrink the minimum, not leave the old max.
+        self.0
+            .image_sizes
+            .borrow_mut()
+            .retain(|id, _| !within(id, prefix));
+        let floor = self
+            .0
+            .image_sizes
+            .borrow()
+            .values()
+            .fold((0, 0), |(w, h), &(iw, ih)| (w.max(iw), h.max(ih)));
+        if self.0.image_floor.get() != floor {
+            self.0.image_floor.set(floor);
+            unsafe {
+                w3_set_min_size(
+                    self.0.native.get(),
+                    f64::from(floor.0),
+                    f64::from(floor.1),
+                );
+            }
+        }
         unsafe {
             w3_remove(self.0.native.get(), prefix.as_ptr(), prefix.len());
         }
@@ -1867,6 +1900,8 @@ mod tests {
             executor: RefCell::new(Some(executor)),
             quit_request: RefCell::new(None),
             image_updates: Cell::new(0),
+            image_sizes: RefCell::new(HashMap::new()),
+            image_floor: Cell::new((0, 0)),
             error: RefCell::new(None),
         };
         // Never drop the hand-built Inner: `Drop for Inner` calls into

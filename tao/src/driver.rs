@@ -1,6 +1,6 @@
 //! Native loop adapted from prototype_1; rendering and futures remain UI-local.
 use super::{Message, TaoHost, View, input, panic_error, scheduler::Scheduler};
-use iced::{Size, mouse};
+use iced::{Length, Size, mouse, widget};
 #[cfg(not(any(
     target_os = "linux",
     target_os = "freebsd",
@@ -228,18 +228,34 @@ impl Painter {
             self.deadline = None;
         }
         let root = &view.0.root.0;
-        // Bounded window root, never an outer scrollable: inner `Scroll`
-        // nodes fill the remainder and scroll internally, so dialog
-        // footers (OK/Cancel) stay pinned instead of scrolling away with
-        // the content. An outer scrollable would offer unbounded height,
-        // defeating the remainder distribution in `layout::Panel`.
-        let content = super::layout::Panel::element(
-            panechord_runtime::Layout::Stack {
-                horizontal: false,
-                gap: 0.0,
-            },
-            vec![(root.key(), root.style.get(), root.element())],
-        );
+        // Window roots scroll on overflow instead of clipping (spec rule
+        // 3): AdaptiveHeight fills the viewport (scrolling inside) when
+        // bounded and shrinks to content when unbounded (dialogs), mirroring
+        // Kind::Scroll. Dialogs stay overlaid outside the scroll in scene().
+        let background = {
+            let node = root.clone();
+            super::layout::AdaptiveHeight::element(Rc::new(move |bounded| {
+                let body = super::layout::Panel::element(
+                    panechord_runtime::Layout::Stack {
+                        horizontal: false,
+                        gap: 0.0,
+                    },
+                    vec![(node.key(), node.style.get(), node.element())],
+                );
+                widget::scrollable(body)
+                    .direction(widget::scrollable::Direction::Vertical(
+                        widget::scrollable::Scrollbar::default(),
+                    ))
+                    .width(Length::Fill)
+                    .height(if bounded {
+                        Length::Fill
+                    } else {
+                        Length::Shrink
+                    })
+                    .into()
+            }))
+        };
+        let content = background;
         let mut ui = UserInterface::build(
             view.scene(content),
             bounds,

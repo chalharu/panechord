@@ -161,10 +161,12 @@ order (highest first):
    container (macOS outer document scroll; GTK/Tao inner Scroll nodes,
    including a root scroll when the document exceeds the viewport).
 4. Natural sizes: text, buttons, tab headers/rails, and image source
-   dimensions. An Image with no placement renders at its source size.
+   dimensions. An Image with no placement renders at its source size,
+   centered in its row. Narrowing never squeezes images below source:
+   image extent floors the window minimum on every backend instead.
 5. Fill: vertical Stack children fill the available width, except Images
-   which keep their source width; horizontal Stack shares surplus width
-   among non-explicit children; Tao bounds Fill siblings during
+   which keep their source width centered; horizontal Stack shares surplus
+   width among non-explicit children; Tao bounds Fill siblings during
    natural-width measurement as before.
 6. Derived sizes last: Image aspect only relates already-determined
    dimensions. It may shrink rendering to fit (letterbox) but must never

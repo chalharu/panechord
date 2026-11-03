@@ -34,10 +34,17 @@ impl RuntimePaths {
         let mut output = proc_macro2::TokenStream::new();
         let mut index = 0;
         while index < tokens.len() {
+            // Keywords can never be path segments, so `as ::panechord_runtime`
+            // (qualified-path trait refs), `dyn ::panechord_runtime` and
+            // `impl ::panechord_runtime` are absolute paths that must follow
+            // the rewrite like any other leading-`::` occurrence. A plain
+            // `foo::panechord_runtime` is a relative path into `foo` and stays.
+            let follows_keyword = matches!(tokens.get(index.wrapping_sub(1)), Some(TokenTree::Ident(name)) if ["as", "dyn", "impl"].contains(&name.to_string().as_str()));
             if matches!(tokens.get(index), Some(TokenTree::Punct(mark)) if mark.as_char() == ':')
                 && matches!(tokens.get(index + 1), Some(TokenTree::Punct(mark)) if mark.as_char() == ':')
                 && matches!(tokens.get(index + 2), Some(TokenTree::Ident(name)) if name == "panechord_runtime")
                 && (index == 0
+                    || follows_keyword
                     || (!matches!(tokens.get(index - 1), Some(TokenTree::Ident(_)))
                         && !(matches!(tokens.get(index - 1), Some(TokenTree::Punct(mark)) if mark.as_char() == '>')
                             && !matches!(tokens.get(index.wrapping_sub(2)), Some(TokenTree::Punct(mark)) if mark.as_char() == '-'))))
@@ -65,6 +72,13 @@ impl VisitMut for RuntimePaths {
     fn visit_macro_mut(&mut self, node: &mut syn::Macro) {
         self.visit_path_mut(&mut node.path);
         node.tokens = self.macro_tokens(node.tokens.clone());
+    }
+    /// `located()` wraps generated controls in `macro_rules!` definitions for
+    /// YAML span tracking. Their bodies are opaque to the default visitor, so
+    /// without this the runtime-path rewrite would miss every located control
+    /// and facade-only builds would keep referencing `::panechord_runtime`.
+    fn visit_item_macro_mut(&mut self, node: &mut syn::ItemMacro) {
+        node.mac.tokens = self.macro_tokens(node.mac.tokens.clone());
     }
     /// `use` prefixes are `UseTree::Path`, not `Path`: without this, a generated
     /// capability-trait import would keep pointing at `::panechord_runtime`
@@ -245,6 +259,7 @@ mod tests {
                     crate::panechord_runtime::local();
                     Local::<u8>::panechord_runtime();
                     let value: ::panechord_runtime::Binding<u8>;
+                    let qualified = <fake::Backend as ::panechord_runtime::Backend>::Assoc;
                     fn command() -> ::panechord_runtime::Command {
                         unimplemented!()
                     }
@@ -263,6 +278,7 @@ mod tests {
                     crate::panechord_runtime::local();
                     Local::<u8>::panechord_runtime();
                     let value: ::surface::Binding<u8>;
+                    let qualified = <fake::Backend as ::surface::Backend>::Assoc;
                     fn command() -> ::surface::Command {
                         unimplemented!()
                     }

@@ -100,7 +100,25 @@ pub fn generate(doc: &Document, backend: &Path, owned: bool) -> syn::Result<Toke
         let __panechord_view = <<#backend::Backend as ::panechord_runtime::Backend>::View
             as ::panechord_runtime::ViewCore>::new(#title);
         {
-            fn __panechord_assert_view<V: ::panechord_runtime::View>(_: &V) {}
+            // Pin the full capability contract without naming the umbrella
+            // `View` in trait position: the facade also exports the concrete
+            // `View` struct under that name, so a rewritten `::panechord::View`
+            // bound would not resolve. These twelve bounds are exactly the
+            // blanket impl behind `View`, and none of them collide.
+            fn __panechord_assert_view<
+                V: ::panechord_runtime::ViewCore
+                    + ::panechord_runtime::LayoutView
+                    + ::panechord_runtime::TextView
+                    + ::panechord_runtime::ButtonView
+                    + ::panechord_runtime::SelectView
+                    + ::panechord_runtime::MediaView
+                    + ::panechord_runtime::TabView
+                    + ::panechord_runtime::ListView
+                    + ::panechord_runtime::TableView
+                    + ::panechord_runtime::DialogView
+                    + ::panechord_runtime::MenuView
+                    + ::panechord_runtime::AutomationView,
+            >(_: &V) {}
             __panechord_assert_view(&__panechord_view);
         }
         let __panechord_parent = __panechord_view.root();

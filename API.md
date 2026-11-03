@@ -6,6 +6,14 @@ backends are selected per application via the `native`/`gtk`/`tao`/`macos`
 features. The practical screens in this workspace are `panechord-demo`
 and `panechord-library`.
 
+Downstream crates depend only on the facade, never on the concrete backend
+crates. Declarative screens name the macro backend path through the
+facade-owned `panechord::backend` module (one alias per feature, precedence
+tao > gtk > macos > native, mirroring `Runner`): e.g.
+`panechord::view!("ui/main.yaml", model, panechord::backend)`. Depending on
+`panechord-gtk`/`panechord-tao`/… directly to name the backend is a layering
+violation; native backend selection belongs to Panechord.
+
 ## Runtime API shared with codegen/backends
 
 - `Executor::spawn(LocalBoxFuture<'static, ()>)` (UI local).

@@ -107,22 +107,37 @@ impl RunnerBuilderExtMacOS for RunnerBuilder {
     }
 }
 
-/// Feature-selected backend. Adding a backend adds one alias here plus its
-/// [`panechord_runtime::Backend`] impl; startup policy below stays generic, so
-/// new backends and new builder options never touch the dispatch itself
-/// (Open/Closed). High-level code depends on the trait, not on each
-/// backend's free functions (Dependency Inversion).
+/// Feature-selected backend. Downstream screens name the macro backend path
+/// through this module (`panechord::backend`), never the concrete backend
+/// crates: native backend selection belongs to Panechord. Combinations of
+/// `gtk`/`tao`/`macos` are rejected above; alongside `native`, the explicit
+/// backend wins and `native` (the platform default) stays silent.
+/// `SelectedBackend` below derives from this module, so adding a backend
+/// touches exactly one alias plus its [`panechord_runtime::Backend`] impl.
+#[cfg(feature = "gtk")]
+pub use panechord_gtk as backend;
+#[cfg(feature = "macos")]
+pub use panechord_macos as backend;
 #[cfg(all(
     feature = "native",
     not(any(feature = "gtk", feature = "tao", feature = "macos"))
 ))]
-type SelectedBackend = panechord_native::Backend;
+pub use panechord_native as backend;
 #[cfg(feature = "tao")]
-type SelectedBackend = panechord_tao::Backend;
-#[cfg(feature = "gtk")]
-type SelectedBackend = panechord_gtk::Backend;
-#[cfg(feature = "macos")]
-type SelectedBackend = panechord_macos::Backend;
+pub use panechord_tao as backend;
+
+/// Feature-selected backend implementation behind the [`backend`] module:
+/// startup policy below stays generic, so new backends and new builder
+/// options never touch the dispatch itself (Open/Closed). High-level code
+/// depends on the trait, not on each backend's free functions (Dependency
+/// Inversion).
+#[cfg(any(
+    feature = "native",
+    feature = "gtk",
+    feature = "tao",
+    feature = "macos"
+))]
+type SelectedBackend = backend::Backend;
 
 #[cfg(any(
     feature = "native",

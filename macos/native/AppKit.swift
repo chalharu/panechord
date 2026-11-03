@@ -976,6 +976,14 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
         // viewport size it reports) a step behind the window.
         window.layoutIfNeeded()
         emitSurfaceSize()
+        // Live resize runs a nested tracking loop inside `sendEvent`, so the
+        // host pump never returns until mouse-up and frame tasks stall.
+        // This delegate fires inside that loop, so pump one executor turn
+        // here: ready (timer-driven) tasks capture at the new size mid-drag
+        // instead of showing a stale frame until release.
+        if window.inLiveResize {
+            emit("", kind: 9)
+        }
     }
 
     func emitSurfaceSize() {

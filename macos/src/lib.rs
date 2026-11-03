@@ -210,6 +210,11 @@ struct Inner {
     surface_event: RefCell<Option<SurfaceEventHandler>>,
     surface_viewport: RefCell<Option<ViewportHook>>,
     surface_size: Cell<(f32, f32)>,
+    /// Host executor for the live-resize pump: AppKit's nested tracking
+    /// loop stalls `w3_pump` until mouse-up, so `windowDidResize` drives one
+    /// turn directly through this (set at registration; views never run
+    /// without a host).
+    executor: RefCell<Option<Rc<MacExecutor>>>,
     quit_request: RefCell<Option<Rc<dyn Fn()>>>,
     image_updates: Cell<usize>,
     error: RefCell<Option<String>>,
@@ -221,6 +226,8 @@ impl Inner {
             return;
         }
         drop(self.surface_event.take());
+        drop(self.surface_viewport.take());
+        drop(self.executor.take());
         drop(self.quit_request.take());
         drop(self.scopes.take());
         drop(self.handlers.take());
@@ -359,6 +366,17 @@ unsafe extern "C" fn dispatch(
                     hook(width, height);
                 }
             }
+        } else if kind == 9 {
+            // Live-resize pump: AppKit runs a nested tracking loop inside
+            // `sendEvent`, so `w3_pump` never returns and the host loop
+            // stalls until mouse-up. `windowDidResize` fires inside that
+            // loop, so one turn here lets ready (timer-driven) frame tasks
+            // capture at the new viewport mid-drag. Reentrancy is safe:
+            // dispatch never runs inside a turn, and turns never synthesize
+            // resize events.
+            if let Some(executor) = inner.executor.borrow().clone() {
+                executor.turn();
+            }
         } else {
             let handler = if kind == 2 {
                 inner.viewport_handlers.borrow().get(id.as_ref()).cloned()
@@ -444,6 +462,7 @@ impl View {
             surface_event: RefCell::new(None),
             surface_viewport: RefCell::new(None),
             surface_size: Cell::new((0.0, 0.0)),
+            executor: RefCell::new(None),
             quit_request: RefCell::new(None),
             image_updates: Cell::new(0),
             error: RefCell::new(None),
@@ -1675,6 +1694,7 @@ impl MacHost {
         self.attach(session.clone())?;
         let token = session.register_window(id, hooks)?;
         view.keep(token);
+        view.0.executor.replace(Some(self.executor.clone()));
         let shutdown = session.shutdown();
         let executor = self.executor();
         view.0.quit_request.replace(Some(Rc::new(move || {
@@ -1810,6 +1830,54 @@ mod tests {
             foreign.shutdown().phase(),
             panechord_runtime::ShutdownPhase::Running
         );
+    }
+
+    #[test]
+    fn live_resize_pump_turns_ready_tasks() {
+        // kind 9 is the Swift `windowDidResize` live path: AppKit's nested
+        // tracking loop stalls `w3_pump`, so dispatch drives one executor
+        // turn directly. Build the Inner by hand: `View::new` needs the
+        // AppKit main thread (see the ignored dialog-footer test).
+        let executor = Rc::new(MacExecutor::default());
+        let count = Rc::new(Cell::new(0));
+        let counter = count.clone();
+        executor.spawn(Box::pin(async move {
+            counter.set(counter.get() + 1);
+        }));
+        let inner = Inner {
+            native: Cell::new(std::ptr::null_mut()),
+            scope: RefCell::new("__root".to_owned()),
+            scopes: RefCell::new(HashMap::new()),
+            handlers: RefCell::new(HashMap::new()),
+            slider_actions: RefCell::new(HashMap::new()),
+            viewport_handlers: RefCell::new(HashMap::new()),
+            nodes: RefCell::new(HashSet::new()),
+            lists: RefCell::new(HashMap::new()),
+            menu_errors: RefCell::new(HashMap::new()),
+            menu_native_items: RefCell::new(HashMap::new()),
+            tabs: RefCell::new(HashMap::new()),
+            layouts: RefCell::new(HashMap::new()),
+            parents: RefCell::new(HashMap::new()),
+            grid_index: RefCell::new(HashMap::new()),
+            next_index: RefCell::new(HashMap::new()),
+            lifecycle: panechord_runtime::Lifecycle::default(),
+            surface_event: RefCell::new(None),
+            surface_viewport: RefCell::new(None),
+            surface_size: Cell::new((0.0, 0.0)),
+            executor: RefCell::new(Some(executor)),
+            quit_request: RefCell::new(None),
+            image_updates: Cell::new(0),
+            error: RefCell::new(None),
+        };
+        // Never drop the hand-built Inner: `Drop for Inner` calls into
+        // Swift (`w3_destroy`) with the null native no real View ever has.
+        let context = std::ptr::addr_of!(inner).cast_mut().cast();
+        let empty: &[u8] = &[0u8; 0];
+        unsafe {
+            dispatch(context, 9, empty.as_ptr(), 0, empty.as_ptr(), 0);
+        }
+        assert_eq!(count.get(), 1);
+        std::mem::forget(inner);
     }
 
     #[test]

@@ -741,35 +741,32 @@ final class PointerImage: NSImageView {
     var key = ""
     var pointerEnabled = false
     private var pointerArea: NSTrackingArea?
-    private var aspect: CGFloat = 1.0
-    private var aspectConstraint: NSLayoutConstraint?
-    /// An explicit style height suspends the aspect constraint (see
-    /// setExplicitHeight): aspect + fixed height + the width-filling
-    /// content link would otherwise pin the whole window width to
-    /// height/aspect, and every layout would snap user resizing back.
-    private var aspectSuspended = false
+    /// Source pixel size (0 when no image); drives natural sizing per the
+    /// shared layout priority (explicit placement wins, natural source
+    /// size otherwise — never aspect-derived growth).
+    var sourceWidth: CGFloat = 0
+    var sourceHeight: CGFloat = 0
+    /// Last explicit style size per axis (-1 = natural). Stored so image
+    /// data arriving after styling can fill in the natural axes.
+    var styleWidth: Double = -1
+    var styleHeight: Double = -1
+    var styleHorizontal: Int32 = 0
+    var styleLeft: Double = 0
+    var styleRight: Double = 0
+    /// Frame constraints derived from the source size (tracked so data
+    /// updates can replace them without touching style constraints).
+    var naturalDims: [NSLayoutConstraint] = []
     private var lastEmittedSize = NSZeroSize
     override var isFlipped: Bool { true }
-    // The rendered pixels must never drive layout: the view fills the stack
-    // width and keeps the last frame aspect, like the GTK DrawingArea.
+    // Frame dimensions (explicit placement or source size, managed via
+    // dimensions[]) drive layout; keep intrinsic out of it so pixels
+    // never size the window on their own.
     override var intrinsicContentSize: NSSize { .zero }
 
-    func updateAspect(_ width: Int, _ height: Int) {
-        guard width > 0, height > 0 else { return }
-        aspect = CGFloat(height) / CGFloat(max(width, 1))
-        aspectConstraint?.isActive = false
-        aspectConstraint = heightAnchor.constraint(equalTo: widthAnchor, multiplier: aspect)
-        aspectConstraint?.priority = .defaultHigh
-        aspectConstraint?.isActive = !aspectSuspended
-    }
-
-    /// Toggle the aspect constraint for explicit style heights. Suspension
-    /// (not just a lower priority) is required: any live pull on the free
-    /// window-width variable lets the solver satisfy it by moving the
-    /// window, snapping user resizes back to height/aspect.
-    func setExplicitHeight(_ explicit: Bool) {
-        aspectSuspended = explicit
-        aspectConstraint?.isActive = !explicit
+    func updateSourceSize(_ width: Int, _ height: Int) {
+        sourceWidth = width > 0 && height > 0 ? CGFloat(width) : 0
+        sourceHeight = width > 0 && height > 0 ? CGFloat(height) : 0
+        invalidateIntrinsicContentSize()
     }
 
     override func layout() {
@@ -1477,15 +1474,6 @@ public func add(_ pointer: UnsafeMutableRawPointer, _ parentBytes: UnsafePointer
         image.imageAlignment = .alignCenter
         image.setContentHuggingPriority(.defaultLow, for: .horizontal)
         image.setContentHuggingPriority(.defaultLow, for: .vertical)
-        // Seed from the live window content so the first layout already
-        // matches the viewport the renderer will use; per-frame updates
-        // keep tracking after that.
-        let content = value.window.contentView?.bounds.size ?? .zero
-        if content.width > 0, content.height > 0 {
-            image.updateAspect(Int(content.width), Int(content.height))
-        } else {
-            image.updateAspect(4, 3)
-        }
         view = image
     case 15:
         view = Scrolling(horizontal: number != 0)
@@ -1750,7 +1738,21 @@ public func action(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<
 public func image(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<UInt8>?, _ idCount: Int,
                   _ pixels: UnsafePointer<UInt8>?, _ length: Int, _ width: UInt32, _ height: UInt32) -> Int32 {
     guard let imageView = host(pointer).nodes[string(idBytes, idCount)] as? NSImageView else { return 0 }
-    if width == 0, height == 0, length == 0 { imageView.image = nil; return 1 }
+    if width == 0, height == 0, length == 0 {
+        imageView.image = nil
+        if let picture = imageView as? PointerImage {
+            picture.updateSourceSize(0, 0)
+            let value = host(pointer)
+            let id = string(idBytes, idCount)
+            for constraint in picture.naturalDims { constraint.isActive = false }
+            if var dims = value.dimensions[id] {
+                dims.removeAll { old in picture.naturalDims.contains { $0 === old } }
+                value.dimensions[id] = dims
+            }
+            picture.naturalDims = []
+        }
+        return 1
+    }
     guard width > 0, height > 0, width <= 8192, height <= 8192,
           length >= 0, UInt64(width) * UInt64(height) * 4 == UInt64(length), length <= 64 * 1024 * 1024,
           let pixels = pixels,
@@ -1762,7 +1764,39 @@ public func image(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<U
     let image = NSImage(size: NSSize(width: Int(width), height: Int(height)))
     image.addRepresentation(bitmap)
     imageView.image = image
-    (imageView as? PointerImage)?.updateAspect(Int(width), Int(height))
+    if let picture = imageView as? PointerImage {
+        picture.updateSourceSize(Int(width), Int(height))
+        // Data arriving after styling fills the natural axes with the
+        // source size (explicit axes already hold exact style constraints).
+        let value = host(pointer)
+        let id = string(idBytes, idCount)
+        for constraint in picture.naturalDims { constraint.isActive = false }
+        if var dims = value.dimensions[id] {
+            dims.removeAll { old in picture.naturalDims.contains { $0 === old } }
+            value.dimensions[id] = dims
+        }
+        picture.naturalDims = []
+        var added: [NSLayoutConstraint] = []
+        if let frame = value.frames[id] {
+            let stretchWidth = picture.styleHorizontal == 0 || picture.styleHorizontal == 4
+            if picture.styleWidth < 0 {
+                if stretchWidth, frame.orientation == .vertical {
+                    added.append(picture.widthAnchor.constraint(equalToConstant: max(0, Double(picture.sourceWidth) - picture.styleLeft - picture.styleRight)))
+                    value.contentWidths[id]?.isActive = false
+                } else if stretchWidth {
+                    added.append(frame.widthAnchor.constraint(equalToConstant: Double(picture.sourceWidth)))
+                } else {
+                    added.append(picture.widthAnchor.constraint(equalToConstant: max(0, Double(picture.sourceWidth) - picture.styleLeft - picture.styleRight)))
+                }
+            }
+            if picture.styleHeight < 0 {
+                added.append(frame.heightAnchor.constraint(equalToConstant: Double(picture.sourceHeight)))
+            }
+        }
+        NSLayoutConstraint.activate(added)
+        value.dimensions[id] = (value.dimensions[id] ?? []) + added
+        picture.naturalDims = added
+    }
     return 1
 }
 
@@ -1786,11 +1820,6 @@ public func style(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<U
     }
     if let constraints = value.dimensions[id] { NSLayoutConstraint.deactivate(constraints) }
     value.dimensions[id] = []
-    // An explicit style height takes the image out of aspect tracking (see
-    // PointerImage.setExplicitHeight); without this the aspect pull on the
-    // free window-width variable snaps user resizing back to
-    // height/aspect on every layout.
-    if let image = value.nodes[id] as? PointerImage { image.setExplicitHeight(height >= 0) }
     // Manually laid out children (Grid/Flex/Absolute) take no stack position
     // constraints: the container assigns frames from placements and the sizes
     // recorded here. Margins still fold into the frame insets; the view keeps
@@ -1833,15 +1862,48 @@ public func style(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<U
     }
     value.contentWidths[id]?.isActive = stretchWidth
     frame.setHuggingPriority(vertical == 4 ? NSLayoutConstraint.Priority(rawValue: 1) : .defaultLow, for: .vertical)
-    var constraints: [NSLayoutConstraint] = []
-    if width >= 0 {
-        if stretchWidth { constraints.append(frame.widthAnchor.constraint(equalToConstant: width)) }
-        else if let node = value.nodes[id] { constraints.append(node.widthAnchor.constraint(equalToConstant: max(0, width - left - right))) }
+    // Images resolve each axis from the explicit placement, falling back
+    // to the source size (spec: natural source size; aspect never grows).
+    // The style tuple is stored so later image data can fill natural axes.
+    var effWidth = width
+    var effHeight = height
+    if let image = value.nodes[id] as? PointerImage {
+        image.styleWidth = width
+        image.styleHeight = height
+        image.styleHorizontal = horizontal
+        image.styleLeft = left
+        image.styleRight = right
+        if width < 0, image.sourceWidth > 0 { effWidth = Double(image.sourceWidth) }
+        if height < 0, image.sourceHeight > 0 { effHeight = Double(image.sourceHeight) }
     }
-    if height >= 0 { constraints.append(frame.heightAnchor.constraint(equalToConstant: height)) }
-    else if vertical > 0, vertical < 4, let container = frame.superview as? NSStackView, container.orientation == .horizontal {
-        constraints.append(frame.heightAnchor.constraint(equalTo: container.heightAnchor,
+    var constraints: [NSLayoutConstraint] = []
+    var widthConstraints: [NSLayoutConstraint] = []
+    var heightConstraints: [NSLayoutConstraint] = []
+    if effWidth >= 0 {
+        if stretchWidth, frame.orientation == .vertical,
+           let node = value.nodes[id], node !== frame {
+            // Explicit widths in vertical stacks go on the content node,
+            // not the frame: an exact frame width lets AppKit derive the
+            // window width from content, snapping user resizes back to it
+            // on every layout. The frame stays flexible (filling via stack
+            // distribution like other flexible frames) while the content
+            // holds its exact size; like the manual-container path, the
+            // fill link is released since the node no longer fills it.
+            widthConstraints.append(node.widthAnchor.constraint(equalToConstant: max(0, effWidth - left - right)))
+            value.contentWidths[id]?.isActive = false
+        } else if stretchWidth { widthConstraints.append(frame.widthAnchor.constraint(equalToConstant: effWidth)) }
+        else if let node = value.nodes[id] { widthConstraints.append(node.widthAnchor.constraint(equalToConstant: max(0, effWidth - left - right))) }
+    }
+    if effHeight >= 0 { heightConstraints.append(frame.heightAnchor.constraint(equalToConstant: effHeight)) }
+    else if vertical > 0, vertical < 4, !(value.nodes[id] is PointerImage),
+              let container = frame.superview as? NSStackView, container.orientation == .horizontal {
+        heightConstraints.append(frame.heightAnchor.constraint(equalTo: container.heightAnchor,
             constant: -(container.edgeInsets.top + container.edgeInsets.bottom)))
+    }
+    constraints = widthConstraints + heightConstraints
+    if let image = value.nodes[id] as? PointerImage {
+        image.naturalDims = (width < 0 && effWidth >= 0 ? widthConstraints : [])
+            + (height < 0 && effHeight >= 0 ? heightConstraints : [])
     }
     NSLayoutConstraint.activate(constraints)
     value.dimensions[id] = constraints

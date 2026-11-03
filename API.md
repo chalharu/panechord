@@ -146,6 +146,32 @@ missing control. Explicit placements and fixed virtual row heights remain caller
 contracts: the complete template, including padding and wrapped text, must fit
 `row_height`. Fixed rows are not automatically enlarged by the window scroller.
 
+### Unsized layout priority
+
+When no explicit placement size is given, backends resolve sizes in this
+order (highest first):
+
+1. Window bounds win. Content never resizes the window; the initial size
+   and user resizes rule. A backend that shrink-wraps or snap-backs the
+   window to content size is in violation.
+2. Explicit `placement.width`/`height` hold as caller contracts, per axis.
+   With a single axis given, the other axis resolves via the rules below.
+3. Overflow scrolls, never clips silently and never grows the window.
+   Every backend must keep overflowing content reachable through a scroll
+   container (macOS outer document scroll; GTK/Tao inner Scroll nodes,
+   including a root scroll when the document exceeds the viewport).
+4. Natural sizes: text, buttons, tab headers/rails, and image source
+   dimensions. An Image with no placement renders at its source size.
+5. Fill: vertical Stack children fill the available width, except Images
+   which keep their source width; horizontal Stack shares surplus width
+   among non-explicit children; Tao bounds Fill siblings during
+   natural-width measurement as before.
+6. Derived sizes last: Image aspect only relates already-determined
+   dimensions. It may shrink rendering to fit (letterbox) but must never
+   grow content, invent pixels, or move the window. Concretely, an
+   explicit height suspends aspect tracking of the width (and vice
+   versa); with neither axis given, the source size stands.
+
 ## Codegen input
 
 ### macOS practical-screen subset

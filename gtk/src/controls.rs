@@ -606,6 +606,18 @@ impl View {
                 .unwrap()
                 .set_text(&value.string());
         });
+        // Popup labels join the width group in setup: release them on unbind
+        // or the group keeps measuring finalized widgets after refreshes.
+        let ungroup = widths.clone();
+        factory.connect_unbind(move |_, object| {
+            let item = object.downcast_ref::<gtk4::ListItem>().unwrap();
+            if let Some(label) = item
+                .child()
+                .and_then(|child| child.downcast::<gtk4::Label>().ok())
+            {
+                ungroup.remove_widget(&label);
+            }
+        });
         combo.set_factory(Some(&factory));
         self.mount_native(parent, id, &combo);
         let applying = Rc::new(Cell::new(false));

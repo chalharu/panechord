@@ -611,6 +611,83 @@ fn native_table_selection_writes_back_and_stops_after_close() {
 
 #[test]
 #[ignore = "isolated Xvfb native contract"]
+fn native_table_refresh_close_reopen_survives() {
+    // Notification history crashed on its second open: per-bind style churn
+    // on ListView-managed row widgets corrupted the item tracker, faulting a
+    // later teardown or reopen. Two full build/refresh/close cycles must not
+    // fault (the row CSS now attaches once to the ListView itself).
+    use panechord_runtime::{Table, TableCell, TableColumn, TableRow, TextOverflow};
+    use std::sync::Arc;
+    fn history_like(rows: usize) -> Table {
+        Table {
+            columns: ["Datetime", "Level", "Module", "Message"]
+                .into_iter()
+                .enumerate()
+                .map(|(index, title)| TableColumn {
+                    title: title.into(),
+                    width: None,
+                    text: Default::default(),
+                    overflow: match index {
+                        2 => TextOverflow::EllipsizeMiddle,
+                        3 => TextOverflow::Wrap,
+                        _ => TextOverflow::Clip,
+                    },
+                    stretch: index == 3,
+                    hide_empty: false,
+                })
+                .collect::<Vec<_>>()
+                .into(),
+            rows: (0..rows)
+                .map(|index| {
+                    Arc::new(TableRow {
+                        key: index.to_string(),
+                        cells: vec![
+                            TableCell {
+                                text: format!("2026-11-04 06:06:{index:02}"),
+                                foreground: None,
+                            },
+                            TableCell {
+                                text: "Info".into(),
+                                foreground: None,
+                            },
+                            TableCell {
+                                text: "notifications".into(),
+                                foreground: None,
+                            },
+                            TableCell {
+                                text: format!("row {index} with a longer message to wrap"),
+                                foreground: None,
+                            },
+                        ],
+                    })
+                })
+                .collect::<Vec<_>>()
+                .into(),
+            column_gap: 12.0,
+            row_gap: 2.0,
+            row_inset: 0.0,
+            empty_text: "No rows".into(),
+        }
+    }
+    gtk4::init().unwrap();
+    for _ in 0..2 {
+        let host = GtkHost::attach();
+        let data = Store::new(history_like(30), host.executor());
+        let view = View::new(Binding::constant("Notification history".into()));
+        view.table(&view.root(), "table", data.bind(Clone::clone, None));
+        view.native_window().set_default_size(660, 520);
+        view.present();
+        settle();
+        assert!(data.update(|table| *table = history_like(31)));
+        settle();
+        assert_eq!(data.snapshot().rows.len(), 31);
+        view.close();
+        settle();
+    }
+}
+
+#[test]
+#[ignore = "isolated Xvfb native contract"]
 fn native_item_rows_keep_configured_height_with_grid_entries() {
     gtk4::init().unwrap();
     let host = GtkHost::attach();

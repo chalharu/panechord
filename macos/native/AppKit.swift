@@ -57,6 +57,10 @@ final class TableControl: NSScrollView, NSTableViewDataSource, NSTableViewDelega
     var cursor: TableCursor?
     var selectionPresent = false
     var selectionEnabled = false
+    /// Fill the window viewport when no explicit height is styled (history):
+    /// gravity sizes scroll views by fitting (zero), collapsing the grid.
+    var fillsViewport = false
+    var floorConstraint: NSLayoutConstraint?
 
     func setCursor(_ text: String) {
         guard let data = text.data(using: .utf8), let value = try? JSONDecoder().decode(TableCursor?.self, from: data) else {
@@ -697,6 +701,11 @@ final class Tabs: NSStackView, NSTableViewDataSource, NSTableViewDelegate {
         syncTopBodyHeight()
     }
     func setEnabled(_ enabled: Bool) {
+        // Change-guarded: reloadData retiles the rail and its verification
+        // posts a (spurious) selection change, whose observer runs a full
+        // fitting-size solve. During bulk builds every button bind refreshes
+        // enablement, so an unconditional reload turns opens into O(n^2).
+        guard self.enabled != enabled else { return }
         self.enabled = enabled
         header.isEnabled = enabled
         list.reloadData()
@@ -735,6 +744,11 @@ final class Tabs: NSStackView, NSTableViewDataSource, NSTableViewDelegate {
     func tableViewSelectionDidChange(_ notification: Notification) {
         let row = list.selectedRow
         guard enabled, row >= 0, row < body.numberOfTabViewItems else { return }
+        // Spurious verification posts (retile, reloadData) re-announce the
+        // current row: selecting again is cheap, but the refresh below runs
+        // a full fitting-size solve, so skip it when nothing changed.
+        let current = body.selectedTabViewItem.map { body.indexOfTabViewItem($0) } ?? -1
+        guard current != row else { return }
         body.selectTabViewItem(at: row)
         // Reconcile when the tab refuses (readonly): the body still holds
         // the previous page, so reselect its row.
@@ -957,6 +971,10 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
             guard let tabs = view as? Tabs else { continue }
             changed = tabs.updateFloor() || changed
         }
+        for (id, view) in nodes {
+            guard let table = view as? TableControl else { continue }
+            changed = updateTableFloor(id: id, table: table) || changed
+        }
         // Measurements during build/focus can precede layout (zeros); one
         // deferred pass runs after layout with valid sizes. One-shot per
         // change batch: settled state schedules nothing further.
@@ -968,6 +986,57 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
                 self.updateFloors()
             }
         }
+    }
+
+    /// Floor viewport-filling tables (no explicit height) to the visible clip
+    /// minus their stack siblings: without it gravity sizes the scroll view
+    /// by fitting (zero), collapsing the grid and letting following siblings
+    /// ride up over the header. Mirrors Tabs.updateFloor.
+    @discardableResult
+    func updateTableFloor(id: String, table: TableControl) -> Bool {
+        // Measure after layout: pre-layout frames are zero and scroll-view
+        // fittings under-read, which would oversize the floor and push the
+        // footer out of the window.
+        window.layoutIfNeeded()
+        guard table.fillsViewport,
+              let frame = frames[id],
+              let parentId = parents[id],
+              let parent = nodes[parentId] as? NSStackView,
+              parent.orientation == .vertical,
+              let clip = frame.enclosingScrollView?.contentView ?? (window.contentView as? NSScrollView)?.contentView,
+              clip.bounds.height > 0 else {
+            if let floor = table.floorConstraint, floor.isActive {
+                floor.isActive = false
+                return true
+            }
+            return false
+        }
+        var siblings: CGFloat = 0
+        for sub in parent.arrangedSubviews where sub !== frame {
+            let h = max(sub.frame.height, max(0, sub.fittingSize.height))
+            siblings += h + parent.spacing
+        }
+        // Padding lives on the wrapper frame (child insets), not the stack.
+        let insets = frames[parentId]?.edgeInsets ?? NSEdgeInsetsZero
+        siblings += insets.top + insets.bottom + 8
+        let want = max(0, clip.bounds.height - siblings)
+        if let floor = table.floorConstraint {
+            if floor.constant != want {
+                floor.constant = want
+                if !floor.isActive { floor.isActive = true }
+                return true
+            }
+            if !floor.isActive {
+                floor.isActive = true
+                return true
+            }
+        } else {
+            let floor = frame.heightAnchor.constraint(greaterThanOrEqualToConstant: want)
+            floor.isActive = true
+            table.floorConstraint = floor
+            return true
+        }
+        return false
     }
 
     func windowDidResignKey(_ notification: Notification) {
@@ -1272,7 +1341,12 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
     func refreshEnablement() {
         for (id, view) in nodes {
             let enabled = interactive(id) && capabilities[id] != false
-            (view as? NSControl)?.isEnabled = enabled
+            // Change-guarded: touching isEnabled retiles table views and
+            // their verification posts spurious selection changes, each of
+            // which solves the whole constraint tree (see setEnabled).
+            if let control = view as? NSControl, control.isEnabled != enabled {
+                control.isEnabled = enabled
+            }
             (view as? Tabs)?.setEnabled(enabled)
         }
     }
@@ -1895,6 +1969,11 @@ public func style(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<U
     let value = host(pointer)
     let id = string(idBytes, idCount)
     guard let frame = value.frames[id] else { return }
+    // Viewport-filling tables track this in updateTableFloor; explicit
+    // heights use the exact constraint path below instead.
+    if let table = value.nodes[id] as? TableControl {
+        table.fillsViewport = height < 0
+    }
     if let label = value.nodes[id] as? NSTextField, !label.isEditable {
         let size = NSFont.systemFontSize * textScale
         label.font = textRole == 3 ? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
@@ -1980,6 +2059,27 @@ public func style(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<U
         // End-aligned horizontal rows (footers) fill their wrapper so the
         // leading spacer can push buttons right. Safe (no exact width).
         || (horizontal == 3 && (value.nodes[id] as? NSStackView)?.orientation == .horizontal)
+    // Stretch children absorb stack slack: NSStackView gravity distributes
+    // leftover space inversely to hugging, so a Stretch child (e.g. a binding
+    // value label that buttons must follow) needs the lowest hugging or it
+    // shrinks to content and siblings ride its text width (jittering on
+    // every value change). Exact widths still win via constraints.
+    if horizontal == 4 {
+        frame.setContentHuggingPriority(.init(1), for: .horizontal)
+        // The content node fills the frame via an equality link: give it the
+        // lowest hugging too, or the node's intrinsic width pins the frame.
+        (value.nodes[id] as? NSView)?.setContentHuggingPriority(.init(1), for: .horizontal)
+        // Gravity alone does not reliably yield to hugging here (the content
+        // width link pins the frame to its content); .fill apportions by
+        // hugging, so the Stretch child takes the slack while Start siblings
+        // (default hugging) keep intrinsic size.
+        if let parentId = value.parents[id],
+           let stack = value.nodes[parentId] as? NSStackView,
+           stack.orientation == .horizontal
+        {
+            stack.distribution = .fill
+        }
+    }
     if let node = value.nodes[id], node !== frame {
         frame.removeView(node)
         frame.addView(node, in: vertical == 2 ? .center : vertical == 3 ? .bottom : .top)

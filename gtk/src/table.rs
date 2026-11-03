@@ -113,6 +113,25 @@ impl TableState {
         }
     }
 
+    /// Release a row body's children from the column size groups and detach
+    /// them. Size groups hold strong widget references: without removal every
+    /// rebind leaks the previous row widgets into the group, and the group
+    /// later measures finalized (dead) widgets — crashing a later layout,
+    /// teardown, or reopen of the same view.
+    fn clear_body(&self, body: &gtk4::Box) {
+        let groups = self.groups.borrow();
+        let mut child = body.first_child();
+        let mut index = 0;
+        while let Some(widget) = child {
+            child = widget.next_sibling();
+            if let Some(group) = groups.get(index) {
+                group.remove_widget(&widget);
+            }
+            body.remove(&widget);
+            index += 1;
+        }
+    }
+
     fn select(&self, selected: Option<TableSelection>) {
         let validation = selected
             .as_ref()
@@ -267,7 +286,7 @@ impl View {
             owner: self.downgrade(),
         });
         let factory = gtk4::SignalListItemFactory::new();
-        factory.connect_setup(|_, object| {
+        factory.connect_setup(move |_, object| {
             let item = object.downcast_ref::<gtk4::ListItem>().unwrap();
             item.set_child(Some(&gtk4::Box::new(gtk4::Orientation::Horizontal, 0)));
         });
@@ -285,13 +304,7 @@ impl View {
             let row = row.borrow::<Arc<TableRow>>();
             let body = item.child().unwrap().downcast::<gtk4::Box>().unwrap();
             state.unmount(&body);
-            if let Some(row) = body.parent() {
-                row.style_context()
-                    .add_provider(&row_css, gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION);
-            }
-            while let Some(child) = body.first_child() {
-                body.remove(&child);
-            }
+            state.clear_body(&body);
             let data = state.data.borrow().clone();
             body.set_spacing(data.column_gap.round() as i32);
             let inset = data.row_inset.round() as i32;
@@ -381,14 +394,23 @@ impl View {
             {
                 if let Some(state) = weak.upgrade() {
                     state.unmount(&body);
-                }
-                while let Some(child) = body.first_child() {
-                    body.remove(&child);
+                    state.clear_body(&body);
+                } else {
+                    while let Some(child) = body.first_child() {
+                        body.remove(&child);
+                    }
                 }
             }
         });
         let native_selection = gtk4::NoSelection::new(Some(state.rows.clone()));
         let list = gtk4::ListView::new(Some(native_selection), Some(factory));
+        // Padding reset for the internal row widgets: attach once to the
+        // ListView (providers inherit down to the rows). Never touch the
+        // internal row widgets per bind: provider churn on ListView-managed
+        // widgets corrupts the item tracker and crashes a later teardown or
+        // reopen (notification history, second open).
+        list.style_context()
+            .add_provider(&row_css, gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION);
         list.set_vexpand(true);
         list.set_hexpand(true);
         let scroll = gtk4::ScrolledWindow::new();

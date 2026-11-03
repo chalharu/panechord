@@ -118,6 +118,9 @@ struct Node {
     handler: RefCell<Option<Handler>>,
     custom: RefCell<Option<Rc<dyn Fn()>>>,
     identity: usize,
+    /// Natural image size in source pixels ((0, 0) when none): feeds the
+    /// window minimum so narrowing never squeezes images below source.
+    media: Cell<(u32, u32)>,
 }
 impl Node {
     fn interactive(&self) -> bool {
@@ -133,6 +136,12 @@ impl Node {
         format!("{}#{}", self.id, self.identity)
     }
     fn retire(&self) {
+        if self.media.get() != (0, 0) {
+            self.media.set((0, 0));
+            if let Some(inner) = self.owner.upgrade() {
+                inner.bump_media();
+            }
+        }
         if !self.mounted.replace(false) {
             return;
         }
@@ -267,6 +276,9 @@ struct Inner {
     invalidate: RefCell<Option<Rc<dyn Fn()>>>,
     visible: Cell<bool>,
     image_updates: Cell<usize>,
+    /// Bumped when image natural sizes change so the driver refreshes the
+    /// window minimum floor.
+    media_version: Cell<u64>,
     error: RefCell<Option<String>>,
     fatal_error: RefCell<Option<String>>,
     diagnostics: RefCell<Vec<String>>,
@@ -285,6 +297,10 @@ impl Inner {
         if let Some(f) = self.invalidate.borrow().clone() {
             f();
         }
+    }
+    fn bump_media(&self) {
+        self.media_version
+            .set(self.media_version.get().wrapping_add(1));
     }
     fn report(&self, error: String) {
         self.diagnostics.borrow_mut().push(error.clone());
@@ -374,6 +390,7 @@ impl View {
                 handler: RefCell::default(),
                 custom: RefCell::default(),
                 identity: 0,
+                media: Cell::new((0, 0)),
             })),
             title: RefCell::default(),
             nodes: RefCell::default(),
@@ -393,6 +410,7 @@ impl View {
             invalidate: RefCell::default(),
             visible: Cell::new(false),
             image_updates: Cell::new(0),
+            media_version: Cell::new(0),
             error: RefCell::default(),
             fatal_error: RefCell::default(),
             diagnostics: RefCell::default(),
@@ -482,6 +500,7 @@ impl View {
             handler: RefCell::default(),
             custom: RefCell::default(),
             identity,
+            media: Cell::new((0, 0)),
         });
         // Discard dead registry entries: scrolling through a large source stays bounded.
         self.0

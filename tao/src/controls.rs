@@ -482,9 +482,22 @@ impl View {
         let image = Rc::new(RefCell::new(None));
         let observed = image.clone();
         let weak = self.downgrade();
+        let media = Rc::downgrade(&node);
         self.bind(&node, source, move |frame| {
             if let Some(view) = weak.upgrade() {
                 view.0.image_updates.set(view.0.image_updates.get() + 1);
+            }
+            let dims = frame
+                .as_ref()
+                .map(|frame| (frame.width(), frame.height()))
+                .unwrap_or((0, 0));
+            if let Some(target) = media.upgrade() {
+                if target.media.get() != dims {
+                    target.media.set(dims);
+                    if let Some(view) = weak.upgrade() {
+                        view.0.bump_media();
+                    }
+                }
             }
             observed.replace(frame.map(|frame| {
                 widget::image::Handle::from_rgba(

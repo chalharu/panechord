@@ -17,9 +17,9 @@ use iced_winit::{
     runtime::user_interface::{Cache, State, UserInterface},
 };
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     panic::{AssertUnwindSafe, catch_unwind},
-    rc::Rc,
+    rc::{Rc, Weak},
     sync::{Arc, Mutex, Once},
     time::Instant,
 };
@@ -193,7 +193,31 @@ impl iced::advanced::Clipboard for Clipboard {
         }
     }
 }
+fn finite(value: f32) -> f32 {
+    if value.is_finite() {
+        value.max(0.0)
+    } else {
+        0.0
+    }
+}
+
+/// Mounted and visible through ancestors (enabled controls still display,
+// so enablement is ignored): images failing this impose no window floor.
+fn displayed(node: &super::Node) -> bool {
+    if !node.mounted.get() || !node.visible.get() {
+        return false;
+    }
+    let mut current = node.parent.upgrade();
+    while let Some(ancestor) = current {
+        if !ancestor.visible.get() {
+            return false;
+        }
+        current = ancestor.parent.upgrade();
+    }
+    true
+}
 struct Painter {
+    window: Arc<Window>,
     renderer: iced_tiny_skia::Renderer,
     cache: Cache,
     clipboard: Clipboard,
@@ -201,17 +225,20 @@ struct Painter {
     modifiers: iced::keyboard::Modifiers,
     deadline: Option<Instant>,
     ime_cursor: Option<iced::Point>,
+    media_applied: Cell<u64>,
 }
 impl Painter {
     fn new(window: Arc<Window>, view: &View) -> Self {
         Self {
             renderer: iced_tiny_skia::Renderer::new(iced::Font::default(), iced::Pixels(16.0)),
             cache: Cache::default(),
-            clipboard: Clipboard::connect(window, view),
+            clipboard: Clipboard::connect(window.clone(), view),
             cursor: mouse::Cursor::Unavailable,
             modifiers: Default::default(),
             deadline: None,
             ime_cursor: None,
+            window,
+            media_applied: Cell::new(0),
         }
     }
     fn pump(&mut self, view: &View, bounds: Size, event: iced::Event, draw: bool) -> Vec<Message> {
@@ -256,6 +283,44 @@ impl Painter {
             }))
         };
         let content = background;
+        // Image floor: narrowing must keep source pixels instead of
+        // squeezing them (spec rule 4), matching the other backends whose
+        // toolkits derive window minima from content. Recompute only when
+        // image sizes change, then clamp the OS window minimum.
+        if view.0.media_version.get() != self.media_applied.get() {
+            self.media_applied.set(view.0.media_version.get());
+            let mut floor = (0u32, 0u32);
+            for node in view.0.nodes.borrow().values().filter_map(Weak::upgrade) {
+                let (width, height) = node.media.get();
+                if (width, height) == (0, 0) || !displayed(&node) {
+                    continue;
+                }
+                let (mut pad_w, mut pad_h) = (0.0f32, 0.0f32);
+                let mut current = node.parent.upgrade();
+                while let Some(ancestor) = current {
+                    let style = ancestor.style.get();
+                    pad_w += finite(style.margin.left)
+                        + finite(style.margin.right)
+                        + finite(style.padding.left)
+                        + finite(style.padding.right);
+                    pad_h += finite(style.margin.top)
+                        + finite(style.margin.bottom)
+                        + finite(style.padding.top)
+                        + finite(style.padding.bottom);
+                    current = ancestor.parent.upgrade();
+                }
+                floor.0 = floor.0.max(width.saturating_add(pad_w.ceil() as u32));
+                floor.1 = floor.1.max(height.saturating_add(pad_h.ceil() as u32));
+            }
+            self.window.set_min_inner_size(if floor == (0, 0) {
+                None
+            } else {
+                Some(tao::dpi::LogicalSize::new(
+                    f64::from(floor.0),
+                    f64::from(floor.1),
+                ))
+            });
+        }
         let mut ui = UserInterface::build(
             view.scene(content),
             bounds,

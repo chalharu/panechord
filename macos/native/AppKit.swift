@@ -859,9 +859,18 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
         window.delegate = self
         window.autorecalculatesKeyViewLoop = false
         window.center()
+        // Game content owns every pixel: transient gaps (live resize before
+        // the next capture lands) must read as black like the tao/gtk
+        // surfaces, never the OS window gray.
+        window.backgroundColor = .black
+        // Live resize must show live frames, not a stretched cache: the
+        // render loop keeps producing frames through the drag.
+        window.preservesContentDuringLiveResize = false
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
+        scroll.drawsBackground = false
+        scroll.contentView.drawsBackground = false
         // Overlay scrollers never reserve layout space (a legacy scroller
         // appearing over an exact-fit game view would shrink the clip and
         // feed a layout loop), and exact-fit content must not bounce: the
@@ -962,6 +971,10 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
         guard !closed else { return }
         // The clip changed size: re-resolve tab floors to the new viewport.
         updateFloors()
+        // Force synchronous layout now: during a live drag AppKit may defer
+        // subview layout until mouse-up, leaving the game frame (and the
+        // viewport size it reports) a step behind the window.
+        window.layoutIfNeeded()
         emitSurfaceSize()
     }
 

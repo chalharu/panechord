@@ -61,8 +61,9 @@ root:
         id: frame
         source: {bind: {path: frame}}
       - type: Tab
+        style: {placement: {height: 120}}
         id: pages
-        position: Top
+        position: Left
         selected: {bind: {path: page, mode: TwoWay}}
         pages:
           - id: video

@@ -785,6 +785,15 @@ impl View {
             p.width.map(pixels).unwrap_or(-1),
             p.height.map(pixels).unwrap_or(-1),
         );
+        // Explicit placements fill (aspect-preserved upscale allowed);
+        // natural images never upscale beyond source pixels.
+        if let Some(picture) = frame.first_child().and_downcast::<gtk4::Picture>() {
+            picture.set_content_fit(if p.width.is_some() || p.height.is_some() {
+                gtk4::ContentFit::Contain
+            } else {
+                gtk4::ContentFit::ScaleDown
+            });
+        }
         match parent.kind {
             ParentKind::Grid(columns) => {
                 let grid = parent.widget.downcast_ref::<gtk4::Grid>().unwrap();

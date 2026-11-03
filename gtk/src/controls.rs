@@ -737,10 +737,13 @@ impl View {
         let picture = gtk4::Picture::new();
         // Natural source size per the shared layout priority: the picture
         // must neither collapse (can_shrink squeezed it to 0x0 in a
-        // height-bounded box, hiding unsized images) nor invite filling.
+        // height-bounded box, hiding unsized images) nor upscale beyond
+        // source on enlarge (ScaleDown caps drawing at natural size).
+        // Leading edge keeps it consistent with the other backends.
         picture.set_can_shrink(false);
-        picture.set_halign(gtk4::Align::Center);
+        picture.set_halign(gtk4::Align::Start);
         picture.set_vexpand(false);
+        picture.set_content_fit(gtk4::ContentFit::ScaleDown);
         self.mount_native(parent, id, &picture);
         self.0
             .nodes

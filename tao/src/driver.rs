@@ -247,6 +247,18 @@ enum Paint {
 struct Pumped {
     messages: Vec<Message>,
     dirty: bool,
+    // Read only by the Linux frame bridge (`IfDirty` present decision);
+    // other targets present unconditionally, so this is unused there.
+    #[cfg_attr(
+        not(any(
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "openbsd",
+            target_os = "dragonfly"
+        )),
+        allow(dead_code)
+    )]
     painted: bool,
 }
 struct Painter {
@@ -336,7 +348,7 @@ impl Painter {
         // structure moved (revision) or on the first pump. Bounds-only
         // changes relayout the existing root; steady input events reuse
         // the tree and only `update` below.
-        let structure_changed = self.ui.is_none() || revision != self.ui_revision;
+        let structure_changed = needs_rebuild(self.ui.is_none(), revision, self.ui_revision);
         if structure_changed {
             let root = &view.0.root.0;
             let content = root.element();

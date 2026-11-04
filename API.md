@@ -138,6 +138,52 @@ facade/renamed-dependency builds, including `use` prefixes).
 - automation `edit`, `click`, `activate_menu` -> Result<(),String>; `text(id)->Option<String>`, `item_keys(id)->Vec<String>` (mounted keys), `title()->String`, `mounted_count(id)->usize`, `viewport(id,start)`.
 - `native_*` extension factory is an application function called by generated code, e.g. `crate::meter(view,parent,id,binding)` calling backend `meter`; GTK must expose a genuine custom-widget mounting API for external primitive construction; Tao can mount custom iced Element factory. Neither should misrepresent software widgets as OS native.
 
+### Adding a backend
+
+A new backend is one crate plus facade wiring. No existing file changes
+shape; the trait gains defaulted methods instead of new dispatch arms.
+
+1. Crate `panechord-<name>`: register it in the workspace (`[workspace.members]`,
+   `[workspace.dependencies]` in the root `Cargo.toml`) and as an optional
+   dependency plus feature in `panechord/Cargo.toml`.
+2. `View`: implement all twelve capability traits (`ViewCore`, `LayoutView`,
+   `TextView`, `ButtonView`, `SelectView`, `MediaView`, `TabView`, `ListView`,
+   `TableView`, `DialogView`, `MenuView`, `AutomationView`). The umbrella
+   `View` is blanket-impl'd, so satisfying the twelve is sufficient. Provide
+   the `Parent` mount handle, `WeakView: WeakViewHandle`, and read-only
+   probes (`text`, `item_keys`, `mounted_count`, `title`).
+3. `Host`: implement `UiHost` (`executor`, single-`Session` `attach`) and
+   `WindowHost::register_view_with_hooks`. The plain `register_view` default
+   is the only public registration shape; do not add a host-level `present`
+   (examples register through `register_view`, never around it).
+4. `Executor`: implement `spawn`. Override `dispatch_budget` only for a
+   cooperative single-thread loop (AppKit returns 64); preemptive loop
+   integrations keep the default unbounded.
+5. Free functions the facade re-exports: `run_host`, `pick_file`,
+   `set_allows_automatic_window_tabbing`, `set_initial_window_size`. No-op
+   the setters where the platform has no equivalent. Add the `Backend` struct
+   (see `gtk/src/view.rs`) with a short `NAME` for logs.
+6. Facade (`panechord/src/lib.rs`): extend the `compile_error!` exclusivity
+   guard, add `pub use panechord-<name>` plus the standard re-export line and
+   the `as backend` alias. `SelectedBackend` and `Runner` follow
+   automatically; screens keep using `panechord::backend` and
+   `Backend::NAME`, never per-file backend aliases.
+7. Consumers: add `backend-<name> = ["panechord/<feature>"]` to
+   `demo/Cargo.toml` and `library/Cargo.toml`. Shared screens must build
+   under every backend with zero `cfg(feature)`; backend-only measurement
+   stays in the backend's own examples.
+8. HIG conformance, owned by the framework, not copied per backend: footer
+   order via `DialogFooter::ordered()`; Quit through the vetoable
+   close-request path, never a predefined quit; Return/Escape dialog-scoped
+   with destructive accept never a Return target; `Primary` modifiers through
+   the runtime `Shortcut` parser.
+9. Evidence: an example mirroring `tao/examples/multiwindow.rs`
+   (registration, reopen, foreign/closed rejection) plus headless tests for
+   the contract behaviors above, and a `<name>/README.md` stating backend
+   behavior and limits. Inherent extensions are allowed but shared screens
+   cannot use them — if every screen needs it, it belongs in the shared
+   traits.
+
 ### Shared layout behavior
 
 Vertical Stack children fill the available width after margins unless explicitly

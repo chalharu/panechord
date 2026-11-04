@@ -3570,3 +3570,67 @@ fn native_menu_invisible_leaf_stays_out_and_releases_shortcut() {
     assert!(view.activate_menu("file/quit").is_ok());
     view.close();
 }
+
+/// Combo reselect cycles must not warn `gtk_size_group_remove_widget`.
+/// The button cell is rebound (unbind+bind, no setup) on every selection
+/// change, so releasing popup labels on unbind removes a non-member from
+/// the second change on. Release belongs on teardown (1:1 with setup).
+/// Gtk-CRITICALs are recorded and asserted — they hide in stderr.
+#[test]
+#[ignore = "isolated Xvfb native contract"]
+fn native_combo_reselection_keeps_size_group_membership() {
+    use panechord_runtime::Choice;
+    gtk4::init().unwrap();
+    let criticals = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let seen = criticals.clone();
+    let handler = glib::log_set_handler(
+        Some("Gtk"),
+        glib::LogLevels::LEVEL_CRITICAL,
+        false,
+        false,
+        move |_, _, message| seen.lock().unwrap().push(message.to_owned()),
+    );
+    let executor = GtkHost::attach().executor();
+    let items = Store::new(
+        ["a", "b", "c", "d"]
+            .into_iter()
+            .map(|id| Choice {
+                id: id.into(),
+                label: format!("Choice {id}"),
+            })
+            .collect::<Vec<_>>(),
+        executor.clone(),
+    );
+    let selected = Store::new("a".to_owned(), executor);
+    let view = View::new(Binding::constant("combo".into()));
+    view.combo(
+        &view.root(),
+        "pick",
+        items.bind(Clone::clone, None),
+        selected.bind(Clone::clone, Some(|state, value| *state = value)),
+    );
+    view.native_window().set_default_size(400, 300);
+    view.present();
+    settle();
+    // The button cell rebinds (unbind+bind, no setup) per change: the
+    // first unbind used to release the setup-added label, every later one
+    // warned on the non-member.
+    for id in ["b", "c", "a", "d", "b"] {
+        assert!(selected.update(|state| *state = id.to_owned()));
+        settle();
+    }
+    view.close();
+    settle();
+    glib::log_remove_handler(Some("Gtk"), handler);
+    let groups = criticals
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|message| message.contains("size_group"))
+        .cloned()
+        .collect::<Vec<_>>();
+    assert!(
+        groups.is_empty(),
+        "SizeGroup membership broke across combo reselections: {groups:?}"
+    );
+}

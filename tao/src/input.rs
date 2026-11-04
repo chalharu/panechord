@@ -32,10 +32,10 @@ pub(super) enum NativeScroll {
 }
 
 /// Map a native scroll to an iced wheel delta. Discrete clicks become ±1
-/// lines; smooth deltas pass through as pixels (already pixel-scale, so no
-/// scale division like tao's `PixelDelta`). Shared by the tao event
-/// converter and the Linux GTK scroll-event bridge so both agree on
-/// direction and scale. Dropping `Smooth` here silently kills touchpad
+/// lines; smooth deltas pass through as raw pixels — relative motion is
+/// never scale-divided (only absolute cursor positions are). Shared by the
+/// tao event converter and the Linux GTK scroll-event bridge so both agree
+/// on direction and scale. Dropping `Smooth` here silently kills touchpad
 /// scrolling, the dominant scroll source on modern Linux.
 #[cfg_attr(
     not(any(
@@ -131,9 +131,16 @@ pub(super) fn convert(
         WindowEvent::MouseWheel { delta, .. } => Event::Mouse(mouse::Event::WheelScrolled {
             delta: match delta {
                 MouseScrollDelta::LineDelta(x, y) => mouse::ScrollDelta::Lines { x: *x, y: *y },
+                // Pixel deltas (trackpads, high-resolution wheels) pass
+                // through unscaled, matching the reference iced_winit
+                // conversion. They are relative motion, not positions: the
+                // tao value already accounts for the display, and iced
+                // scrolls Pixels 1:1. Dividing by the scale factor (as cursor
+                // positions require) halves trackpad speed on Retina and
+                // makes long scroll views feel dead.
                 MouseScrollDelta::PixelDelta(p) => mouse::ScrollDelta::Pixels {
-                    x: (p.x / scale) as f32,
-                    y: (p.y / scale) as f32,
+                    x: p.x as f32,
+                    y: p.y as f32,
                 },
                 _ => return None,
             },
@@ -284,6 +291,48 @@ mod tests {
         assert_eq!(
             scroll_delta(NativeScroll::Smooth(-3.5, -12.25)),
             mouse::ScrollDelta::Pixels { x: -3.5, y: -12.25 }
+        );
+    }
+
+    /// tao wheel-event conversion: discrete lines pass through, and precise
+    /// (trackpad/high-resolution) pixel deltas pass through UNSCALED,
+    /// matching the reference iced_winit conversion. Dividing by the scale
+    /// factor halves trackpad speed on Retina (the settings Input tab —
+    /// the only consistently-overflowing native scroll view — feels dead).
+    #[test]
+    fn wheel_pixel_deltas_pass_through_unscaled() {
+        use tao::event::MouseScrollDelta;
+        let mut cursor = mouse::Cursor::Unavailable;
+        let mut modifiers = k::Modifiers::empty();
+        let mut wheel = |delta| {
+            convert(
+                &WindowEvent::MouseWheel {
+                    device_id: unsafe { tao::event::DeviceId::dummy() },
+                    delta,
+                    phase: tao::event::TouchPhase::Moved,
+                    modifiers: tk::ModifiersState::empty(),
+                },
+                2.0,
+                Point::ORIGIN,
+                &mut cursor,
+                &mut modifiers,
+            )
+        };
+        assert_eq!(
+            wheel(MouseScrollDelta::LineDelta(0.0, 1.0)),
+            Some(Event::Mouse(mouse::Event::WheelScrolled {
+                delta: mouse::ScrollDelta::Lines { x: 0.0, y: 1.0 },
+            }))
+        );
+        // Retina scale must not shrink relative motion: 20 physical units in
+        // means 20 iced pixels out, exactly like iced_winit.
+        assert_eq!(
+            wheel(MouseScrollDelta::PixelDelta(
+                tao::dpi::PhysicalPosition::new(0.0, 20.0)
+            )),
+            Some(Event::Mouse(mouse::Event::WheelScrolled {
+                delta: mouse::ScrollDelta::Pixels { x: 0.0, y: 20.0 },
+            }))
         );
     }
 }

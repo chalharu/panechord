@@ -606,10 +606,15 @@ impl View {
                 .unwrap()
                 .set_text(&value.string());
         });
-        // Popup labels join the width group in setup: release them on unbind
-        // or the group keeps measuring finalized widgets after refreshes.
+        // Popup labels join the width group in setup: release them on
+        // teardown, which pairs 1:1 with setup. Releasing on unbind is
+        // wrong: pooled list rows are rebound without a new setup when the
+        // popup reopens (or the button cell is rebound on selection
+        // change), so the second unbind removes a non-member and warns
+        // (`gtk_size_group_remove_widget` assertion), and widths stop
+        // tracking in between.
         let ungroup = widths.clone();
-        factory.connect_unbind(move |_, object| {
+        factory.connect_teardown(move |_, object| {
             let item = object.downcast_ref::<gtk4::ListItem>().unwrap();
             if let Some(label) = item
                 .child()

@@ -41,8 +41,13 @@ fn native_x11_discrete_wheel_scrolls_window_content() {
     let position = Rc::new(std::cell::Cell::new(f32::NAN));
     let observed = position.clone();
     let view = View::new(Binding::constant("native root scroll".into()));
+    // Window roots never scroll, so mount the probe under a Scroll node with
+    // overflowing content; otherwise no wheel tick can move anything.
+    let scroll = view
+        .try_scroll(&view.root(), "probe_scroll", false)
+        .expect("scroll mounts under root");
     view.mount(
-        &view.root(),
+        &scroll,
         "probe",
         Rc::new(move || iced::Element::new(Probe(observed.clone()))),
         Vec::new(),
@@ -77,6 +82,59 @@ fn native_x11_discrete_wheel_scrolls_window_content() {
         "native wheel did not move drawn content: {initial} -> {}",
         position.get()
     );
+    view.close();
+}
+
+#[test]
+fn headless_wheel_moves_try_scroll_content() {
+    use iced_winit::runtime::user_interface::{Cache, UserInterface};
+    let view = View::new(Binding::constant("headless scroll".into()));
+    let scroll = view
+        .try_scroll(&view.root(), "tall", false)
+        .expect("scroll mounts under root");
+    view.mount(
+        &scroll,
+        "tall_block",
+        Rc::new(|| {
+            iced::widget::Space::new()
+                .height(1000.0)
+                .width(iced::Length::Fill)
+                .into()
+        }),
+        Vec::new(),
+    );
+    let mut renderer = iced_tiny_skia::Renderer::new(iced::Font::default(), iced::Pixels(16.0));
+    let bounds = iced::Size::new(660.0, 520.0);
+    let root = &view.0.root.0;
+    let mut ui = UserInterface::build(
+        view.scene(root.element()),
+        bounds,
+        Cache::default(),
+        &mut renderer,
+    );
+    let mut clipboard = iced::advanced::clipboard::Null;
+    let mut messages = Vec::new();
+    let wheel = iced::Event::Mouse(iced::mouse::Event::WheelScrolled {
+        delta: iced::mouse::ScrollDelta::Lines { x: 0.0, y: -1.0 },
+    });
+    let cursor = iced::mouse::Cursor::Available(iced::Point::new(10.0, 60.0));
+    let (state, _) = ui.update(
+        std::slice::from_ref(&wheel),
+        cursor,
+        &mut renderer,
+        &mut clipboard,
+        &mut messages,
+    );
+    match state {
+        State::Updated { redraw_request, .. } => {
+            use iced_winit::core::window::RedrawRequest;
+            assert!(
+                redraw_request != RedrawRequest::Wait,
+                "wheel over an overflowing scrollable must request redraw: {redraw_request:?}"
+            );
+        }
+        State::Outdated => {}
+    }
     view.close();
 }
 
@@ -392,7 +450,12 @@ fn native_backend_focus_loss_clears_iced_modifiers() {
         .desktop
         .painter
         .borrow_mut()
-        .pump(&view, input.desktop.bounds(), left, Paint::Never)
+        .pump(
+            &view,
+            input.desktop.bounds(),
+            std::slice::from_ref(&left),
+            Paint::Never,
+        )
         .messages;
     dispatch(&view, messages);
     input

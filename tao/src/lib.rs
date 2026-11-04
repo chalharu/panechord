@@ -672,7 +672,11 @@ impl View {
                 }
             });
         }
-        let key = node.key();
+        // Message routing keys on the plain node id (like buttons and
+        // entries): the `id#identity` widget key only disambiguates the iced
+        // tree. A suffixed TableCell id never resolves in `find`, silently
+        // dropping every table click.
+        let key = node.id.clone();
         node.kind.replace(Kind::Leaf(Rc::new(move || {
             let revision = data.borrow().1;
             let latest = data.clone();

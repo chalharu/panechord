@@ -2258,3 +2258,122 @@ fn retained_tree_revision_moves_only_on_refresh() {
     );
     view.close();
 }
+
+/// Table cell clicks reach the selection binding through the real iced
+/// path: synthesize press/release over the arrow column, dispatch what the
+/// widgets emit, and require the column-1 selection (the debugger jump
+/// target). Regression: the message carried the `id#identity` widget key,
+/// which never resolves in `find`, silently dropping every table click.
+#[test]
+fn table_cell_clicks_update_selection_for_text_and_arrow_columns() {
+    use iced_winit::runtime::user_interface::{Cache, UserInterface};
+    use panechord_runtime::{
+        Table, TableCell, TableColumn, TableRow, TableSelection, TextOverflow,
+    };
+    struct Clipboard;
+    impl iced::advanced::Clipboard for Clipboard {
+        fn read(&self, _: iced::advanced::clipboard::Kind) -> Option<String> {
+            None
+        }
+        fn write(&mut self, _: iced::advanced::clipboard::Kind, _: String) {}
+    }
+    let harness = Harness::new();
+    let view = View::new(Binding::constant("table clicks".into()));
+    let data = harness.store(Table {
+        columns: vec![
+            TableColumn {
+                title: String::new(),
+                width: None,
+                text: Default::default(),
+                overflow: TextOverflow::Clip,
+                stretch: true,
+                hide_empty: false,
+            },
+            TableColumn {
+                title: String::new(),
+                width: Some(40.0),
+                text: Default::default(),
+                overflow: TextOverflow::Clip,
+                stretch: false,
+                hide_empty: true,
+            },
+        ]
+        .into(),
+        rows: vec![Arc::new(TableRow {
+            key: "00008000".into(),
+            cells: vec![
+                TableCell {
+                    text: "JMP $8000".into(),
+                    foreground: None,
+                },
+                TableCell {
+                    text: "\u{2192}".into(),
+                    foreground: None,
+                },
+            ],
+        })]
+        .into(),
+        empty_text: String::new(),
+        column_gap: 4.0,
+        row_gap: 0.0,
+        row_inset: 2.0,
+    });
+    let selection = harness.store(None::<TableSelection>);
+    let write_selection: fn(&mut Option<TableSelection>, Option<TableSelection>) =
+        |state, value| *state = value;
+    view.table_with_selection(
+        &view.root(),
+        "disassembly",
+        data.bind(Clone::clone, None),
+        selection.bind(Clone::clone, Some(write_selection)),
+    );
+    harness.pump();
+    let mut renderer = iced_tiny_skia::Renderer::new(iced::Font::default(), iced::Pixels(16.0));
+    let mut ui = UserInterface::build(
+        view.root().0.element(),
+        iced::Size::new(400.0, 200.0),
+        Cache::default(),
+        &mut renderer,
+    );
+    // Sweep the right edge where the fixed 40px arrow column sits: the exact
+    // row height depends on font metrics, so probe until a cell fires.
+    let mut messages = Vec::new();
+    let mut y = 5.0;
+    while y < 120.0 {
+        for event in [
+            iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)),
+            iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
+                iced::mouse::Button::Left,
+            )),
+        ] {
+            ui.update(
+                &[event],
+                iced::mouse::Cursor::Available(iced::Point::new(370.0, y)),
+                &mut renderer,
+                &mut Clipboard,
+                &mut messages,
+            );
+        }
+        y += 5.0;
+    }
+    assert!(
+        messages.iter().any(|message| matches!(
+            message,
+            Message::TableCell(_, selection)
+            if selection.row_key == "00008000" && selection.column == 1
+        )),
+        "real arrow click did not emit a column-1 cell message: {messages:?}"
+    );
+    drop(ui);
+    for message in messages {
+        view.dispatch(message).expect("cell message routes");
+    }
+    assert_eq!(
+        selection.snapshot(),
+        Some(TableSelection {
+            row_key: "00008000".into(),
+            column: 1,
+        })
+    );
+    view.close();
+}

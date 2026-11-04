@@ -357,7 +357,7 @@ fn native_backend_focus_loss_clears_iced_modifiers() {
         text: None,
         repeat: false,
     });
-    let messages =
+    let (messages, _) =
         input
             .desktop
             .painter

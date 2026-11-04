@@ -60,6 +60,59 @@ pub(super) fn scroll_delta(kind: NativeScroll) -> mouse::ScrollDelta {
         },
     }
 }
+
+/// Merge a wheel delta into a pending coalesced scroll. Trackpads emit
+/// dozens of ticks per second and every pump rebuilds the whole widget
+/// tree (the Input tab mounts every binding row), so ticks accumulate
+/// here and flush once per frame. Same units add up; mixing lines with
+/// pixels refuses (the caller flushes first) so units never corrupt.
+pub(super) fn merge_wheel(
+    pending: Option<mouse::ScrollDelta>,
+    next: mouse::ScrollDelta,
+) -> Option<mouse::ScrollDelta> {
+    match (pending, next) {
+        (None, next) => Some(next),
+        (
+            Some(mouse::ScrollDelta::Lines { x: ax, y: ay }),
+            mouse::ScrollDelta::Lines { x: bx, y: by },
+        ) => Some(mouse::ScrollDelta::Lines {
+            x: ax + bx,
+            y: ay + by,
+        }),
+        (
+            Some(mouse::ScrollDelta::Pixels { x: ax, y: ay }),
+            mouse::ScrollDelta::Pixels { x: bx, y: by },
+        ) => Some(mouse::ScrollDelta::Pixels {
+            x: ax + bx,
+            y: ay + by,
+        }),
+        _ => None,
+    }
+}
+
+/// Wrap a (possibly coalesced) wheel delta as the iced event the driver
+/// delivers on flush.
+pub(super) fn wheel_event(delta: mouse::ScrollDelta) -> Event {
+    Event::Mouse(mouse::Event::WheelScrolled { delta })
+}
+
+/// Whether a pump dirtied anything: iced asked for a redraw, the tree is
+/// outdated, or a message awaits dispatch (dispatch may invalidate through
+/// bindings). Clean events — a wheel tick that moved nothing, a hovered
+/// cursor over static content — must not schedule a full rebuild+present.
+pub(super) fn needs_redraw(
+    state: &iced_winit::runtime::user_interface::State,
+    has_messages: bool,
+) -> bool {
+    use iced_winit::core::window::RedrawRequest;
+    has_messages
+        || match state {
+            iced_winit::runtime::user_interface::State::Outdated => true,
+            iced_winit::runtime::user_interface::State::Updated { redraw_request, .. } => {
+                *redraw_request != RedrawRequest::Wait
+            }
+        }
+}
 pub(super) fn key(key: &tk::Key<'_>) -> k::Key {
     use k::key::Named;
     if let tk::Key::Character(text) = key {
@@ -334,5 +387,58 @@ mod tests {
                 delta: mouse::ScrollDelta::Pixels { x: 0.0, y: 20.0 },
             }))
         );
+    }
+
+    /// Coalesced wheel accumulation: same units add, mixed units refuse so
+    /// the caller flushes first and unit semantics never corrupt.
+    #[test]
+    fn wheel_deltas_coalesce_within_variant_only() {
+        assert_eq!(
+            merge_wheel(None, mouse::ScrollDelta::Pixels { x: 0.0, y: 4.0 }),
+            Some(mouse::ScrollDelta::Pixels { x: 0.0, y: 4.0 })
+        );
+        assert_eq!(
+            merge_wheel(
+                Some(mouse::ScrollDelta::Pixels { x: 1.0, y: 4.0 }),
+                mouse::ScrollDelta::Pixels { x: -2.0, y: 8.0 }
+            ),
+            Some(mouse::ScrollDelta::Pixels { x: -1.0, y: 12.0 })
+        );
+        assert_eq!(
+            merge_wheel(
+                Some(mouse::ScrollDelta::Lines { x: 0.0, y: 1.0 }),
+                mouse::ScrollDelta::Lines { x: 0.0, y: -1.0 }
+            ),
+            Some(mouse::ScrollDelta::Lines { x: 0.0, y: 0.0 })
+        );
+        assert_eq!(
+            merge_wheel(
+                Some(mouse::ScrollDelta::Lines { x: 0.0, y: 1.0 }),
+                mouse::ScrollDelta::Pixels { x: 0.0, y: 1.0 }
+            ),
+            None
+        );
+    }
+
+    /// Only dirty pumps schedule a redraw: a no-op wheel tick or a clean
+    /// hover must not cost a full rebuild+present, while any redraw
+    /// request, outdated tree, or pending message must.
+    #[test]
+    fn clean_pumps_need_no_redraw() {
+        use iced_winit::{core::window::RedrawRequest, runtime::user_interface::State};
+        let updated = |redraw_request| State::Updated {
+            mouse_interaction: mouse::Interaction::default(),
+            redraw_request,
+            input_method: iced::advanced::input_method::InputMethod::Disabled,
+            has_layout_changed: false,
+        };
+        assert!(!needs_redraw(&updated(RedrawRequest::Wait), false));
+        assert!(needs_redraw(&updated(RedrawRequest::Wait), true));
+        assert!(needs_redraw(&updated(RedrawRequest::NextFrame), false));
+        assert!(needs_redraw(
+            &updated(RedrawRequest::At(iced::time::Instant::now())),
+            false
+        ));
+        assert!(needs_redraw(&State::Outdated, false));
     }
 }

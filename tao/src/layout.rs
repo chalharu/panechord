@@ -660,6 +660,14 @@ impl Widget<Message, iced::Theme, Renderer> for Panel {
             .zip(&tree.children)
             .zip(layout.children())
         {
+            // Cull fully off-viewport children: long scrolled lists (the
+            // Input tab mounts every binding row) must not rasterize rows
+            // no frame can show. Overlays paint through `overlay()`, not
+            // here, so popups are unaffected; partially visible children
+            // still draw, including any in-bounds overflow.
+            if bounds.bounds().intersection(viewport).is_none() {
+                continue;
+            }
             child
                 .as_widget()
                 .draw(state, renderer, theme, style, bounds, cursor, viewport);

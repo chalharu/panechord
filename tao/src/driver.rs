@@ -226,6 +226,11 @@ struct Painter {
     deadline: Option<Instant>,
     ime_cursor: Option<iced::Point>,
     media_applied: Cell<u64>,
+    /// Coalesced wheel scroll awaiting delivery. Trackpads emit dozens of
+    /// ticks per second and every pump rebuilds the whole widget tree (the
+    /// Input tab mounts every binding row), so same-unit ticks accumulate
+    /// here and flush once per frame instead of rebuilding per tick.
+    pending_wheel: Cell<Option<mouse::ScrollDelta>>,
 }
 impl Painter {
     fn new(window: Arc<Window>, view: &View) -> Self {
@@ -239,9 +244,19 @@ impl Painter {
             ime_cursor: None,
             window,
             media_applied: Cell::new(0),
+            pending_wheel: Cell::new(None),
         }
     }
-    fn pump(&mut self, view: &View, bounds: Size, event: iced::Event, draw: bool) -> Vec<Message> {
+    /// Returns the pumped messages plus whether anything dirtied: an iced
+    /// redraw request, an outdated tree, or a pending message (dispatch may
+    /// invalidate through bindings). Clean pumps must not schedule work.
+    fn pump(
+        &mut self,
+        view: &View,
+        bounds: Size,
+        event: iced::Event,
+        draw: bool,
+    ) -> (Vec<Message>, bool) {
         use iced_winit::core::window::RedrawRequest;
         view.0.surface_bounds.set((bounds.width, bounds.height));
         let viewport = view.0.native_viewport.borrow().clone();
@@ -342,6 +357,7 @@ impl Painter {
             &mut self.clipboard,
             &mut messages,
         );
+        let dirty = input::needs_redraw(&state, !messages.is_empty());
         if let State::Updated { input_method, .. } = &state {
             self.ime_cursor = match input_method {
                 iced::advanced::input_method::InputMethod::Enabled { cursor, .. } => {
@@ -374,7 +390,7 @@ impl Painter {
             view.0.frames.set(view.0.frames.get() + 1);
         }
         self.cache = ui.into_cache();
-        messages
+        (messages, dirty)
     }
 }
 fn dispatch(view: &View, messages: Vec<Message>) {
@@ -506,7 +522,7 @@ impl Desktop {
                     );
                     let (mut pixels, messages) = {
                         let mut painter = out.borrow_mut();
-                        let messages =
+                        let (messages, _) =
                             painter.pump(&owner, viewport.logical_size(), redraw(), true);
                         let pixels = iced_tiny_skia::window::compositor::screenshot(
                             &mut painter.renderer,
@@ -583,7 +599,7 @@ impl Desktop {
                             position.1 as f32 - offset.1 as f32,
                         );
                         if cursor.x >= 0.0 && cursor.y >= 0.0 {
-                            let messages = {
+                            let (messages, dirty) = {
                                 let mut painter = painter.borrow_mut();
                                 painter.cursor = mouse::Cursor::Available(cursor);
                                 painter.pump(
@@ -597,7 +613,11 @@ impl Desktop {
                                 )
                             };
                             dispatch(&view, messages);
-                            area.queue_draw();
+                            // queue_draw is the whole frame: a no-op tick that
+                            // scrolled nothing must not pay for it.
+                            if dirty {
+                                area.queue_draw();
+                            }
                         }
                     }
                     gtk::glib::Propagation::Proceed
@@ -748,6 +768,19 @@ impl Desktop {
         )))]
         self.window.request_redraw();
     }
+    /// Deliver a coalesced wheel scroll before anything ordered after it.
+    /// Returns whether the flush dirtied anything (the caller folds it
+    /// into its own redraw decision so a real scroll is never dropped).
+    fn flush_wheel(&self) -> bool {
+        let bounds = self.bounds();
+        let mut painter = self.painter.borrow_mut();
+        let Some(delta) = painter.pending_wheel.take() else {
+            return false;
+        };
+        let (messages, dirty) = painter.pump(&self.view, bounds, input::wheel_event(delta), false);
+        dispatch(&self.view, messages);
+        dirty
+    }
     fn event(&self, event: &WindowEvent<'_>) {
         #[cfg(any(
             target_os = "linux",
@@ -767,38 +800,81 @@ impl Desktop {
         {
             self.area.grab_focus();
         }
-        let messages = {
+        // High-frequency wheel ticks accumulate instead of pumping a full
+        // tree rebuild per tick: the pending total flushes once per frame
+        // (in `draw`, or here before any event ordered after it).
+        if matches!(event, WindowEvent::MouseWheel { .. }) {
+            let scale = self.window.scale_factor();
+            let offset = self.offset();
+            let bounds = self.bounds();
             let mut painter = self.painter.borrow_mut();
             let Painter {
                 cursor, modifiers, ..
             } = &mut *painter;
-            // HIG dialog keys: plain Return/Escape inside an open dialog
-            // clicks the footer before widgets see the press. Entries keep
-            // Return when no dialog is open, and IME composition keys never
-            // arrive here as presses.
-            if let WindowEvent::KeyboardInput { event, .. } = event
-                && event.state == NativeElementState::Pressed
-                && !event.repeat
-                && modifiers.is_empty()
-                && let code = event.physical_key
-                && let Some(message) = self.view.dialog_key_action(code)
+            if let Some(iced::Event::Mouse(mouse::Event::WheelScrolled { delta })) =
+                input::convert(event, scale, offset, cursor, modifiers)
             {
-                vec![message]
-            } else {
-                let mapped = input::convert(
-                    event,
-                    self.window.scale_factor(),
-                    self.offset(),
-                    cursor,
-                    modifiers,
-                );
-                mapped
-                    .map(|e| painter.pump(&self.view, self.bounds(), e, false))
-                    .unwrap_or_default()
+                if input::merge_wheel(painter.pending_wheel.get(), delta).is_none() {
+                    // Mixed units (trackpad Pixels vs wheel Lines): deliver
+                    // what's pending first so order — and units — survive.
+                    if let Some(previous) = painter.pending_wheel.take() {
+                        let (flushed, _) =
+                            painter.pump(&self.view, bounds, input::wheel_event(previous), false);
+                        dispatch(&self.view, flushed);
+                    }
+                    painter.pending_wheel.set(Some(delta));
+                } else {
+                    painter
+                        .pending_wheel
+                        .set(input::merge_wheel(painter.pending_wheel.get(), delta));
+                }
+                drop(painter);
+                self.refresh();
+                return;
             }
-        };
+            // Unknown scroll variant maps to no iced event: nothing to pump
+            // and nothing dirtied, so no redraw.
+            return;
+        }
+        // A non-wheel event belongs after any pending scroll.
+        let flushed = self.flush_wheel();
+        let (messages, dirty) = self.pump_event(event);
         dispatch(&self.view, messages);
-        self.refresh();
+        if flushed || dirty {
+            self.refresh();
+        }
+    }
+    /// Single-event pump shared by the wheel / non-wheel branches above:
+    /// dialog keys first, otherwise the converted native event.
+    fn pump_event(&self, event: &WindowEvent<'_>) -> (Vec<Message>, bool) {
+        let mut painter = self.painter.borrow_mut();
+        let Painter {
+            cursor, modifiers, ..
+        } = &mut *painter;
+        // HIG dialog keys: plain Return/Escape inside an open dialog
+        // clicks the footer before widgets see the press. Entries keep
+        // Return when no dialog is open, and IME composition keys never
+        // arrive here as presses.
+        if let WindowEvent::KeyboardInput { event, .. } = event
+            && event.state == NativeElementState::Pressed
+            && !event.repeat
+            && modifiers.is_empty()
+            && let code = event.physical_key
+            && let Some(message) = self.view.dialog_key_action(code)
+        {
+            (vec![message], true)
+        } else {
+            let mapped = input::convert(
+                event,
+                self.window.scale_factor(),
+                self.offset(),
+                cursor,
+                modifiers,
+            );
+            mapped
+                .map(|e| painter.pump(&self.view, self.bounds(), e, false))
+                .unwrap_or_default()
+        }
     }
     #[cfg(not(any(
         target_os = "linux",
@@ -823,7 +899,20 @@ impl Desktop {
         );
         let messages = {
             let mut painter = self.painter.borrow_mut();
-            let messages = painter.pump(&self.view, viewport.logical_size(), redraw(), true);
+            // One frame carries the whole coalesced scroll: deliver the
+            // pending total first so N ticks cost one update, not N.
+            let mut messages = Vec::new();
+            if let Some(delta) = painter.pending_wheel.take() {
+                let (flushed, _) = painter.pump(
+                    &self.view,
+                    viewport.logical_size(),
+                    input::wheel_event(delta),
+                    false,
+                );
+                messages.extend(flushed);
+            }
+            let (redrawn, _) = painter.pump(&self.view, viewport.logical_size(), redraw(), true);
+            messages.extend(redrawn);
             self.compositor
                 .present(
                     &mut painter.renderer,

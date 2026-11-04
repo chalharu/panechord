@@ -279,14 +279,6 @@ fn main() -> Result<(), String> {
                 assert_eq!(model.snapshot().page, "audio");
                 probe.select("pages", "video").unwrap();
                 assert_eq!(model.snapshot().page, "video");
-                #[cfg(feature = "backend-macos")]
-                if let Some(directory) = std::env::var_os("PANECHORD_CONTROLS_CAPTURE") {
-                    let directory = std::path::PathBuf::from(directory);
-                    std::fs::create_dir_all(&directory).unwrap();
-                    probe
-                        .capture(&directory.join(format!("tabs-{position:?}.png")), 640.0)
-                        .unwrap();
-                }
             }
             probe
                 .tab_position("pages", panechord_runtime::TabPosition::Left)
@@ -305,17 +297,6 @@ fn main() -> Result<(), String> {
                     .tab_position("vsync", panechord_runtime::TabPosition::Left)
                     .is_err()
             );
-            #[cfg(feature = "backend-macos")]
-            if let Some(directory) = std::env::var_os("PANECHORD_CONTROLS_CAPTURE") {
-                let directory = std::path::PathBuf::from(directory);
-                std::fs::create_dir_all(&directory).unwrap();
-                probe
-                    .capture(&directory.join("controls-640.png"), 640.0)
-                    .unwrap();
-                probe
-                    .capture(&directory.join("controls-960.png"), 960.0)
-                    .unwrap();
-            }
             probe.click("open_dialog").unwrap();
             assert!(model.snapshot().open);
             probe.click("actions/accept").unwrap();

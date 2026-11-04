@@ -1708,7 +1708,7 @@ impl UiHost for MacHost {
     }
 }
 impl MacHost {
-    pub fn present(&self, view: &View) {
+    fn insert_view(&self, view: &View) {
         self.views.borrow_mut().retain(|existing| {
             !existing.0.lifecycle.is_closed() && !Rc::ptr_eq(&existing.0, &view.0)
         });
@@ -1737,7 +1737,7 @@ impl MacHost {
                 shutdown.request_shutdown(Duration::from_secs(5)).await;
             }));
         })));
-        self.present(view);
+        self.insert_view(view);
         Ok(())
     }
 }

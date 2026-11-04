@@ -285,17 +285,29 @@ pub struct FooterButton {
     pub command: Command,
 }
 
-/// Dialog footer: the framework-level accept/cancel control. The backend owns
-/// the visual order (cancel first on GNOME/macOS, accept first on Windows)
-/// and the default/destructive emphasis; key handling (Return/Escape) stays
-/// with the dialog owner so capture sessions keep precedence over footer
-/// keys. `destructive` marks a destructive accept (for example Discard):
-/// backends emphasize it accordingly and do not mark it default.
+/// Dialog footer: the framework-level accept/cancel control. Button order is a
+/// single platform policy owned here (accept first on Windows, cancel first
+/// on GNOME/macOS per HIGs); backends only iterate it. Key handling
+/// (Return/Escape) stays with the dialog owner so capture sessions keep
+/// precedence over footer keys. `destructive` marks a destructive accept (for
+/// example Discard): backends emphasize it accordingly and do not mark it
+/// default.
 #[derive(Clone)]
 pub struct DialogFooter {
     pub accept: FooterButton,
     pub cancel: FooterButton,
     pub destructive: bool,
+}
+impl DialogFooter {
+    /// HIG button order shared by every backend: Windows puts the affirmative
+    /// action first, GNOME/macOS put cancel first.
+    pub fn ordered(&self) -> [(&'static str, &FooterButton); 2] {
+        if std::env::consts::OS == "windows" {
+            [("accept", &self.accept), ("cancel", &self.cancel)]
+        } else {
+            [("cancel", &self.cancel), ("accept", &self.accept)]
+        }
+    }
 }
 impl SliderRange {
     pub fn validate(self) -> Result<Self, &'static str> {

@@ -919,8 +919,8 @@ impl View {
         })));
     }
     /// Dialog footer: the framework-level accept/cancel control. Two buttons in
-    /// one end-aligned horizontal row with gap 12: accept-first on Windows,
-    /// cancel-first elsewhere (GNOME/macOS order).
+    /// one end-aligned horizontal row with gap 12, in `DialogFooter::ordered`
+    /// HIG order.
     ///
     /// HIG Return/Escape: when the footer sits inside an open dialog, plain
     /// Return clicks a non-destructive enabled accept and Escape clicks
@@ -946,11 +946,7 @@ impl View {
             horizontal_alignment: Some(panechord_runtime::Alignment::End),
             ..Style::default()
         });
-        let order = if std::env::consts::OS == "windows" {
-            [("accept", &footer.accept), ("cancel", &footer.cancel)]
-        } else {
-            [("cancel", &footer.cancel), ("accept", &footer.accept)]
-        };
+        let order = footer.ordered();
         for (sub, part) in order {
             let child = format!("{id}/{sub}");
             let node = self.add(&row, &child, Kind::Content);
@@ -1803,7 +1799,7 @@ impl panechord_runtime::UiHost for TaoHost {
     }
 }
 impl TaoHost {
-    pub fn present(&self, view: &View) {
+    fn insert_view(&self, view: &View) {
         if view.0.lifecycle.is_closed() {
             return;
         }
@@ -1845,7 +1841,7 @@ impl TaoHost {
                     .await;
             }));
         })));
-        self.present(view);
+        self.insert_view(view);
         Ok(())
     }
 }

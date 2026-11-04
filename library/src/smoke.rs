@@ -116,37 +116,6 @@ pub async fn verify(view: backend::View, model: Store<App>, passed: Rc<Cell<bool
     println!(
         "LIBRARY3 {name} PASS native-events scan filter selection invalid-folder recovery rescan"
     );
-    #[cfg(feature = "backend-macos")]
-    {
-        let mut completion = Vec::new();
-        let mut drawing = Vec::new();
-        for _ in 0..20 {
-            let started = std::time::Instant::now();
-            for filter in ["ALPHA", "beta", ""] {
-                view.edit("filter", filter).unwrap();
-            }
-            drawing.push(view.render());
-            until(
-                model.bind(
-                    |state| !state.busy && state.filter.is_empty() && state.rows.len() == 4,
-                    None,
-                ),
-                |ready| *ready,
-            )
-            .await;
-            completion.push(started.elapsed());
-            assert_eq!(view.item_keys("rows").len(), 4);
-        }
-        completion.sort_unstable();
-        drawing.sort_unstable();
-        println!(
-            "LIBRARY3 macos PASS latest-query-bursts samples=20 injected-edits=60 completion-p50-us={} p95-us={} draw-p50-us={} p95-us={} (sandbox filesystem, injected edits, not physical input latency)",
-            completion[10].as_micros(),
-            completion[19].as_micros(),
-            drawing[10].as_micros(),
-            drawing[19].as_micros()
-        );
-    }
     let owner = model.clone();
     view.on_close(Rc::new(move || {
         assert!(owner.is_closed());

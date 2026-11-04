@@ -39,7 +39,7 @@ fn main() -> Result<(), String> {
     let passed = Rc::new(Cell::new(false));
     let finished = passed.clone();
     let result = panechord_macos::run_host(move |host| {
-        use panechord_runtime::{Session, UiHost as _};
+        use panechord_runtime::{Session, UiHost as _, WindowHost as _};
         let session = Session::new();
         host.attach(session.clone())?;
         let executor = host.executor();
@@ -735,7 +735,7 @@ fn main() -> Result<(), String> {
             drop(range);
             println!("MACOS3 PASS weak-view close model-closed idempotent");
         }));
-        host.present(&view);
+        host.register_view(&session, "main", &view)?;
         Ok(())
     });
     result?;

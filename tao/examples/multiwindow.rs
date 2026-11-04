@@ -78,7 +78,6 @@ fn main() -> Result<(), String> {
             &auxiliary,
             hooks(&auxiliary, allow.clone()),
         )?;
-        host.present(&primary);
         let executor = host.executor();
         executor.spawn(Box::pin(async move {
             drawn(&[primary.clone(), auxiliary.clone()]).await;

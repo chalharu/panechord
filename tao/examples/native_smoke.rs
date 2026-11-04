@@ -175,7 +175,7 @@ fn main() -> Result<(), String> {
     let closed = Rc::new(Cell::new(false));
     let observed = closed.clone();
     run_host(move |host| {
-        use panechord_runtime::UiHost as _;
+        use panechord_runtime::{UiHost as _, WindowHost as _};
         let session = Session::new();
         host.attach(session.clone())?;
         let executor = host.executor();
@@ -406,7 +406,7 @@ fn main() -> Result<(), String> {
                 out.activate_menu("file/quit").unwrap();
             }
         }));
-        host.present(&view);
+        host.register_view(&session, "main", &view)?;
         Ok(())
     })?;
     assert!(closed.get(), "native Quit must close the owning View");

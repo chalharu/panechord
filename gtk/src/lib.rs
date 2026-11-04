@@ -921,7 +921,8 @@ impl View {
     }
 
     /// Dialog footer: the framework-level accept/cancel control. Order follows
-    /// the GNOME HIG (cancel first, affirmative second).
+    /// `DialogFooter::ordered` (the GNOME/macOS cancel-first shape on this
+    /// platform).
     ///
     /// HIG Return/Escape: a non-destructive accept becomes the dialog
     /// window's default widget (Return activates it) and Escape activates
@@ -937,8 +938,13 @@ impl View {
         row.set_halign(gtk4::Align::End);
         let cancel = gtk4::Button::new();
         let accept = gtk4::Button::new();
-        row.append(&cancel);
-        row.append(&accept);
+        for (sub, _) in footer.ordered() {
+            if sub == "accept" {
+                row.append(&accept);
+            } else {
+                row.append(&cancel);
+            }
+        }
         self.mount_native(parent, id, &row);
         let parts = [
             ("cancel", &cancel, &footer.cancel),

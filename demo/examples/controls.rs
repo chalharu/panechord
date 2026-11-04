@@ -54,7 +54,7 @@ fn main() -> Result<(), String> {
         }
     }
     backend::run_host(move |host| {
-        use panechord_runtime::{Session, UiHost as _};
+        use panechord_runtime::{Session, UiHost as _, WindowHost as _};
         let session = Session::new();
         host.attach(session.clone())?;
         let executor = host.executor();
@@ -217,12 +217,7 @@ fn main() -> Result<(), String> {
         }));
         if std::env::var_os("PANECHORD_CONTROLS_REVIEW").is_some() {
             completed.set(true);
-            #[cfg(feature = "backend-gtk")]
             host.register_view(&session, "review", &view)?;
-            #[cfg(feature = "backend-tao")]
-            host.present(&view);
-            #[cfg(feature = "backend-macos")]
-            host.present(&view);
             return Ok(());
         }
         executor.spawn(Box::pin(async move {
@@ -434,12 +429,7 @@ fn main() -> Result<(), String> {
             );
             assert!(probe.set_open("dialog", true).is_err());
         }));
-        #[cfg(feature = "backend-gtk")]
         host.register_view(&session, "controls", &view)?;
-        #[cfg(feature = "backend-tao")]
-        host.present(&view);
-        #[cfg(feature = "backend-macos")]
-        host.present(&view);
         Ok(())
     })
 }

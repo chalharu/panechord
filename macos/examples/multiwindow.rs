@@ -68,7 +68,7 @@ mod native {
         let drain = probe.clone();
         let closed = probe.clone();
         let weak = view.downgrade();
-        host.register_view(
+        host.register_view_with_hooks(
             session,
             id,
             &view,
@@ -113,7 +113,7 @@ mod native {
             let closed = View::new(Binding::constant("Closed".into()));
             closed.close();
             assert!(
-                host.register_view(
+                host.register_view_with_hooks(
                     &closed_session,
                     "closed",
                     &closed,
@@ -141,7 +141,7 @@ mod native {
             );
             let rejected = View::new(Binding::constant("Rejected Session".into()));
             assert!(
-                host.register_view(
+                host.register_view_with_hooks(
                     &foreign,
                     "foreign",
                     &rejected,

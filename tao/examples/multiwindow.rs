@@ -71,8 +71,8 @@ fn main() -> Result<(), String> {
             })?;
             assert!(view.on_native_window(|_| Ok(())).is_err());
         }
-        host.register_view(&session, "main", &primary, hooks(&primary, allow.clone()))?;
-        host.register_view(
+        host.register_view_with_hooks(&session, "main", &primary, hooks(&primary, allow.clone()))?;
+        host.register_view_with_hooks(
             &session,
             "aux",
             &auxiliary,
@@ -92,11 +92,11 @@ fn main() -> Result<(), String> {
             assert!(model.update(|value| *value = 2));
             assert_eq!(auxiliary.text("counter").as_deref(), Some("2"));
             let reopened = view("Tao reopened", &model);
-            host.register_view(&session, "main", &reopened, hooks(&reopened, allow.clone())).unwrap();
+            host.register_view_with_hooks(&session, "main", &reopened, hooks(&reopened, allow.clone())).unwrap();
             drawn(std::slice::from_ref(&reopened)).await;
             assert_eq!(reopened.text("counter").as_deref(), Some("2"));
-            assert!(host.register_view(&Session::new(), "foreign", &reopened, hooks(&reopened, allow.clone())).is_err());
-            assert!(host.register_view(&session, "closed", &primary, hooks(&primary, allow.clone())).is_err());
+            assert!(host.register_view_with_hooks(&Session::new(), "foreign", &reopened, hooks(&reopened, allow.clone())).is_err());
+            assert!(host.register_view_with_hooks(&session, "closed", &primary, hooks(&primary, allow.clone())).is_err());
             auxiliary.request_quit();
             tick().await;
             assert_eq!(session.shutdown().request_shutdown(Duration::from_millis(100)).await, ShutdownOutcome::Cancelled);
@@ -108,7 +108,7 @@ fn main() -> Result<(), String> {
             assert!(model.update(|value| *value = 3));
             assert_eq!(reopened.text("counter").as_deref(), Some("3"));
             let auxiliary = view("Tao auxiliary reopened", &model);
-            host.register_view(&session, "aux", &auxiliary, hooks(&auxiliary, allow.clone())).unwrap();
+            host.register_view_with_hooks(&session, "aux", &auxiliary, hooks(&auxiliary, allow.clone())).unwrap();
             drawn(std::slice::from_ref(&auxiliary)).await;
             assert_eq!(session.shutdown().window_count(), 2);
             allow.set(true);

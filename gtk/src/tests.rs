@@ -177,7 +177,7 @@ fn native_style_late_close_contract() {
 use super::*;
 use futures::{FutureExt, channel::oneshot};
 use panechord_runtime::Shortcut;
-use panechord_runtime::{Edges, Placement, Policy, ShutdownOutcome, run_async};
+use panechord_runtime::{Edges, Placement, Policy, ShutdownOutcome, WindowHost, run_async};
 use std::time::Duration;
 
 #[test]

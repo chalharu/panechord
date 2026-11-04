@@ -1822,7 +1822,7 @@ impl TaoHost {
         }
         view.present();
     }
-    pub fn register_view(
+    pub fn register_view_with_hooks(
         &self,
         session: &panechord_runtime::Session,
         id: &str,

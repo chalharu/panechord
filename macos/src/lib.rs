@@ -1710,7 +1710,7 @@ impl MacHost {
         self.views.borrow_mut().push(view.clone());
         view.present();
     }
-    pub fn register_view(
+    pub fn register_view_with_hooks(
         &self,
         session: &Session,
         id: &str,
@@ -1749,14 +1749,14 @@ impl Drop for MacHost {
 }
 
 impl panechord_runtime::WindowHost<View> for MacHost {
-    fn register_view(
+    fn register_view_with_hooks(
         &self,
         session: &Session,
         id: &str,
         view: &View,
         hooks: WindowHooks,
     ) -> Result<(), String> {
-        MacHost::register_view(self, session, id, view, hooks)
+        MacHost::register_view_with_hooks(self, session, id, view, hooks)
     }
 }
 

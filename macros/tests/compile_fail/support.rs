@@ -224,7 +224,7 @@ pub mod fake {
         fn attach(&self, _: Session) -> Result<(), String> { Ok(()) }
     }
     impl WindowHost<View> for Host {
-        fn register_view(&self, _: &Session, _: &str, _: &View, _: WindowHooks) -> Result<(), String> {
+        fn register_view_with_hooks(&self, _: &Session, _: &str, _: &View, _: WindowHooks) -> Result<(), String> {
             Ok(())
         }
     }

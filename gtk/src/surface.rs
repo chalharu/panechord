@@ -211,7 +211,7 @@ impl WindowSurface for Surface {
 }
 
 impl WindowHost<View> for GtkHost {
-    fn register_view(
+    fn register_view_with_hooks(
         &self,
         session: &Session,
         id: &str,

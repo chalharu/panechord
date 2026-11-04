@@ -36,14 +36,14 @@ impl WindowSurface for Surface {
 }
 
 impl WindowHost<View> for TaoHost {
-    fn register_view(
+    fn register_view_with_hooks(
         &self,
         session: &Session,
         id: &str,
         view: &View,
         hooks: WindowHooks,
     ) -> Result<(), String> {
-        TaoHost::register_view(self, session, id, view, hooks)
+        TaoHost::register_view_with_hooks(self, session, id, view, hooks)
     }
 }
 

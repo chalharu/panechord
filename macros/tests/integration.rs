@@ -517,7 +517,7 @@ mod fake {
         }
     }
     impl WindowHost<View> for Host {
-        fn register_view(
+        fn register_view_with_hooks(
             &self,
             _: &Session,
             _: &str,

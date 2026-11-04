@@ -29,7 +29,7 @@ use panechord_tao as backend;
 ))]
 compile_error!("select exactly one backend: backend-gtk, backend-tao or backend-macos");
 
-use panechord_runtime::{BlockingPool, Session, Store, UiHost};
+use panechord_runtime::{BlockingPool, Session, Store, UiHost, WindowHost};
 use std::{
     cell::{Cell, RefCell},
     path::PathBuf,
@@ -71,12 +71,7 @@ fn main() -> Result<(), String> {
             std::num::NonZeroUsize::new(64).unwrap(),
         );
         let view = wiring::view(model.clone(), executor.clone(), pool);
-        #[cfg(feature = "backend-gtk")]
         host.register_view(&session, "main", &view)?;
-        #[cfg(feature = "backend-tao")]
-        host.present(&view);
-        #[cfg(feature = "backend-macos")]
-        host.present(&view);
         if smoke {
             executor.spawn(Box::pin(smoke::verify(view.clone(), model, probe)));
         }

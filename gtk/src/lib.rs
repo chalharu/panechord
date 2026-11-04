@@ -2003,28 +2003,6 @@ impl GtkHost {
             })));
         Ok(())
     }
-    /// Register an actual view with a runtime Session before `UiHost::attach`.
-    /// Default hooks confirm immediately and have no application work to drain.
-    /// Applications can separately register their own cancellation/drain hooks.
-    pub fn register_view(&self, session: &Session, id: &str, view: &View) -> Result<(), String> {
-        let weak = Rc::downgrade(&view.0);
-        self.register_view_with_hooks(
-            session,
-            id,
-            view,
-            WindowHooks {
-                confirm: Rc::new(|| Box::pin(async { true })),
-                cancel: Rc::new(|| {}),
-                drain: Rc::new(|| Box::pin(async {})),
-                close: Rc::new(move || {
-                    if let Some(inner) = weak.upgrade() {
-                        View(inner).close();
-                    }
-                }),
-            },
-        )
-    }
-
     pub fn register_view_with_hooks(
         &self,
         session: &Session,

@@ -23,7 +23,7 @@ impl Greeting {
 }
 fn main() -> Result<(), String> {
     backend::run_host(|host| {
-        use panechord_runtime::{Session, UiHost as _};
+        use panechord_runtime::{Session, UiHost as _, WindowHost as _};
         let session = Session::new();
         host.attach(session.clone())?;
         let executor = host.executor();
@@ -37,12 +37,7 @@ fn main() -> Result<(), String> {
             .try_into_owner()
             .unwrap_or_else(|_| panic!("shared model"));
         let view = panechord_macros::owned_view!("ui/minimal.yaml", owner, backend);
-        #[cfg(feature = "backend-gtk")]
         host.register_view(&session, "main", &view)?;
-        #[cfg(feature = "backend-tao")]
-        host.present(&view);
-        #[cfg(feature = "backend-macos")]
-        host.present(&view);
         Ok(())
     })
 }

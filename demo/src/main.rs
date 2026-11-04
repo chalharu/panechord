@@ -26,7 +26,7 @@ compile_error!("select exactly one backend");
 
 use model::{RowCommands, Settings, SettingsCommands};
 use native::{NumberText, meter, validate_name};
-use panechord_runtime::{BlockingPool, Session, Store, UiHost};
+use panechord_runtime::{BlockingPool, Session, Store, UiHost, WindowHost};
 use std::{cell::RefCell, rc::Rc};
 
 fn main() -> Result<(), String> {
@@ -52,12 +52,7 @@ fn main() -> Result<(), String> {
             .unwrap_or_else(|_| panic!("shared model"));
         let model = owner.store().clone();
         let view = panechord_macros::owned_view!("ui/gallery.yaml", owner, backend);
-        #[cfg(feature = "backend-gtk")]
         host.register_view(&session, "main", &view)?;
-        #[cfg(feature = "backend-tao")]
-        host.present(&view);
-        #[cfg(feature = "backend-macos")]
-        host.present(&view);
         if args.iter().any(|arg| arg == "--smoke") {
             executor.spawn(Box::pin(smoke::verify(view.clone(), model, path)));
         }

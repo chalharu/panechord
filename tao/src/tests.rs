@@ -2161,3 +2161,36 @@ fn input_tab_scroll_content_stays_near_natural_height() {
     );
     view.close();
 }
+
+#[test]
+fn retained_tree_revision_moves_only_on_refresh() {
+    let harness = Harness::new();
+    let view = View::new(Binding::constant("revision".into()));
+    let constructed = view.0.revision.get();
+    view.present();
+    let after_present = view.0.revision.get();
+    assert_eq!(after_present, constructed + 1, "present refreshes once");
+    // No binding traffic: revision stays put, so steady input events reuse
+    // the retained iced tree instead of rebuilding every widget per tick.
+    harness.pump();
+    assert_eq!(view.0.revision.get(), after_present);
+    let model = harness.store("a".to_owned());
+    let parent = view.root();
+    view.label(&parent, "caption", model.bind(Clone::clone, None));
+    harness.pump();
+    let mounted = view.0.revision.get();
+    assert!(mounted > after_present, "mount refreshes");
+    harness.pump();
+    assert_eq!(
+        view.0.revision.get(),
+        mounted,
+        "idle pumps must not move revision"
+    );
+    assert!(model.update(|value| *value = "b".to_owned()));
+    harness.pump();
+    assert!(
+        view.0.revision.get() > mounted,
+        "binding change refreshes exactly once per notification"
+    );
+    view.close();
+}

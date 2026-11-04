@@ -688,6 +688,11 @@ impl Widget<Message, iced::Theme, Renderer> for Panel {
             return;
         }
         // Reverse hit order agrees with draw order for overlapping absolute/grid children.
+        // Mouse events cull fully off-viewport children (long scrolled
+        // lists must not hit-test rows no frame can show); keyboard and
+        // window events still visit all children so focus navigation and
+        // shortcuts reach off-screen rows.
+        let is_mouse = matches!(event, Event::Mouse(_));
         let layouts: Vec<_> = layout.children().collect();
         for ((child, state), bounds) in self
             .children
@@ -696,6 +701,9 @@ impl Widget<Message, iced::Theme, Renderer> for Panel {
             .zip(layouts)
             .rev()
         {
+            if is_mouse && bounds.bounds().intersection(viewport).is_none() {
+                continue;
+            }
             child.as_widget_mut().update(
                 state, event, bounds, cursor, renderer, clipboard, shell, viewport,
             );
@@ -740,6 +748,7 @@ impl Widget<Message, iced::Theme, Renderer> for Panel {
             .iter()
             .zip(&tree.children)
             .zip(layout.children())
+            .filter(|((_, _), l)| l.bounds().intersection(viewport).is_some())
             .map(|((c, s), l)| {
                 c.as_widget()
                     .mouse_interaction(s, l, cursor, viewport, renderer)
@@ -1190,5 +1199,124 @@ mod tests {
             node.children()[0].children()[0].size(),
             Size::new(40.0, 30.0)
         );
+    }
+}
+
+#[cfg(test)]
+mod culling_tests {
+    use super::*;
+    use std::{cell::Cell, rc::Rc};
+
+    struct Counter {
+        updates: Rc<Cell<usize>>,
+    }
+    impl Widget<Message, iced::Theme, Renderer> for Counter {
+        fn size(&self) -> Size<Length> {
+            Size::new(Length::Fixed(600.0), Length::Fixed(20.0))
+        }
+        fn tag(&self) -> widget::tree::Tag {
+            widget::tree::Tag::of::<()>()
+        }
+        fn state(&self) -> widget::tree::State {
+            widget::tree::State::new(())
+        }
+        fn layout(&mut self, _: &mut Tree, _: &Renderer, limits: &layout::Limits) -> layout::Node {
+            layout::Node::new(limits.max())
+        }
+        fn draw(
+            &self,
+            _: &Tree,
+            _: &mut Renderer,
+            _: &iced::Theme,
+            _: &renderer::Style,
+            _: layout::Layout<'_>,
+            _: mouse::Cursor,
+            _: &Rectangle,
+        ) {
+        }
+        fn update(
+            &mut self,
+            _: &mut Tree,
+            _: &Event,
+            _: layout::Layout<'_>,
+            _: mouse::Cursor,
+            _: &Renderer,
+            _: &mut dyn Clipboard,
+            _: &mut Shell<'_, Message>,
+            _: &Rectangle,
+        ) {
+            self.updates.set(self.updates.get() + 1);
+        }
+    }
+
+    /// Mouse events skip fully off-viewport rows (the Input tab mounts
+    /// every row); keyboard events still reach them for focus navigation.
+    #[test]
+    fn mouse_events_cull_off_viewport_rows_but_keyboard_reaches_them() {
+        let hits = Rc::new(Cell::new(0usize));
+        let out = hits.clone();
+        let mut element = Panel::element(
+            Policy::Stack {
+                horizontal: false,
+                gap: 0.0,
+            },
+            vec![(
+                "row".into(),
+                Style::default(),
+                Element::new(Counter { updates: out }),
+            )],
+        );
+        let renderer = Renderer::new(iced::Font::default(), iced::Pixels(16.0));
+        let mut tree = Tree::new(element.as_widget());
+        // Row occupies y=500..520; the viewport only shows y=0..100.
+        let node = element.as_widget_mut().layout(
+            &mut tree,
+            &renderer,
+            &layout::Limits::new(Size::ZERO, Size::new(600.0, 600.0)),
+        );
+        let moved = node.move_to(Point::new(0.0, 500.0));
+        let viewport = Rectangle::new(Point::ORIGIN, Size::new(600.0, 100.0));
+        let mut clipboard = iced::advanced::clipboard::Null;
+        let cursor = mouse::Cursor::Available(Point::new(10.0, 10.0));
+        let mouse_moved = Event::Mouse(mouse::Event::CursorMoved {
+            position: Point::new(10.0, 10.0),
+        });
+        element.as_widget_mut().update(
+            &mut tree,
+            &mouse_moved,
+            layout::Layout::new(&moved),
+            cursor,
+            &renderer,
+            &mut clipboard,
+            &mut Shell::new(&mut Vec::new()),
+            &viewport,
+        );
+        assert_eq!(
+            hits.get(),
+            0,
+            "off-viewport row must not pay for mouse moves"
+        );
+        let key = Event::Keyboard(iced::keyboard::Event::KeyPressed {
+            key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Tab),
+            modified_key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Tab),
+            physical_key: iced::keyboard::key::Physical::Unidentified(
+                iced::keyboard::key::NativeCode::Unidentified,
+            ),
+            location: iced::keyboard::Location::Standard,
+            modifiers: iced::keyboard::Modifiers::empty(),
+            text: None,
+            repeat: false,
+        });
+        element.as_widget_mut().update(
+            &mut tree,
+            &key,
+            layout::Layout::new(&moved),
+            cursor,
+            &renderer,
+            &mut clipboard,
+            &mut Shell::new(&mut Vec::new()),
+            &viewport,
+        );
+        assert_eq!(hits.get(), 1, "keyboard must still reach off-viewport rows");
     }
 }

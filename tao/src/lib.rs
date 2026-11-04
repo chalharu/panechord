@@ -279,6 +279,11 @@ struct Inner {
     /// Bumped when image natural sizes change so the driver refreshes the
     /// window minimum floor.
     media_version: Cell<u64>,
+    /// Bumped on every Inner::refresh (binding apply, mount, style, ...).
+    /// The driver rebuilds its retained iced tree only when this moves;
+    /// pure input events (cursor, wheel, hover) reuse the tree and only
+    /// update, instead of reconstructing hundreds of widgets per tick.
+    revision: Cell<u64>,
     error: RefCell<Option<String>>,
     fatal_error: RefCell<Option<String>>,
     diagnostics: RefCell<Vec<String>>,
@@ -294,6 +299,7 @@ impl Inner {
         self.menu_bar.get_or_init(muda::Menu::new)
     }
     fn refresh(&self) {
+        self.revision.set(self.revision.get().wrapping_add(1));
         if let Some(f) = self.invalidate.borrow().clone() {
             f();
         }
@@ -411,6 +417,7 @@ impl View {
             visible: Cell::new(false),
             image_updates: Cell::new(0),
             media_version: Cell::new(0),
+            revision: Cell::new(0),
             error: RefCell::default(),
             fatal_error: RefCell::default(),
             diagnostics: RefCell::default(),

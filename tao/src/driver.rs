@@ -14,7 +14,7 @@ use iced_tiny_skia::{
 };
 use iced_winit::{
     graphics::Viewport,
-    runtime::user_interface::{Cache, State, UserInterface},
+    runtime::user_interface::{State, UserInterface},
 };
 use std::{
     cell::{Cell, RefCell},
@@ -201,6 +201,15 @@ fn finite(value: f32) -> f32 {
     }
 }
 
+/// Rebuild the retained iced tree iff this is the first pump or bindings /
+/// structure moved (`Inner::revision`). Bounds-only changes relayout the
+/// existing root; steady input events (cursor, wheel, hover) reuse the tree
+/// and only `update`. Reconstructing every widget per tick is what made
+/// the Input tab (all rows mounted) slow down even the untouched left tab.
+fn needs_rebuild(ui_none: bool, revision: u64, ui_revision: u64) -> bool {
+    ui_none || revision != ui_revision
+}
+
 /// Mounted and visible through ancestors (enabled controls still display,
 // so enablement is ignored): images failing this impose no window floor.
 fn displayed(node: &super::Node) -> bool {
@@ -243,7 +252,16 @@ struct Pumped {
 struct Painter {
     window: Arc<Window>,
     renderer: iced_tiny_skia::Renderer,
-    cache: Cache,
+    /// Retained iced tree: rebuilt only when bindings/structure move
+    /// (`Inner::revision`) or on the first pump; pure input events
+    /// (cursor, wheel, hover) reuse it via `update` instead of
+    /// reconstructing every widget per tick. Previously every pump ran
+    /// `root.element()` + `UserInterface::build` over the whole tree, so
+    /// the Input tab (every binding row mounted) paid a full rebuild for
+    /// events landing on the untouched left tab as well.
+    ui: Option<UserInterface<'static, Message, iced::Theme, iced_tiny_skia::Renderer>>,
+    ui_revision: u64,
+    ui_bounds: Cell<Option<(u32, u32)>>,
     clipboard: Clipboard,
     cursor: mouse::Cursor,
     modifiers: iced::keyboard::Modifiers,
@@ -251,10 +269,9 @@ struct Painter {
     ime_cursor: Option<iced::Point>,
     media_applied: Cell<u64>,
     /// Coalesced wheel scroll awaiting delivery. Trackpads emit dozens of
-    /// ticks per second and every pump rebuilds the whole widget tree (the
-    /// Input tab mounts every binding row), so same-unit ticks from every
+    /// ticks per second, so same-unit ticks from every
     /// source accumulate here and flush once per frame instead of
-    /// rebuilding per tick.
+    /// updating per tick.
     pending_wheel: Cell<Option<mouse::ScrollDelta>>,
     /// Sticky paint debt: state-only pumps set it when they dirty iced
     /// internals, and only an actual paint clears it (see `pump`).
@@ -267,7 +284,9 @@ impl Painter {
     fn new(window: Arc<Window>, view: &View) -> Self {
         Self {
             renderer: iced_tiny_skia::Renderer::new(iced::Font::default(), iced::Pixels(16.0)),
-            cache: Cache::default(),
+            ui: None,
+            ui_revision: 0,
+            ui_bounds: Cell::new(None),
             clipboard: Clipboard::connect(window.clone(), view),
             cursor: mouse::Cursor::Unavailable,
             modifiers: Default::default(),
@@ -301,7 +320,8 @@ impl Painter {
         }) {
             self.deadline = None;
         }
-        let root = &view.0.root.0;
+        let revision = view.0.revision.get();
+        let size_bits = (bounds.width.to_bits(), bounds.height.to_bits());
         // Window roots do NOT scroll: the root gets the bounded viewport
         // height directly so Tab bodies (Fill when bounded) take the
         // remainder and footers stay pinned. Tall pages scroll inside via
@@ -311,7 +331,26 @@ impl Painter {
         // and pushing the footer out of view (see
         // bounded_window_root_pins_footer_while_tall_page_scrolls_inside).
         // Dialogs stay overlaid outside via scene().
-        let content = root.element();
+        //
+        // Retained tree: reconstruct the Element only when bindings or
+        // structure moved (revision) or on the first pump. Bounds-only
+        // changes relayout the existing root; steady input events reuse
+        // the tree and only `update` below.
+        let structure_changed = self.ui.is_none() || revision != self.ui_revision;
+        if structure_changed {
+            let root = &view.0.root.0;
+            let content = root.element();
+            let cache = self.ui.take().map(|ui| ui.into_cache()).unwrap_or_default();
+            let built =
+                UserInterface::build(view.scene(content), bounds, cache, &mut self.renderer);
+            self.ui = Some(built);
+            self.ui_revision = revision;
+            self.ui_bounds.set(Some(size_bits));
+        } else if self.ui_bounds.get() != Some(size_bits) {
+            let retained = self.ui.take().expect("retained iced tree");
+            self.ui = Some(retained.relayout(bounds, &mut self.renderer));
+            self.ui_bounds.set(Some(size_bits));
+        }
         // Image floor: narrowing must keep source pixels instead of
         // squeezing them (spec rule 4), matching the other backends whose
         // toolkits derive window minima from content. Recompute only when
@@ -350,23 +389,19 @@ impl Painter {
                 ))
             });
         }
-        let mut ui = UserInterface::build(
-            view.scene(content),
-            bounds,
-            std::mem::take(&mut self.cache),
-            &mut self.renderer,
-        );
         // Automation/bound viewport changes scroll the real iced widget, not just row data.
-        for (id, offset) in view.0.scroll.take() {
-            use iced::advanced::widget::{Id, operation::scrollable};
-            let mut operation = scrollable::scroll_to::<()>(
-                Id::from(id),
-                scrollable::AbsoluteOffset {
-                    x: None,
-                    y: Some(offset),
-                },
-            );
-            ui.operate(&self.renderer, &mut operation);
+        if let Some(ui) = self.ui.as_mut() {
+            for (id, offset) in view.0.scroll.take() {
+                use iced::advanced::widget::{Id, operation::scrollable};
+                let mut operation = scrollable::scroll_to::<()>(
+                    Id::from(id),
+                    scrollable::AbsoluteOffset {
+                        x: None,
+                        y: Some(offset),
+                    },
+                );
+                ui.operate(&self.renderer, &mut operation);
+            }
         }
         let mut messages = Vec::new();
         // iced text inputs retain their own modifier state. Clearing only the
@@ -387,6 +422,7 @@ impl Painter {
         } else {
             events
         };
+        let ui = self.ui.as_mut().expect("retained iced tree");
         let (state, _) = ui.update(
             events,
             self.cursor,
@@ -437,6 +473,7 @@ impl Painter {
                 }
             }
         } {
+            let ui = self.ui.as_mut().expect("retained iced tree");
             ui.draw(
                 &mut self.renderer,
                 &iced::Theme::Light,
@@ -445,14 +482,12 @@ impl Painter {
             );
             view.0.frames.set(view.0.frames.get() + 1);
             self.tainted.set(false);
-            self.cache = ui.into_cache();
             return Pumped {
                 messages,
                 dirty,
                 painted: true,
             };
         }
-        self.cache = ui.into_cache();
         Pumped {
             messages,
             dirty,
@@ -1316,4 +1351,20 @@ pub(super) fn run(
         Ok(())
     }))
     .map_err(panic_error)?
+}
+
+#[cfg(test)]
+mod rebuild_tests {
+    use super::needs_rebuild;
+
+    /// Steady input events must reuse the retained tree: only the first
+    /// pump or a binding/structure move (revision) rebuilds. Rebuilding
+    /// every tick is what stalled the whole window while Input was open.
+    #[test]
+    fn steady_events_reuse_the_retained_tree() {
+        assert!(needs_rebuild(true, 0, 0));
+        assert!(needs_rebuild(false, 1, 0));
+        assert!(!needs_rebuild(false, 7, 7));
+        assert!(!needs_rebuild(false, 7, 7));
+    }
 }

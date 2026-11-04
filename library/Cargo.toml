@@ -9,16 +9,14 @@ rust-version.workspace = true
 version.workspace = true
 
 [features]
-backend-gtk = ["dep:panechord-gtk"]
-backend-macos = ["dep:panechord-macos"]
-backend-tao = ["dep:panechord-tao"]
+backend-gtk = ["panechord/gtk"]
+backend-macos = ["panechord/macos"]
+backend-tao = ["panechord/tao"]
 default = ["backend-gtk"]
 
 [dependencies]
 futures.workspace = true
 futures-timer.workspace = true
-panechord-gtk = { optional = true, workspace = true }
-panechord-macos = { optional = true, workspace = true }
+panechord = { path = ".." }
 panechord-macros.workspace = true
 panechord-runtime.workspace = true
-panechord-tao = { optional = true, workspace = true }

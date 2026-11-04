@@ -23,23 +23,8 @@ pub async fn validate_name(value: String) -> Result<(), String> {
     }
 }
 
-// The GTK primitive is constructed by application code, not a compiler opcode.
-#[cfg(feature = "backend-gtk")]
-pub fn meter(view: &backend::View, parent: &backend::Parent, id: &str, value: Binding<f64>) {
-    let meter = gtk4::LevelBar::for_interval(0.0, 1.0);
-    view.mount_native(parent, id, &meter);
-    view.bind_native(id, value, &meter, |meter, value| meter.set_value(value));
-}
-
-#[cfg(all(feature = "backend-tao", not(feature = "backend-gtk")))]
-pub fn meter(view: &backend::View, parent: &backend::Parent, id: &str, value: Binding<f64>) {
-    view.meter(parent, id, value);
-}
-
-#[cfg(all(
-    feature = "backend-macos",
-    not(any(feature = "backend-gtk", feature = "backend-tao"))
-))]
+// Meter is a shared control: every backend speaks `MediaView::meter`, so the
+// gallery never branches to reach it.
 pub fn meter(view: &backend::View, parent: &backend::Parent, id: &str, value: Binding<f64>) {
     view.meter(parent, id, value);
 }

@@ -233,6 +233,7 @@ pub mod fake {
     impl BackendTrait for Backend {
         type View = View;
         type Host = Host;
+        const NAME: &'static str = "fake";
         fn run_host(_: impl FnOnce(Rc<Host>) -> Result<(), String> + 'static) -> Result<(), String> {
             Err("fixture has no native loop".into())
         }

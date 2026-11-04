@@ -2762,12 +2762,9 @@ version = "0.1.0-dev"
 dependencies = [
  "futures",
  "futures-timer",
- "gtk4",
- "panechord-gtk",
- "panechord-macos",
+ "panechord",
  "panechord-macros",
  "panechord-runtime",
- "panechord-tao",
 ]
 
 [[package]]
@@ -2790,11 +2787,9 @@ version = "0.1.0-dev"
 dependencies = [
  "futures",
  "futures-timer",
- "panechord-gtk",
- "panechord-macos",
+ "panechord",
  "panechord-macros",
  "panechord-runtime",
- "panechord-tao",
 ]
 
 [[package]]

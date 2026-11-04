@@ -342,6 +342,7 @@ pub struct Backend;
 impl BackendTrait for Backend {
     type View = View;
     type Host = GtkHost;
+    const NAME: &'static str = "gtk";
     fn run_host(
         make: impl FnOnce(Rc<GtkHost>) -> Result<(), String> + 'static,
     ) -> Result<(), String> {

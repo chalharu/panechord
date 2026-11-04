@@ -24,6 +24,11 @@ pub trait Backend {
     /// The backend's multi-window host.
     type Host: WindowHost<Self::View>;
 
+    /// Short backend identifier for logs and review evidence (`"gtk"`,
+    /// `"tao"`, `"macos"`). Screens read this instead of branching on
+    /// backend features to name the backend they run on.
+    const NAME: &'static str;
+
     /// Drive the single native loop for this backend.
     fn run_host(
         make: impl FnOnce(Rc<Self::Host>) -> Result<(), String> + 'static,

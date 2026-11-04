@@ -6,28 +6,7 @@ mod smoke;
 mod tests;
 mod wiring;
 
-#[cfg(feature = "backend-gtk")]
-use panechord_gtk as backend;
-#[cfg(all(
-    feature = "backend-macos",
-    not(any(feature = "backend-gtk", feature = "backend-tao"))
-))]
-use panechord_macos as backend;
-#[cfg(all(feature = "backend-tao", not(feature = "backend-gtk")))]
-use panechord_tao as backend;
-#[cfg(any(
-    all(feature = "backend-gtk", feature = "backend-tao"),
-    all(
-        feature = "backend-macos",
-        any(feature = "backend-gtk", feature = "backend-tao")
-    ),
-    not(any(
-        feature = "backend-gtk",
-        feature = "backend-tao",
-        feature = "backend-macos"
-    ))
-))]
-compile_error!("select exactly one backend: backend-gtk, backend-tao or backend-macos");
+use panechord::backend;
 
 use panechord_runtime::{BlockingPool, Session, Store, UiHost, WindowHost};
 use std::{
@@ -61,15 +40,7 @@ fn main() -> Result<(), String> {
         let session = Session::new();
         host.attach(session.clone())?;
         let executor = host.executor();
-        #[cfg(not(feature = "backend-macos"))]
         let model = Store::new(model::App::new(folder), executor.clone());
-        #[cfg(feature = "backend-macos")]
-        let model = Store::with_dispatch_budget(
-            model::App::new(folder),
-            executor.clone(),
-            panechord_runtime::Limits::default(),
-            std::num::NonZeroUsize::new(64).unwrap(),
-        );
         let view = wiring::view(model.clone(), executor.clone(), pool);
         host.register_view(&session, "main", &view)?;
         if smoke {

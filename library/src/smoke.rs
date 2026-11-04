@@ -4,7 +4,7 @@ use futures::{
     channel::oneshot,
     future::{Either, select},
 };
-use panechord_runtime::{Binding, Store};
+use panechord_runtime::{Backend as _, Binding, Store};
 use std::{
     cell::{Cell, RefCell},
     path::PathBuf,
@@ -69,15 +69,7 @@ pub async fn until<T: Clone + 'static>(
 }
 
 pub async fn verify(view: backend::View, model: Store<App>, passed: Rc<Cell<bool>>) {
-    #[cfg(feature = "backend-gtk")]
-    let name = "gtk";
-    #[cfg(all(feature = "backend-tao", not(feature = "backend-gtk")))]
-    let name = "tao";
-    #[cfg(all(
-        feature = "backend-macos",
-        not(any(feature = "backend-gtk", feature = "backend-tao"))
-    ))]
-    let name = "macos";
+    let name = backend::Backend::NAME;
     until(
         model.bind(|s| !s.busy && s.rows.len() == 4, None),
         |ready| *ready,

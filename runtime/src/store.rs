@@ -15,6 +15,12 @@ use std::{
 /// a dispatch continuation closes its Store rather than stranding accepted work.
 pub trait Executor {
     fn spawn(&self, future: LocalBoxFuture<'static, ()>);
+    /// Bounds Store events drained per turn so a feedback flood yields to the
+    /// native loop. Cooperative main-thread executors (AppKit) override this;
+    /// preemptive loop integrations leave the default unbounded.
+    fn dispatch_budget(&self) -> Option<std::num::NonZeroUsize> {
+        None
+    }
 }
 
 #[must_use = "retain this token for as long as notifications are wanted"]
@@ -764,10 +770,12 @@ impl<S: Clone + 'static> Store<S> {
         }
     }
     pub fn new(state: S, executor: Rc<dyn Executor>) -> Self {
-        Self::with_limits(state, executor, Limits::default())
+        let budget = executor.dispatch_budget();
+        Self::configured(state, executor, Limits::default(), budget)
     }
     pub fn with_limits(state: S, executor: Rc<dyn Executor>, limits: Limits) -> Self {
-        Self::configured(state, executor, limits, None)
+        let budget = executor.dispatch_budget();
+        Self::configured(state, executor, limits, budget)
     }
     /// Bounds events per drain, not callback duration. Continuations yield once
     /// to the executor; the host must also bound future polling per native turn.

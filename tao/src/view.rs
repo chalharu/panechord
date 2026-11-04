@@ -342,6 +342,7 @@ pub struct Backend;
 impl BackendTrait for Backend {
     type View = View;
     type Host = TaoHost;
+    const NAME: &'static str = "tao";
     fn run_host(
         make: impl FnOnce(Rc<TaoHost>) -> Result<(), String> + 'static,
     ) -> Result<(), String> {

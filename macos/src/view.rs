@@ -342,6 +342,7 @@ pub struct Backend;
 impl BackendTrait for Backend {
     type View = View;
     type Host = MacHost;
+    const NAME: &'static str = "macos";
     fn run_host(
         make: impl FnOnce(Rc<MacHost>) -> Result<(), String> + 'static,
     ) -> Result<(), String> {

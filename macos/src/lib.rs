@@ -1644,6 +1644,11 @@ struct MacExecutor {
     queue: RefCell<VecDeque<Task>>,
 }
 impl Executor for MacExecutor {
+    /// AppKit runs the whole UI on one cooperative thread: an unbounded
+    /// drain could stall frame presentation behind a feedback flood.
+    fn dispatch_budget(&self) -> Option<std::num::NonZeroUsize> {
+        std::num::NonZeroUsize::new(64)
+    }
     fn spawn(&self, future: LocalBoxFuture<'static, ()>) {
         self.queue.borrow_mut().push_back(Task {
             future,

@@ -907,7 +907,7 @@ impl View {
             .into()
         })));
     }
-    /// Dialog footer: the framework-level OK/Cancel control. Two buttons in
+    /// Dialog footer: the framework-level accept/cancel control. Two buttons in
     /// one end-aligned horizontal row with gap 12: accept-first on Windows,
     /// cancel-first elsewhere (GNOME/macOS order).
     ///

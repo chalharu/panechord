@@ -760,11 +760,7 @@ impl View {
         if self.0.image_floor.get() != floor {
             self.0.image_floor.set(floor);
             unsafe {
-                w3_set_min_size(
-                    self.0.native.get(),
-                    f64::from(floor.0),
-                    f64::from(floor.1),
-                );
+                w3_set_min_size(self.0.native.get(), f64::from(floor.0), f64::from(floor.1));
             }
         }
         unsafe {
@@ -1069,7 +1065,7 @@ impl View {
         );
     }
 
-    /// Dialog footer: the framework-level OK/Cancel control. Builds one
+    /// Dialog footer: the framework-level accept/cancel control. Builds one
     /// end-aligned horizontal row (gap 12) with Cancel first, per the Apple
     /// HIG, and binds both buttons exactly like `button` (caption plus
     /// command enablement; clicks invoke the commands).

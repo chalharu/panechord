@@ -181,6 +181,7 @@ struct Action {
     name: String,
 }
 
+type MenuRescope = Rc<dyn Fn(&View)>;
 struct Inner {
     window: gtk4::Window,
     root: Parent,
@@ -190,7 +191,7 @@ struct Inner {
     /// menu): re-run when an Application appears, since the first build
     /// predates registration and the shared menubar only resolves
     /// Application actions.
-    rescope: RefCell<Vec<Rc<dyn Fn(&View)>>>,
+    rescope: RefCell<Vec<MenuRescope>>,
     group: gio::SimpleActionGroup,
     shortcuts: gtk4::ShortcutController,
     serial: Cell<u64>,
@@ -372,7 +373,7 @@ impl View {
         canvas.append(&root);
         // Bounded window root, never an outer scrollable: inner `Scroll`
         // nodes take the remainder and scroll internally, so dialog
-        // footers (OK/Cancel) stay pinned instead of scrolling away with
+        // footers (accept/cancel) stay pinned instead of scrolling away with
         // the content. Same contract as the tao backend.
         outer.append(&canvas);
         window.set_child(Some(&outer));
@@ -919,7 +920,7 @@ impl View {
         self.signal(id, &button, signal);
     }
 
-    /// Dialog footer: the framework-level OK/Cancel control. Order follows
+    /// Dialog footer: the framework-level accept/cancel control. Order follows
     /// the GNOME HIG (cancel first, affirmative second).
     ///
     /// HIG Return/Escape: a non-destructive accept becomes the dialog

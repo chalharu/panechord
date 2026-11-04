@@ -2072,7 +2072,7 @@ fn input_tab_scroll_content_stays_near_natural_height() {
             let nes_title = nes_title.clone();
             let click_model = click_model.clone();
             let models = models.clone();
-            move |view, parent, scope, _| {
+            move |view, parent, _scope, _| {
                 let scroll = view
                     .try_scroll(parent, "input_scroll", false)
                     .expect("scroll mounts under the input page");

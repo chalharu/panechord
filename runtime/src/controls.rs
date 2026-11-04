@@ -285,7 +285,7 @@ pub struct FooterButton {
     pub command: Command,
 }
 
-/// Dialog footer: the framework-level OK/Cancel control. The backend owns
+/// Dialog footer: the framework-level accept/cancel control. The backend owns
 /// the visual order (cancel first on GNOME/macOS, accept first on Windows)
 /// and the default/destructive emphasis; key handling (Return/Escape) stays
 /// with the dialog owner so capture sessions keep precedence over footer

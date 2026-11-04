@@ -443,9 +443,7 @@ impl View {
             // gate in layout.rs only applies to Panels, not Leafs, so a
             // pick_list would still open even when disabled.
             if !writable || !enablement.enabled.get() {
-                let label = selected
-                    .map(|choice| choice.label)
-                    .unwrap_or_default();
+                let label = selected.map(|choice| choice.label).unwrap_or_default();
                 widget::button(widget::text(label))
                     .width(Length::Fill)
                     .into()
@@ -504,12 +502,12 @@ impl View {
                 .as_ref()
                 .map(|frame| (frame.width(), frame.height()))
                 .unwrap_or((0, 0));
-            if let Some(target) = media.upgrade() {
-                if target.media.get() != dims {
-                    target.media.set(dims);
-                    if let Some(view) = weak.upgrade() {
-                        view.0.bump_media();
-                    }
+            if let Some(target) = media.upgrade()
+                && target.media.get() != dims
+            {
+                target.media.set(dims);
+                if let Some(view) = weak.upgrade() {
+                    view.0.bump_media();
                 }
             }
             observed.replace(frame.map(|frame| {

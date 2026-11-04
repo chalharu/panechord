@@ -202,6 +202,70 @@ fn bounded_window_root_pins_footer_while_tall_page_scrolls_inside() {
     view.close();
 }
 
+/// Debugger shape under a bounded window: an upper horizontal pane holding
+/// a Fill scrollable must split the viewport with the trailing pane instead
+/// of claiming the full height (the scrollable reports the viewport as its
+/// natural size) and pushing the lower pane out of view.
+#[test]
+fn bounded_vertical_split_keeps_trailing_pane_with_fill_scroll_above() {
+    use iced::{
+        Size,
+        advanced::{layout::Limits, widget::Tree},
+    };
+    let view = View::new(Binding::constant("Split".into()));
+    let stretch = || Style {
+        vertical_alignment: Some(panechord_runtime::Alignment::Stretch),
+        ..Default::default()
+    };
+    let upper = view.layout(
+        &view.root(),
+        "panes",
+        Layout::Stack {
+            horizontal: true,
+            gap: 0.0,
+        },
+    );
+    view.style("panes", stretch());
+    view.label(&upper, "left", Binding::constant("left".into()));
+    let scroll = view
+        .try_scroll(&upper, "side", false)
+        .expect("scroll mounts under the upper pane");
+    for index in 0..40 {
+        view.label(
+            &scroll,
+            &format!("row_{index}"),
+            Binding::constant(format!("row {index}")),
+        );
+    }
+    view.label(&view.root(), "lower", Binding::constant("lower".into()));
+    view.style("lower", stretch());
+    let renderer = iced_tiny_skia::Renderer::new(iced::Font::default(), iced::Pixels(16.0));
+    let mut element = view.root().0.element();
+    let mut tree = Tree::new(element.as_widget());
+    let frame = element.as_widget_mut().layout(
+        &mut tree,
+        &renderer,
+        &Limits::new(Size::ZERO, Size::new(1100.0, 946.0)),
+    );
+    let children = frame.children()[0].children();
+    assert_eq!(children.len(), 2);
+    let panes = children[0].bounds();
+    let lower = children[1].bounds();
+    assert!(
+        panes.height < 946.0,
+        "upper pane must not claim the whole viewport: {panes:?}"
+    );
+    assert!(
+        lower.y >= panes.y + panes.height,
+        "lower pane overlaps the upper pane: {panes:?} {lower:?}"
+    );
+    assert!(
+        lower.y + lower.height <= 946.0,
+        "lower pane must remain in the viewport: {lower:?}"
+    );
+    view.close();
+}
+
 #[test]
 fn vertical_tabs_keep_headers_disjoint_and_page_identity_stable() {
     use iced::{

@@ -592,21 +592,16 @@ impl Widget<Message, iced::Theme, Renderer> for Panel {
                     if node.size() == Size::ZERO || !stretches(child, style) {
                         continue;
                     }
-                    // Fill children take exactly the share. Stretch children take
-                    // the larger of their natural height and the share: the
-                    // share already spans the whole remainder, so adding it on
-                    // top of the natural height double-counts and pushes
-                    // trailing siblings out of the window (a padded
-                    // Stretch parent re-measures its blown-up child and the
-                    // doubling compounds up the tree).
-                    let height = if matches!(
-                        child.as_widget().size().height,
-                        Length::Fill | Length::FillPortion(_)
-                    ) {
-                        share
-                    } else {
-                        node.size().height.max(share)
-                    };
+                    // Bounded windows split strictly: every claimant takes
+                    // exactly its share. Honoring an inflated natural height
+                    // instead (a Fill scrollable reports the full viewport
+                    // as its "natural" size) starves trailing siblings out
+                    // of the window entirely; the share keeps every pane
+                    // visible, with taller content scrolling inside its own
+                    // Scroll. Unbounded layouts skip this block, so
+                    // content-sized measuring still observes natural
+                    // heights.
+                    let height = share;
                     let size = Size::new(node.size().width, height);
                     *node = child.as_widget_mut().layout(
                         state,

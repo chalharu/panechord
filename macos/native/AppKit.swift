@@ -99,11 +99,40 @@ final class TableControl: NSScrollView, NSTableViewDataSource, NSTableViewDelega
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
 
+    /// Column width from content: explicit width wins, otherwise fit
+    /// the widest cell of that column. Stretch columns keep a 120pt
+    /// floor so empty tables do not collapse (capped against runaway
+    /// user text); jagged rows measure their own cells only.
+    static func fittedWidth(
+        _ value: TableDefinition.Column,
+        column: Int,
+        rows: [TableDefinition.Row],
+        headerFont: NSFont
+    ) -> CGFloat {
+        if let width = value.width {
+            return CGFloat(width)
+        }
+        var natural = (value.title as NSString).size(withAttributes: [.font: headerFont]).width
+        for row in rows {
+            if column < row.cells.count {
+                natural = max(
+                    natural,
+                    (row.cells[column].text as NSString).size(withAttributes: [.font: value.font]).width)
+            }
+        }
+        return value.stretch ? min(800, max(120, natural + 4)) : min(400, natural + 4)
+    }
+
     func update(_ text: String) {
         guard let bytes = text.data(using: .utf8), let next = try? JSONDecoder().decode(TableDefinition.self, from: bytes) else { return }
         let origin = contentView.bounds.origin
         let columnsChanged = definition?.columns.map { $0.title } != next.columns.map { $0.title }
             || definition?.columns.map { $0.width } != next.columns.map { $0.width }
+        // Widths depend on row content, not just the schema: the first
+        // payload carries an empty projection (headers only), so measuring
+        // once would pin every column to the minimum forever. Refit when
+        // the row set changes; value-only updates keep their widths.
+        let rowKeysChanged = definition?.rows.map(\.key) != next.rows.map(\.key)
         definition = next
         let headers = next.columns.contains { !$0.title.isEmpty }
         if headers != (table.headerView != nil) {
@@ -117,13 +146,24 @@ final class TableControl: NSScrollView, NSTableViewDataSource, NSTableViewDelega
                 let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(String(index)))
                 column.title = value.title
                 column.headerCell.font = NSFont.boldSystemFont(ofSize: NSFont.systemFontSize)
-                let natural = next.rows.reduce((value.title as NSString).size(withAttributes: [.font: column.headerCell.font!]).width) { width, row in
-                    max(width, (row.cells[index].text as NSString).size(withAttributes: [.font: value.font]).width)
-                }
-                column.width = value.width ?? (value.stretch ? 120 : min(400, natural + 4))
+                column.width = TableControl.fittedWidth(
+                    value,
+                    column: index,
+                    rows: next.rows,
+                    headerFont: column.headerCell.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize))
                 column.minWidth = value.width ?? 24
                 column.resizingMask = value.stretch ? .autoresizingMask : []
                 table.addTableColumn(column)
+            }
+        } else if rowKeysChanged {
+            // Same schema, new rows: refit the live columns in place
+            // (no teardown) so populated content escapes the minimum.
+            for (live, value) in zip(table.tableColumns, next.columns) {
+                live.width = TableControl.fittedWidth(
+                    value,
+                    column: Int(live.identifier.rawValue) ?? 0,
+                    rows: next.rows,
+                    headerFont: live.headerCell.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize))
             }
         }
         table.intercellSpacing = NSSize(width: next.columnGap, height: next.rowGap)

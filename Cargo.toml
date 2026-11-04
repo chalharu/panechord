@@ -58,7 +58,7 @@ version = "0.1.0-dev"
 
 [workspace.dependencies]
 futures = { version = "=0.3.34" }
-futures-timer = { version = "=3.0" }
+futures-timer = { version = "=3.0.4" }
 gtk = { version = "=0.18.2" }
 gtk4 = { features = ["v4_8"], version = "=0.11.5" }
 iced = { default-features = false, features = [
@@ -96,15 +96,15 @@ panechord-native = { path = "native" }
 panechord-runtime = { path = "runtime" }
 panechord-tao = { path = "tao" }
 proc-macro-crate = { version = "=3.5.0" }
-proc-macro2 = { version = "=1.0" }
-quote = { version = "=1.0" }
+proc-macro2 = { version = "=1.0.107" }
+quote = { version = "=1.0.47" }
 raw-window-handle = { version = "=0.6.2" }
 rfd = { version = "=0.17.2" }
 schemars = { version = "=1.2.3" }
 serde = { default-features = false, version = "=1.0.229" }
 serde-saphyr = { version = "=2.0.0" }
 serde_json = { version = "=1.0.154" }
-serde_path_to_error = { version = "=0.1" }
+serde_path_to_error = { version = "=0.1.20" }
 syn = { features = ["extra-traits", "full", "visit-mut"], version = "=3.0.9" }
 tao = { version = "=0.37.2" }
 window_clipboard = { version = "=0.5.1" }

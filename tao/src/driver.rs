@@ -216,6 +216,30 @@ fn displayed(node: &super::Node) -> bool {
     }
     true
 }
+/// Whether a pump rasterizes after updating state.
+// Variants split by platform: Linux frames use `IfDirty`, other targets
+// use `Always` for OS-requested exposes, so one side is always unused.
+#[allow(dead_code)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Paint {
+    /// State-only pump: scroll flushes and input-event evaluations.
+    Never,
+    /// Frame pump that paints only when the update dirtied anything, so
+    /// coalesced no-op scrolls skip the screenshot and cairo present.
+    IfDirty,
+    /// Frame pump that always paints (OS-requested redraws).
+    Always,
+}
+/// What a pump did: the iced messages plus whether anything dirtied (a
+/// frame should be scheduled) and whether it rasterized (pixels are fresh
+/// and worth presenting). They differ on `IfDirty` first frames/resizes,
+/// which paint without iced reporting dirty.
+#[derive(Default)]
+struct Pumped {
+    messages: Vec<Message>,
+    dirty: bool,
+    painted: bool,
+}
 struct Painter {
     window: Arc<Window>,
     renderer: iced_tiny_skia::Renderer,
@@ -228,9 +252,13 @@ struct Painter {
     media_applied: Cell<u64>,
     /// Coalesced wheel scroll awaiting delivery. Trackpads emit dozens of
     /// ticks per second and every pump rebuilds the whole widget tree (the
-    /// Input tab mounts every binding row), so same-unit ticks accumulate
-    /// here and flush once per frame instead of rebuilding per tick.
+    /// Input tab mounts every binding row), so same-unit ticks from every
+    /// source accumulate here and flush once per frame instead of
+    /// rebuilding per tick.
     pending_wheel: Cell<Option<mouse::ScrollDelta>>,
+    /// Last painted logical size: first frames and resizes paint even when
+    /// iced reports clean (see the `IfDirty` branch in `pump`).
+    painted_size: Cell<Option<(u32, u32)>>,
 }
 impl Painter {
     fn new(window: Arc<Window>, view: &View) -> Self {
@@ -245,18 +273,17 @@ impl Painter {
             window,
             media_applied: Cell::new(0),
             pending_wheel: Cell::new(None),
+            painted_size: Cell::new(None),
         }
     }
     /// Returns the pumped messages plus whether anything dirtied: an iced
     /// redraw request, an outdated tree, or a pending message (dispatch may
     /// invalidate through bindings). Clean pumps must not schedule work.
-    fn pump(
-        &mut self,
-        view: &View,
-        bounds: Size,
-        event: iced::Event,
-        draw: bool,
-    ) -> (Vec<Message>, bool) {
+    /// Whether the pump rasterizes is separate: scroll-flush and event
+    /// pumps only update state (`Never`), frame pumps paint (`Always` for
+    /// OS-requested exposes, `IfDirty` for coalesced scroll frames so
+    /// no-op ticks skip the screenshot).
+    fn pump(&mut self, view: &View, bounds: Size, event: iced::Event, paint: Paint) -> Pumped {
         use iced_winit::core::window::RedrawRequest;
         view.0.surface_bounds.set((bounds.width, bounds.height));
         let viewport = view.0.native_viewport.borrow().clone();
@@ -380,7 +407,20 @@ impl Painter {
             | State::Outdated => self.deadline = Some(Instant::now()),
             _ => {}
         }
-        if draw {
+        if match paint {
+            Paint::Always => true,
+            Paint::Never => false,
+            Paint::IfDirty => {
+                dirty || {
+                    // First frame and resizes must paint even when iced
+                    // reports clean: a bare RedrawRequested yields Wait
+                    // although no pixels were ever presented (or the surface
+                    // was reconfigured for a new size).
+                    let size = (bounds.width.to_bits(), bounds.height.to_bits());
+                    self.painted_size.replace(Some(size)) != Some(size)
+                }
+            }
+        } {
             ui.draw(
                 &mut self.renderer,
                 &iced::Theme::Light,
@@ -388,9 +428,19 @@ impl Painter {
                 self.cursor,
             );
             view.0.frames.set(view.0.frames.get() + 1);
+            self.cache = ui.into_cache();
+            return Pumped {
+                messages,
+                dirty,
+                painted: true,
+            };
         }
         self.cache = ui.into_cache();
-        (messages, dirty)
+        Pumped {
+            messages,
+            dirty,
+            painted: false,
+        }
     }
 }
 fn dispatch(view: &View, messages: Vec<Message>) {
@@ -520,16 +570,39 @@ impl Desktop {
                         ),
                         scale as f32,
                     );
-                    let (mut pixels, messages) = {
+                    let outcome = {
                         let mut painter = out.borrow_mut();
-                        let (messages, _) =
-                            painter.pump(&owner, viewport.logical_size(), redraw(), true);
-                        let pixels = iced_tiny_skia::window::compositor::screenshot(
-                            &mut painter.renderer,
-                            &viewport,
-                            iced::Color::WHITE,
-                        );
-                        (pixels, messages)
+                        let bounds = viewport.logical_size();
+                        let mut messages = Vec::new();
+                        // One frame carries the whole coalesced scroll: the
+                        // bridge and the tao wheel branch only accumulate, so
+                        // N ticks cost one update, not N.
+                        if let Some(delta) = painter.pending_wheel.take() {
+                            let flushed = painter.pump(
+                                &owner,
+                                bounds,
+                                input::wheel_event(delta),
+                                Paint::Never,
+                            );
+                            messages.extend(flushed.messages);
+                        }
+                        let redrawn = painter.pump(&owner, bounds, redraw(), Paint::IfDirty);
+                        messages.extend(redrawn.messages);
+                        if !redrawn.painted {
+                            (None, messages)
+                        } else {
+                            let pixels = iced_tiny_skia::window::compositor::screenshot(
+                                &mut painter.renderer,
+                                &viewport,
+                                iced::Color::WHITE,
+                            );
+                            (Some(pixels), messages)
+                        }
+                    };
+                    let (pixels, messages) = outcome;
+                    let Some(mut pixels) = pixels else {
+                        dispatch(&owner, messages);
+                        return Ok(());
                     };
                     for pixel in pixels.as_chunks_mut::<4>().0 {
                         let native =
@@ -599,25 +672,39 @@ impl Desktop {
                             position.1 as f32 - offset.1 as f32,
                         );
                         if cursor.x >= 0.0 && cursor.y >= 0.0 {
-                            let (messages, dirty) = {
+                            {
                                 let mut painter = painter.borrow_mut();
                                 painter.cursor = mouse::Cursor::Available(cursor);
-                                painter.pump(
-                                    &view,
-                                    Size::new(
-                                        area.allocated_width() as f32,
-                                        area.allocated_height() as f32,
-                                    ),
-                                    iced::Event::Mouse(mouse::Event::WheelScrolled { delta }),
-                                    false,
-                                )
-                            };
-                            dispatch(&view, messages);
-                            // queue_draw is the whole frame: a no-op tick that
-                            // scrolled nothing must not pay for it.
-                            if dirty {
-                                area.queue_draw();
+                                // The bridge owns Linux scroll: merge into the
+                                // coalesced pending total instead of pumping
+                                // per tick. Mixed units flush first so order
+                                // — and unit semantics — never corrupt.
+                                if input::merge_wheel(painter.pending_wheel.get(), delta).is_none()
+                                {
+                                    if let Some(previous) = painter.pending_wheel.take() {
+                                        let flushed = painter.pump(
+                                            &view,
+                                            Size::new(
+                                                area.allocated_width() as f32,
+                                                area.allocated_height() as f32,
+                                            ),
+                                            input::wheel_event(previous),
+                                            Paint::Never,
+                                        );
+                                        dispatch(&view, flushed.messages);
+                                    }
+                                    painter.pending_wheel.set(Some(delta));
+                                } else {
+                                    painter.pending_wheel.set(input::merge_wheel(
+                                        painter.pending_wheel.get(),
+                                        delta,
+                                    ));
+                                }
                             }
+                            // The frame decision moves to draw: it flushes the
+                            // pending total and paints only when dirty, so a
+                            // no-op tick costs no screenshot.
+                            area.queue_draw();
                         }
                     }
                     gtk::glib::Propagation::Proceed
@@ -777,11 +864,26 @@ impl Desktop {
         let Some(delta) = painter.pending_wheel.take() else {
             return false;
         };
-        let (messages, dirty) = painter.pump(&self.view, bounds, input::wheel_event(delta), false);
-        dispatch(&self.view, messages);
-        dirty
+        let pumped = painter.pump(&self.view, bounds, input::wheel_event(delta), Paint::Never);
+        dispatch(&self.view, pumped.messages);
+        pumped.dirty
     }
     fn event(&self, event: &WindowEvent<'_>) {
+        // Linux scroll ownership: the GTK bridge above owns wheel input
+        // (precise cursor, coalesced frames). Tao delivers the same physical
+        // ticks as WindowEvent::MouseWheel; handling both would double-apply
+        // them and strand duplicates in pending_wheel, which Linux draws
+        // never flushed. Drop the tao duplicates.
+        #[cfg(any(
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "openbsd",
+            target_os = "dragonfly"
+        ))]
+        if matches!(event, WindowEvent::MouseWheel { .. }) {
+            return;
+        }
         #[cfg(any(
             target_os = "linux",
             target_os = "freebsd",
@@ -818,9 +920,13 @@ impl Desktop {
                     // Mixed units (trackpad Pixels vs wheel Lines): deliver
                     // what's pending first so order — and units — survive.
                     if let Some(previous) = painter.pending_wheel.take() {
-                        let (flushed, _) =
-                            painter.pump(&self.view, bounds, input::wheel_event(previous), false);
-                        dispatch(&self.view, flushed);
+                        let flushed = painter.pump(
+                            &self.view,
+                            bounds,
+                            input::wheel_event(previous),
+                            Paint::Never,
+                        );
+                        dispatch(&self.view, flushed.messages);
                     }
                     painter.pending_wheel.set(Some(delta));
                 } else {
@@ -838,15 +944,15 @@ impl Desktop {
         }
         // A non-wheel event belongs after any pending scroll.
         let flushed = self.flush_wheel();
-        let (messages, dirty) = self.pump_event(event);
-        dispatch(&self.view, messages);
-        if flushed || dirty {
+        let pumped = self.pump_event(event);
+        dispatch(&self.view, pumped.messages);
+        if flushed || pumped.dirty {
             self.refresh();
         }
     }
     /// Single-event pump shared by the wheel / non-wheel branches above:
     /// dialog keys first, otherwise the converted native event.
-    fn pump_event(&self, event: &WindowEvent<'_>) -> (Vec<Message>, bool) {
+    fn pump_event(&self, event: &WindowEvent<'_>) -> Pumped {
         let mut painter = self.painter.borrow_mut();
         let Painter {
             cursor, modifiers, ..
@@ -862,7 +968,11 @@ impl Desktop {
             && let code = event.physical_key
             && let Some(message) = self.view.dialog_key_action(code)
         {
-            (vec![message], true)
+            Pumped {
+                messages: vec![message],
+                dirty: true,
+                painted: false,
+            }
         } else {
             let mapped = input::convert(
                 event,
@@ -872,7 +982,7 @@ impl Desktop {
                 modifiers,
             );
             mapped
-                .map(|e| painter.pump(&self.view, self.bounds(), e, false))
+                .map(|e| painter.pump(&self.view, self.bounds(), e, Paint::Never))
                 .unwrap_or_default()
         }
     }
@@ -903,16 +1013,17 @@ impl Desktop {
             // pending total first so N ticks cost one update, not N.
             let mut messages = Vec::new();
             if let Some(delta) = painter.pending_wheel.take() {
-                let (flushed, _) = painter.pump(
+                let flushed = painter.pump(
                     &self.view,
                     viewport.logical_size(),
                     input::wheel_event(delta),
-                    false,
+                    Paint::Never,
                 );
-                messages.extend(flushed);
+                messages.extend(flushed.messages);
             }
-            let (redrawn, _) = painter.pump(&self.view, viewport.logical_size(), redraw(), true);
-            messages.extend(redrawn);
+            let redrawn =
+                painter.pump(&self.view, viewport.logical_size(), redraw(), Paint::Always);
+            messages.extend(redrawn.messages);
             self.compositor
                 .present(
                     &mut painter.renderer,

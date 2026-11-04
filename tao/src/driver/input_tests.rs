@@ -328,6 +328,37 @@ fn native_x11_keyboard_ime_signal_iced_fields_and_clipboard() {
 }
 
 #[test]
+#[ignore = "requires X11 display; isolated GTK3 process"]
+fn linux_tao_wheel_duplicates_never_linger() {
+    use tao::event::{DeviceId, MouseScrollDelta, TouchPhase};
+    let view = View::new(Binding::constant("scroll probe".into()));
+    let mut input = NativeInput::new(&view);
+    // Tao delivers the same physical ticks the GTK bridge already owns;
+    // they must not accumulate in pending_wheel (previously they sat
+    // unflushed while frames presented without them, then jumped late).
+    for _ in 0..20 {
+        input.desktop.event(&WindowEvent::MouseWheel {
+            device_id: unsafe { DeviceId::dummy() },
+            delta: MouseScrollDelta::PixelDelta(tao::dpi::PhysicalPosition::new(0.0, 20.0)),
+            phase: TouchPhase::Moved,
+            modifiers: tao::keyboard::ModifiersState::empty(),
+        });
+    }
+    input.turn();
+    assert!(
+        input
+            .desktop
+            .painter
+            .borrow()
+            .pending_wheel
+            .take()
+            .is_none(),
+        "tao wheel duplicates must not linger on Linux"
+    );
+    view.close();
+}
+
+#[test]
 #[ignore = "requires isolated Xvfb GTK3 process; backend-event injection into actual iced UI"]
 fn native_backend_focus_loss_clears_iced_modifiers() {
     let (view, model, _) = fields();
@@ -357,12 +388,12 @@ fn native_backend_focus_loss_clears_iced_modifiers() {
         text: None,
         repeat: false,
     });
-    let (messages, _) =
-        input
-            .desktop
-            .painter
-            .borrow_mut()
-            .pump(&view, input.desktop.bounds(), left, false);
+    let messages = input
+        .desktop
+        .painter
+        .borrow_mut()
+        .pump(&view, input.desktop.bounds(), left, Paint::Never)
+        .messages;
     dispatch(&view, messages);
     input
         .desktop

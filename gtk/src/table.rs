@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 #[derive(Clone)]
 struct MountedRow {
-    cells: Vec<glib::WeakRef<gtk4::ToggleButton>>,
     /// Column size groups this row's widgets were added to. Live groups are
     /// replaced on a column-schema change, so removal must target the groups
     /// that own the widgets, not the current ones.
@@ -21,6 +20,7 @@ struct TableState {
     selection: Option<Binding<Option<TableSelection>>>,
     selected: RefCell<Option<TableSelection>>,
     mounted: RefCell<HashMap<String, MountedRow>>,
+    list: RefCell<Option<gtk4::ListView>>,
     owner: WeakView,
 }
 
@@ -141,18 +141,39 @@ impl TableState {
             return;
         }
         self.selected.replace(selected.clone());
-        let mounted = self.mounted.borrow().clone();
-        for (key, row) in mounted {
-            for (column, cell) in row.cells.into_iter().enumerate() {
-                if let Some(button) = cell.upgrade() {
-                    set_selected(
-                        &button,
-                        selected.as_ref().is_some_and(|selected| {
-                            selected.row_key == key && selected.column == column
-                        }),
-                    );
+        self.paint(&selected);
+    }
+
+    /// Paint the pressed state onto the live row widgets. The mount map
+    /// can lag ListView recycling, so selection visuals walk the widget
+    /// tree instead of trusting it; the map stays for size-group release.
+    fn paint(&self, selected: &Option<TableSelection>) {
+        let Some(list) = self.list.borrow().clone() else {
+            return;
+        };
+        let mut row = list.first_child();
+        while let Some(row_widget) = row {
+            let body = row_widget
+                .first_child()
+                .and_then(|child| child.downcast::<gtk4::Box>().ok());
+            if let Some(body) = body {
+                let key = body.widget_name().to_string();
+                let mut cell = body.first_child();
+                let mut column = 0;
+                while let Some(widget) = cell {
+                    if let Ok(button) = widget.clone().downcast::<gtk4::ToggleButton>() {
+                        set_selected(
+                            &button,
+                            selected.as_ref().is_some_and(|selection| {
+                                selection.row_key == key && selection.column == column
+                            }),
+                        );
+                        column += 1;
+                    }
+                    cell = widget.next_sibling();
                 }
             }
+            row = row_widget.next_sibling();
         }
     }
 
@@ -281,6 +302,7 @@ impl View {
             selection: selection.clone(),
             selected: RefCell::new(None),
             mounted: RefCell::new(HashMap::new()),
+            list: RefCell::new(None),
             owner: self.downgrade(),
         });
         let factory = gtk4::SignalListItemFactory::new();
@@ -312,7 +334,6 @@ impl View {
             body.set_margin_end(inset);
             body.set_margin_bottom(data.row_gap.round() as i32 + inset);
             body.set_widget_name(&row.key);
-            let mut mounted = Vec::new();
             for (index, (column, cell)) in data.columns.iter().zip(&row.cells).enumerate() {
                 let mut column = column.clone();
                 column.text.foreground = cell.foreground.or(column.text.foreground);
@@ -346,28 +367,34 @@ impl View {
                         if state.owner.upgrade().is_none() {
                             return;
                         }
-                        let mounted = state
-                            .mounted
-                            .borrow()
-                            .get(&selected.row_key)
-                            .and_then(|row| row.cells.get(selected.column))
-                            .and_then(glib::WeakRef::upgrade)
-                            .is_some_and(|current| current == *button);
                         let valid = selected.validate(&state.data.borrow()).is_ok();
-                        if mounted
-                            && valid
+                        // Detached widgets have no root: this rejects clicks
+                        // from recycled buttons without relying on the mount
+                        // map, which can lag ListView recycling and would
+                        // otherwise swallow legitimate clicks with no way
+                        // back. (The map is still maintained for size-group
+                        // release.)
+                        let rooted = button.root().is_some();
+                        if !(valid
+                            && rooted
                             && button.is_visible()
                             && button.is_sensitive()
-                            && writer.is_writable()
+                            && writer.is_writable())
                         {
-                            panechord_runtime::ignore_write(writer.try_set(Some(selected.clone())));
+                            let active = *state.selected.borrow() == Some(selected.clone());
+                            set_selected(button, active);
+                            return;
                         }
-                        let active = *state.selected.borrow() == Some(selected.clone());
-                        set_selected(button, active);
+                        panechord_runtime::ignore_write(writer.try_set(Some(selected.clone())));
+                        // Immediate visual sync: the binding echoes back
+                        // asynchronously, and same-row changes trigger no
+                        // data refresh that would repaint us. Paint from the
+                        // live widget tree rather than the mount map, which
+                        // can lag ListView recycling.
+                        state.paint(&Some(selected.clone()));
                     });
                     state.groups.borrow()[index].add_widget(&button);
                     body.append(&button);
-                    mounted.push(button.downgrade());
                 } else {
                     let label = label(&column, &cell.text, false);
                     label.set_visible(!column.hide_empty || !cell.text.is_empty());
@@ -379,7 +406,6 @@ impl View {
             state.mounted.borrow_mut().insert(
                 row.key.clone(),
                 MountedRow {
-                    cells: mounted,
                     groups: state.groups.borrow().clone(),
                 },
             );
@@ -416,6 +442,7 @@ impl View {
         scroll.set_vexpand(true);
         scroll.set_hexpand(true);
         scroll.set_child(Some(&list));
+        state.list.replace(Some(list.clone()));
         let overlay = gtk4::Overlay::new();
         overlay.set_child(Some(&scroll));
         state.empty.set_halign(gtk4::Align::Center);

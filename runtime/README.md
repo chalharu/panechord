@@ -103,8 +103,8 @@ without invoking S::clone; returning None skips publication entirely. Declare
 all changed top-level fields, and only use scoped projections that depend on the
 named field. Incorrect declarations may leave stale values. Use Rc/Arc to share
 large unchanged payloads. Application interior mutation is not tracked.
-Handwritten `bind_scoped` and `update_scoped` are conservative: incorrect hints
-cannot suppress notifications. Use the explicitly named optimization only when
+Conservative `bind` invalidates every projection. Use the explicitly named
+`bind_scoped_explicit` / `update_scoped_explicit` optimization only when
 the dependency contract can be proved. Codegen generates its field dependency,
 read and write from one parsed field path. Arbitrary closures remain conservative.
 Registration-order callbacks, FIFO/reentry, frozen snapshots and cancellation

@@ -112,7 +112,7 @@ root:
           - type: Label
             id: flow_caption
             text: {literal: "Wraps instead of clipping at narrow widths"}
-      - type: BindableLayout
+      - type: ItemsControl
         id: bound_rows
         items: {bind: {path: rows}}
         viewport: {literal: {start: 0, count: 1, row_height: 64}}

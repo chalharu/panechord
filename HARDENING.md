@@ -43,7 +43,7 @@ invalid geometry rejects on every backend instead of returning a dangling Parent
 
 | Review concern | Resolution |
 | --- | --- |
-| Dirty-field omissions | Handwritten `bind_scoped`/`update_scoped` are conservative. Explicit optimization APIs have separate names and documented proof obligations. Generated field readers, writers and dependency names share one parsed path. |
+| Dirty-field omissions | Conservative `bind` invalidates every projection. Explicit optimization APIs have separate names and documented proof obligations. Generated field readers, writers and dependency names share one parsed path. |
 | Owning/shared model confusion | `owned_view` consumes a non-Clone `StoreOwner`. Acquisition fails if a shared `Store` handle already exists; compile-fail and runtime tests cover both boundaries. Sharing from an existing owner explicitly delegates final closure to it. |
 | Write rejection ambiguity | `try_set` returns `ReadOnly`/`Closed`/`Capacity`/`Conversion`. Acceptance is not an application receipt. Acceptance bools are `must_use`; intentional discards are explicit. |
 | Dropped continuation | Store fails closed and exposes `dispatch_failed`, rather than silently retaining a stranded FIFO. Hosts must still poll retained futures and avoid blocking callbacks. |

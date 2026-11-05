@@ -204,10 +204,11 @@ root:
 Store reads project from an internal shared `Rc<S>` snapshot outside RefCell
 borrows, without cloning the full state. `snapshot()` still returns an owned
 `S::clone()`; legacy mutation still clones S once. Generated bindings use
-`bind_scoped` with the first field segment (including root/item resolution).
+`bind_scoped_explicit` with the first field segment (including root/item
+resolution).
 Scoped writes skip unrelated projections; arbitrary updates remain full
-invalidation. `update_scoped` permits clone-free owned replacement and no-op
-generation gates with explicitly declared dirty fields. See runtime/README.md.
+invalidation. `update_scoped_explicit` permits clone-free owned replacement
+and no-op generation gates with explicitly declared dirty fields. See runtime/README.md.
 
 Window is the document root only: the frozen single-View API has no nested-window
 mount operation, so nested/template Windows produce an explicit error. No layout

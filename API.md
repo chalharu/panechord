@@ -139,7 +139,8 @@ facade/renamed-dependency builds, including `use` prefixes).
 ### Adding a backend
 
 A new backend is one crate plus facade wiring. No existing file changes
-shape; the trait gains defaulted methods instead of new dispatch arms.
+shape; the trait gains required methods instead of new dispatch arms, so the
+compiler forces every backend to implement them.
 
 1. Crate `panechord-<name>`: register it in the workspace (`[workspace.members]`,
    `[workspace.dependencies]` in the root `Cargo.toml`) and as an optional

@@ -8,8 +8,10 @@
 //!
 //! A backend now implements this one trait. The facade picks the implementation
 //! by feature flag (a single type alias) and drives everything else through
-//! the trait, so new backends add an `impl` and new startup options extend the
-//! trait with a defaulted method instead of touching every call site.
+//! the trait, so new backends add an `impl` and new startup options extend
+//! the trait as required methods: the compiler then forces every in-repo
+//! backend to implement them, instead of dispatch code touching every call
+//! site and a silent default hiding a missing backend decision.
 
 use crate::WindowHost;
 use std::rc::Rc;

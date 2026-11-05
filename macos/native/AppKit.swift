@@ -19,8 +19,11 @@ struct TableDefinition: Decodable {
         let hideEmpty: Bool
         var font: NSFont {
             let size = NSFont.systemFontSize * scale
-            return role == 2 ? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
-                : role == 1 ? NSFont.boldSystemFont(ofSize: size * 1.2) : NSFont.systemFont(ofSize: size)
+            switch role {
+            case 2: return NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+            case 1: return NSFont.boldSystemFont(ofSize: size * 1.2)
+            default: return NSFont.systemFont(ofSize: size)
+            }
         }
     }
     struct Cell: Decodable { let text: String; let foreground: [Int]? }
@@ -45,7 +48,15 @@ final class SelectableTableCell: NSTableCellView {
     }
 }
 
-struct TableCursor: Decodable { let row_key: String; let column: Int }
+struct TableCursor: Decodable {
+    let rowKey: String
+    let column: Int
+
+    enum CodingKeys: String, CodingKey {
+        case rowKey = "row_key"
+        case column
+    }
+}
 
 @MainActor
 final class TableControl: NSScrollView, NSTableViewDataSource, NSTableViewDelegate {
@@ -97,7 +108,7 @@ final class TableControl: NSScrollView, NSTableViewDataSource, NSTableViewDelega
         NSLayoutConstraint.activate([empty.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
             empty.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)])
     }
-    required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
+    required init?(coder _: NSCoder) { fatalError("init(coder:) is unavailable") }
 
     /// Column width from content: explicit width wins, otherwise fit
     /// the widest cell of that column. Stretch columns keep a 120pt
@@ -171,8 +182,8 @@ final class TableControl: NSScrollView, NSTableViewDataSource, NSTableViewDelega
         contentView.scroll(to: origin)
         reflectScrolledClipView(contentView)
     }
-    func numberOfRows(in tableView: NSTableView) -> Int { definition?.rows.count ?? 0 }
-    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { false }
+    func numberOfRows(in _: NSTableView) -> Int { definition?.rows.count ?? 0 }
+    func tableView(_ _: NSTableView, shouldSelectRow _: Int) -> Bool { false }
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         guard let definition = definition else { return 16 }
         let height = definition.columns.enumerated().reduce(CGFloat(selectionPresent ? 34 : 16)) { height, entry in
@@ -213,9 +224,13 @@ final class TableControl: NSScrollView, NSTableViewDataSource, NSTableViewDelega
         field.isSelectable = !selectionPresent
         field.font = column.font
         field.maximumNumberOfLines = column.overflow == 1 ? 0 : 1
-        field.lineBreakMode = column.overflow == 2 ? .byTruncatingMiddle : column.overflow == 1 ? .byWordWrapping : .byClipping
+        switch column.overflow {
+        case 2: field.lineBreakMode = .byTruncatingMiddle
+        case 1: field.lineBreakMode = .byWordWrapping
+        default: field.lineBreakMode = .byClipping
+        }
         let rgb = value.foreground ?? column.foreground
-        let active = cursor?.row_key == cell.rowKey && cursor?.column == index
+        let active = cursor?.rowKey == cell.rowKey && cursor?.column == index
         cell.wantsLayer = true
         cell.layer?.backgroundColor = active ? NSColor.selectedContentBackgroundColor.cgColor : NSColor.clear.cgColor
         field.textColor = active ? .selectedTextColor : rgb.map { NSColor(srgbRed: Double($0[0]) / 255, green: Double($0[1]) / 255, blue: Double($0[2]) / 255, alpha: 1) } ?? .labelColor
@@ -254,7 +269,7 @@ final class Rows: NSStackView {
         ])
     }
 
-    required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
+    required init?(coder _: NSCoder) { fatalError("init(coder:) is unavailable") }
 
     @objc func scrollChanged() {
         let next: Int
@@ -474,7 +489,7 @@ final class Scrolling: NSScrollView {
         ])
     }
 
-    required init?(coder: NSCoder) { fatalError("coder construction unsupported") }
+    required init?(coder _: NSCoder) { fatalError("coder construction unsupported") }
 }
 
 @MainActor
@@ -495,7 +510,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate {
             NSApp.mainMenu = nil
         }
     }
-    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    func applicationShouldTerminate(_ _: NSApplication) -> NSApplication.TerminateReply {
         quitRequested()
         return .terminateCancel
     }
@@ -750,7 +765,7 @@ final class Tabs: NSStackView, NSTableViewDataSource, NSTableViewDelegate {
         header.isEnabled = enabled
         list.reloadData()
     }
-    func numberOfRows(in tableView: NSTableView) -> Int { labels.count }
+    func numberOfRows(in _: NSTableView) -> Int { labels.count }
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard let id = tableColumn?.identifier else { return nil }
         // Rows are 28pt while the label is ~16pt: center the text
@@ -780,8 +795,8 @@ final class Tabs: NSStackView, NSTableViewDataSource, NSTableViewDelegate {
         field.font = .systemFont(ofSize: 13)
         return cell
     }
-    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { enabled }
-    func tableViewSelectionDidChange(_ notification: Notification) {
+    func tableView(_ _: NSTableView, shouldSelectRow _: Int) -> Bool { enabled }
+    func tableViewSelectionDidChange(_ _: Notification) {
         let row = list.selectedRow
         guard enabled, row >= 0, row < body.numberOfTabViewItems else { return }
         // Spurious verification posts (retile, reloadData) re-announce the
@@ -794,7 +809,7 @@ final class Tabs: NSStackView, NSTableViewDataSource, NSTableViewDelegate {
         // the previous page, so reselect its row.
         refreshSelection()
     }
-    required init?(coder: NSCoder) { fatalError("coder construction unsupported") }
+    required init?(coder _: NSCoder) { fatalError("coder construction unsupported") }
 }
 
 @MainActor
@@ -864,7 +879,7 @@ final class PointerImage: NSImageView {
         owner.emit(key, value)
     }
 
-    override func mouseExited(with event: NSEvent) {
+    override func mouseExited(with _: NSEvent) {
         guard pointerEnabled, let owner, !owner.closed, owner.interactive(key) else { return }
         owner.emit(key, "null")
     }
@@ -976,7 +991,9 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
             if pressed { self.pressedCodes.insert(event.keyCode) }
             else { self.pressedCodes.remove(event.keyCode) }
             let repeated = event.type == .keyDown && event.isARepeat
-            self.emit("", String(event.keyCode), kind: pressed ? (repeated ? 7 : 5) : 6)
+            let kind: Int
+            if pressed { kind = repeated ? 7 : 5 } else { kind = 6 }
+            self.emit("", String(event.keyCode), kind: kind)
             return event
         }
     }
@@ -987,7 +1004,7 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
         pressedCodes.removeAll()
     }
 
-    func windowDidBecomeKey(_ notification: Notification) {
+    func windowDidBecomeKey(_ _: Notification) {
         guard !closed else { return }
         ApplicationDelegate.shared.active = self
         // Windows that installed any menu own the shared menubar while key.
@@ -1079,12 +1096,12 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
         return false
     }
 
-    func windowDidResignKey(_ notification: Notification) {
+    func windowDidResignKey(_ _: Notification) {
         pressedCodes.removeAll()
         emit("", "0", kind: 4)
     }
 
-    func windowDidResize(_ notification: Notification) {
+    func windowDidResize(_ _: Notification) {
         guard !closed else { return }
         // The clip changed size: re-resolve tab floors to the new viewport.
         updateFloors()
@@ -1138,7 +1155,7 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
             emit(id, button.state == .on ? "1" : "0")
         } else { emit(id) }
     }
-    func tabView(_ tabView: NSTabView, shouldSelect tabViewItem: NSTabViewItem?) -> Bool {
+    func tabView(_ _: NSTabView, shouldSelect tabViewItem: NSTabViewItem?) -> Bool {
         applying || !readonlyTabs.contains(tabView.identifier?.rawValue ?? "")
     }
     /// Collapse hidden views: NSStackView keeps hidden arranged subviews in
@@ -2016,13 +2033,19 @@ public func style(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<U
     }
     if let label = value.nodes[id] as? NSTextField, !label.isEditable {
         let size = NSFont.systemFontSize * textScale
-        label.font = textRole == 3 ? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
-            : textRole == 2 ? NSFont.boldSystemFont(ofSize: size * 1.2)
-            : textRole == 4 ? NSFont.systemFont(ofSize: size, weight: .semibold)
-            : NSFont.systemFont(ofSize: size)
-        label.textColor = red >= 0 && green >= 0 && blue >= 0
-            ? NSColor(srgbRed: Double(red) / 255, green: Double(green) / 255, blue: Double(blue) / 255, alpha: 1)
-            : textRole == 4 ? NSColor.secondaryLabelColor : NSColor.labelColor
+        switch textRole {
+        case 3: label.font = NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        case 2: label.font = NSFont.boldSystemFont(ofSize: size * 1.2)
+        case 4: label.font = NSFont.systemFont(ofSize: size, weight: .semibold)
+        default: label.font = NSFont.systemFont(ofSize: size)
+        }
+        if red >= 0 && green >= 0 && blue >= 0 {
+            label.textColor = NSColor(srgbRed: Double(red) / 255, green: Double(green) / 255, blue: Double(blue) / 255, alpha: 1)
+        } else if textRole == 4 {
+            label.textColor = NSColor.secondaryLabelColor
+        } else {
+            label.textColor = NSColor.labelColor
+        }
     }
     if let constraints = value.dimensions[id] { NSLayoutConstraint.deactivate(constraints) }
     value.dimensions[id] = []
@@ -2044,7 +2067,11 @@ public func style(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<U
     // Images stay centered (linkContent); style alignment must not reset it.
     if frame.orientation == .vertical {
         if !(value.nodes[id] is PointerImage) {
-            frame.alignment = horizontal == 2 ? .centerX : horizontal == 3 ? .trailing : .leading
+            switch horizontal {
+            case 2: frame.alignment = .centerX
+            case 3: frame.alignment = .trailing
+            default: frame.alignment = .leading
+            }
         }
         // End-aligned horizontal rows (dialog footers): the wrapper trailing
         // above positions a shrinked row, but to be robust when the wrapper
@@ -2121,8 +2148,14 @@ public func style(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<U
         }
     }
     if let node = value.nodes[id], node !== frame {
+        let gravity: NSStackView.Gravity
+        switch vertical {
+        case 2: gravity = .center
+        case 3: gravity = .bottom
+        default: gravity = .top
+        }
         frame.removeView(node)
-        frame.addView(node, in: vertical == 2 ? .center : vertical == 3 ? .bottom : .top)
+        frame.addView(node, in: gravity)
         value.contentHeights[id]?.isActive = vertical == 4 || (vertical == 0 && (node is Tabs || node is Scrolling))
     }
     value.contentWidths[id]?.isActive = stretchWidth

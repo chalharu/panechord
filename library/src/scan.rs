@@ -1,5 +1,5 @@
 //! Directory metadata only: never open ROM contents, recurse or follow symlinks.
-use std::{collections::BTreeMap, fs, path::PathBuf};
+use std::{collections::BTreeMap, ffi::OsStr, fs, path::PathBuf};
 
 pub const MAX_RESULTS: usize = 256;
 pub const MAX_VISITED: usize = 8192;
@@ -55,7 +55,7 @@ pub fn scan(folder: PathBuf, filter: String) -> Result<Report, String> {
         let path = entry.path();
         let system = match path
             .extension()
-            .and_then(|ext| ext.to_str())
+            .and_then(OsStr::to_str)
             .map(str::to_ascii_lowercase)
             .as_deref()
         {

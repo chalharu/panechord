@@ -274,6 +274,54 @@ impl ShutdownCoordinator {
             }
         }
     }
+    /// Confirm-then-drain pipeline for one shutdown request. `Some(true)` is
+    /// full approval, `Some(false)` is veto or supersession; `None` surfaces
+    /// only through the outer timeout race in [`Session::request_shutdown`].
+    fn shutdown_pipeline<'a>(
+        &'a self,
+        windows: &'a [Weak<WindowSlot>],
+        generation: u64,
+        timeout: Duration,
+    ) -> LocalBoxFuture<'a, Option<bool>> {
+        async move {
+            if self.core.generation.get() != generation || self.phase() == ShutdownPhase::Closed {
+                return Some(false);
+            }
+            for window in windows {
+                let future = window.upgrade().map(|w| w.wait((w.hooks.confirm)()));
+                if let Some(future) = future
+                    && future.await == Ok(false)
+                {
+                    return Some(false);
+                }
+                if self.core.generation.get() != generation || self.phase() == ShutdownPhase::Closed
+                {
+                    return Some(false);
+                }
+            }
+            self.core.phase.set(ShutdownPhase::Draining);
+            let mut drains = Vec::new();
+            for window in windows {
+                if let Some(window) = window.upgrade() {
+                    if !self.attempt(&window, "cancel", || window.cancel()) {
+                        self.close_now();
+                        return Some(false);
+                    }
+                    if self.core.generation.get() != generation
+                        || self.phase() == ShutdownPhase::Closed
+                    {
+                        return Some(false);
+                    }
+                    drains.push(window.wait((window.hooks.drain)()));
+                }
+            }
+            match select(join_all(drains), futures_timer::Delay::new(timeout)).await {
+                Either::Left(_) => Some(true),
+                Either::Right(_) => None,
+            }
+        }
+        .boxed_local()
+    }
     /// Confirmation has no deadline. Once all windows approve, the timeout
     /// bounds concurrent drains; expiry forcibly closes the remaining windows.
     /// Dropping the request future restores Running (unless already Closed).
@@ -306,44 +354,7 @@ impl ShutdownCoordinator {
                 window.cancelled.set(false);
             }
         }
-        let work = async {
-            if self.core.generation.get() != generation || self.phase() == ShutdownPhase::Closed {
-                return Some(false);
-            }
-            for window in &windows {
-                let future = window.upgrade().map(|w| w.wait((w.hooks.confirm)()));
-                if let Some(future) = future
-                    && future.await == Ok(false)
-                {
-                    return Some(false);
-                }
-                if self.core.generation.get() != generation || self.phase() == ShutdownPhase::Closed
-                {
-                    return Some(false);
-                }
-            }
-            self.core.phase.set(ShutdownPhase::Draining);
-            let mut drains = Vec::new();
-            for window in &windows {
-                if let Some(window) = window.upgrade() {
-                    if !self.attempt(&window, "cancel", || window.cancel()) {
-                        self.close_now();
-                        return Some(false);
-                    }
-                    if self.core.generation.get() != generation
-                        || self.phase() == ShutdownPhase::Closed
-                    {
-                        return Some(false);
-                    }
-                    drains.push(window.wait((window.hooks.drain)()));
-                }
-            }
-            match select(join_all(drains), futures_timer::Delay::new(timeout)).await {
-                Either::Left(_) => Some(true),
-                Either::Right(_) => None,
-            }
-        }
-        .boxed_local();
+        let work = self.shutdown_pipeline(&windows, generation, timeout);
         let result = match AssertUnwindSafe(select(work, canceled))
             .catch_unwind()
             .await

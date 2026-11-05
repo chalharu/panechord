@@ -5,6 +5,7 @@ mod generate;
 use proc_macro::TokenStream;
 use proc_macro_crate::{FoundCrate, crate_name};
 use quote::quote;
+use std::ffi::OsStr;
 use std::io::Read;
 use syn::{
     Expr, LitStr, Path, Token,
@@ -194,7 +195,7 @@ fn expand_view(input: ViewInput, owned: bool) -> syn::Result<proc_macro2::TokenS
                 .read_to_string(&mut source)
         })
         .map_err(|e| fail(format!("{absolute}: {e}")))?;
-    let format = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+    let format = path.extension().and_then(OsStr::to_str).unwrap_or("");
     let document = panechord_markup::parse(&source, format, absolute).map_err(|e| {
         let marker = e
             .span

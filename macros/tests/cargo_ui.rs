@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Output},
     sync::{
-        Mutex, MutexGuard, OnceLock,
+        Mutex, MutexGuard, OnceLock, PoisonError,
         atomic::{AtomicUsize, Ordering},
     },
     time::{SystemTime, UNIX_EPOCH},
@@ -37,7 +37,7 @@ impl Fixture {
     fn copy(name: &str) -> Self {
         // Hold across check/build/run, not just individual Cargo invocations:
         // all fixture binaries are named probe and share a dependency cache.
-        let guard = CARGO_SESSION.lock().unwrap_or_else(|e| e.into_inner());
+        let guard = CARGO_SESSION.lock().unwrap_or_else(PoisonError::into_inner);
         let package = Path::new(env!("CARGO_MANIFEST_DIR"));
         let source = package.join("tests/compile_fail");
         let root = session().join(format!("{name}-{}", NEXT.fetch_add(1, Ordering::Relaxed)));

@@ -9,7 +9,8 @@ import sys
 MARKER = re.compile(r"__panechord_yaml_line_(\d+)_column_(\d+)_file_([0-9a-f]+)")
 
 
-def decorate(diagnostic):
+def resolve_marker(diagnostic):
+    """Find the single YAML node marker for this diagnostic, if unambiguous."""
     matches = []
     for span in diagnostic.get("spans", []):
         if not span.get("is_primary"):
@@ -24,23 +25,36 @@ def decorate(diagnostic):
     if not matches:
         matches = list(MARKER.finditer(diagnostic.get("message", "")))
     identities = {match.group(0) for match in matches}
-    match = matches[0] if len(identities) == 1 else None
-    if not match or diagnostic.get("level") != "error":
-        return diagnostic
+    return matches[0] if len(identities) == 1 else None
+
+
+def locate_node(match):
+    """Decode a marker into file/line/column byte offsets, or None."""
     row, column = int(match[1]), int(match[2])
+    if row < 1 or column < 1:
+        return None
     try:
         filename = bytes.fromhex(match[3]).decode("utf-8")
         lines = pathlib.Path(filename).read_bytes().decode("utf-8").splitlines(keepends=True)
-        if row < 1 or column < 1:
-            return diagnostic
         text = lines[row - 1].rstrip("\r\n")
-        if column > len(text):
-            return diagnostic
-        before = "".join(lines[:row - 1]) + text[:column - 1]
-        start = len(before.encode("utf-8"))
-        end = start + len(text[column - 1:column].encode("utf-8"))
-    except (ValueError, UnicodeError, OSError, IndexError):
+    except (ValueError, OSError, IndexError):
+        return None
+    if column > len(text):
+        return None
+    before = "".join(lines[:row - 1]) + text[:column - 1]
+    start = len(before.encode("utf-8"))
+    end = start + len(text[column - 1:column].encode("utf-8"))
+    return filename, row, column, text, start, end
+
+
+def decorate(diagnostic):
+    match = resolve_marker(diagnostic)
+    if not match or diagnostic.get("level") != "error":
         return diagnostic
+    located = locate_node(match)
+    if not located:
+        return diagnostic
+    filename, row, column, text, start, end = located
     for span in diagnostic.get("spans", []):
         span["is_primary"] = False
     diagnostic.setdefault("spans", []).insert(0, {

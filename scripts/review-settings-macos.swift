@@ -5,6 +5,8 @@ import ImageIO
 import Vision
 
 enum Failure: Error { case message(String) }
+/// System screen-capture tool used by the review harness (macOS only).
+let screenCaptureTool = "/usr/sbin/screencapture"
 func require(_ condition: Bool, _ message: String) throws {
     if !condition { throw Failure.message(message) }
 }
@@ -95,7 +97,7 @@ func review() throws {
         try wait {
             try require(process.isRunning, "application exited before \(name)")
             guard let current = window() else { return false }
-            try execute("/usr/sbin/screencapture", ["-x", "-o", "-l", String(current.id), destination.path])
+            try execute(screenCaptureTool, ["-x", "-o", "-l", String(current.id), destination.path])
             guard let imageSource = CGImageSourceCreateWithURL(destination as CFURL, nil),
                   let image = CGImageSourceCreateImageAtIndex(imageSource, 0, nil),
                   let pixels = image.dataProvider?.data else { return false }

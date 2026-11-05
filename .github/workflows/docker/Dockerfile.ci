@@ -1,0 +1,58 @@
+# Prebuilt Linux CI image for panechord: system dependencies are baked in so
+# jobs never run `apt-get update` at runtime (removes the Ubuntu-repository
+# flakiness and the per-run build cost). Content-hash tagged from CI; local
+# development keeps using scripts/Dockerfile.linux directly.
+FROM rust:1.99.1-slim@sha256:1a939748a7cbab172de91a014e3804a97af1394a8c844faa67fce9401c4e40fb AS builder
+RUN cargo install cargo-llvm-cov --locked --version=0.8.7 \
+    && cargo install cargo-nextest --locked --version=0.9.143 \
+    --no-default-features --features=default-no-update
+
+FROM rust:1.99.1-slim@sha256:1a939748a7cbab172de91a014e3804a97af1394a8c844faa67fce9401c4e40fb
+
+# hadolint ignore=DL3002
+USER 0
+
+# Union of scripts/Dockerfile.linux (GTK3/4, Tao, X11/Xvfb) and the
+# link toolchain the coverage legs need (clang, mold). One layer, then the
+# apt lists are deleted inside the same layer.
+# hadolint ignore=DL3008
+RUN apt-get update -qq && apt-get install -y --no-install-recommends \
+    clang \
+    cmake \
+    dbus-x11 \
+    fonts-dejavu-core \
+    fonts-noto-cjk \
+    gdb \
+    imagemagick \
+    libasound2-dev \
+    libgl1-mesa-dri \
+    libgtk-3-dev \
+    libgtk-4-dev \
+    libudev-dev \
+    libx11-dev \
+    libxcb-shape0-dev \
+    libxcb-xfixes0-dev \
+    libxdo-dev \
+    libxkbcommon-dev \
+    libxkbcommon-x11-dev \
+    libxtst-dev \
+    make \
+    mold \
+    pkg-config \
+    python3 \
+    python3-yaml \
+    ca-certificates \
+    tesseract-ocr \
+    xauth \
+    xdotool \
+    xvfb \
+    && rm -rf /var/lib/apt/lists/* \
+    && rustup component add rustfmt clippy llvm-tools-preview \
+    && rm -rf /usr/local/cargo/registry/cache/* \
+    && rm -rf /usr/local/cargo/registry/index/*
+
+COPY --from=builder /usr/local/cargo/bin/cargo-llvm-cov /usr/local/cargo/bin/cargo-llvm-cov
+COPY --from=builder /usr/local/cargo/bin/cargo-nextest /usr/local/cargo/bin/cargo-nextest
+
+ENV CARGO_BUILD_JOBS=1 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
+WORKDIR /workspace

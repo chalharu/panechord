@@ -147,6 +147,17 @@ Docker results are Linux/X11 evidence only. macOS results come from
 `python3 scripts/bundle-macos.py --verify`. Neither replaces real IME,
 assistive-technology, or on-device Windows testing.
 
+CI (`.github/workflows/`) runs the same gates from a prebuilt GHCR image
+(`.github/workflows/docker/Dockerfile.ci`, content-hash tagged), so Linux
+jobs never run `apt-get` at runtime: `panechord.yml` is the fast gate
+(container `verify.sh` + `measure.sh`, native Windows Tao build), while
+`coverage.yml` builds one nextest archive per OS/backend set, distributes
+the archives to the Ubuntu/M1-Mac/Windows run legs, executes them with
+`cargo llvm-cov nextest`, and merges the per-leg LCOV fragments on
+SonarCloud. Windows/macOS archives build natively on their own runners:
+GTK system libraries and the AppKit/Swift bridge do not cross-link from a
+Linux sysroot.
+
 ## Documentation
 
 - `API.md` — the frozen cross-backend contract both backends and codegen target.

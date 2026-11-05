@@ -1,0 +1,546 @@
+# Coverage pipeline: build once, distribute, run per OS, merge on SonarCloud.
+#
+# Linux archives are built once inside the prebuilt GHCR container
+# (.github/workflows/docker/Dockerfile.ci, content-hash tagged) and fanned
+# out to the Linux run legs as nextest archives -- the same distribution
+# pattern as nerust's rom-tests. No `apt-get` runs inside any Linux job, so
+# Ubuntu-repository flakes cannot fail the gate and the environment setup is
+# a container pull plus the Rust cache.
+#
+# Windows/macOS archives are NOT cross-built from Ubuntu: GTK system
+# libraries, the Tao Windows links and the AppKit/Swift bridge cannot link
+# from a Linux sysroot, and a cross sysroot (xwin/osxcross) would reintroduce
+# exactly the flakiness this pipeline removes. Each foreign OS builds its own
+# archive natively on its own runner, uploads it, and the paired run job
+# downloads and executes it -- distribution still holds, per OS.
+# macOS display tests stay out of CI: they need an interactive desktop
+# (see scripts/verify-macos.sh); the macOS leg runs the headless subset only.
+name: Coverage
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**.rs"
+      - "**.yaml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/**"
+      - ".github/workflows/coverage.yml"
+      - ".github/workflows/docker/Dockerfile.ci"
+  pull_request:
+    paths:
+      - "**.rs"
+      - "**.yaml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/**"
+      - ".github/workflows/coverage.yml"
+      - ".github/workflows/docker/Dockerfile.ci"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  prepare-image:
+    name: Prepare image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 15
+    outputs:
+      image_tag: "${{ steps.set-tag.outputs.tag }}"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set image tag
+        id: set-tag
+        run: echo "tag=${{ hashFiles('.github/workflows/docker/Dockerfile.ci') }}" >> "$GITHUB_OUTPUT"
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd7795515696795f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check if image exists
+        id: check-image
+        continue-on-error: true
+        env:
+          GH_REPO: ${{ github.repository }}
+          IMAGE_TAG: ${{ steps.set-tag.outputs.tag }}
+        run: docker pull "ghcr.io/$GH_REPO/ci-image-panechord:$IMAGE_TAG"
+      - name: Build and push if not exists
+        if: steps.check-image.outcome == 'failure'
+        uses: docker/build-push-action@c3c9e263c25d99ce0d002d59b67731d91b0dc # v7.4.0
+        with:
+          context: .
+          file: .github/workflows/docker/Dockerfile.ci
+          push: true
+          tags: ghcr.io/${{ github.repository }}/ci-image-panechord:${{ steps.set-tag.outputs.tag }}
+          provenance: false
+
+  lint:
+    name: Lint (container)
+    needs: prepare-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: ghcr.io/${{ github.repository }}/ci-image-panechord:${{ needs.prepare-image.outputs.image_tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          cache-all-crates: "true"
+          workspaces: |
+            . -> target
+      - name: Format check
+        run: >-
+          cargo fmt -p panechord -p panechord-runtime -p panechord-markup -p panechord-macros
+          -p panechord-gtk -p panechord-tao -p panechord-macos -p panechord-demo
+          -p panechord-library -- --check
+      - name: Clippy
+        run: >-
+          cargo clippy --locked -p panechord -p panechord-runtime -p panechord-markup
+          -p panechord-macros -p panechord-gtk -p panechord-tao -p panechord-macos
+          -p panechord-demo -p panechord-library --all-targets -- -D warnings
+
+  archive-linux:
+    name: Build Linux archive
+    needs: prepare-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    container:
+      image: ghcr.io/${{ github.repository }}/ci-image-panechord:${{ needs.prepare-image.outputs.image_tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    env:
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          cache-all-crates: "true"
+          workspaces: |
+            . -> target
+            . -> target/llvm-cov-target
+      - name: Build test archives
+        run: |
+          export RUSTFLAGS="${RUSTFLAGS-} -C link-arg=-fuse-ld=mold -C debuginfo=0"
+          mkdir -p artifacts
+          # Default features resolve demo/library to the GTK backend.
+          cargo llvm-cov nextest-archive --workspace --archive-file artifacts/linux-gtk.tar.zst
+          # One archive for the Tao backend: the flag applies to the packages
+          # that define it (demo/library); featureless packages are unaffected.
+          cargo llvm-cov nextest-archive -p panechord-tao -p panechord-library \
+            --no-default-features --features backend-tao --archive-file artifacts/linux-tao.tar.zst
+      - name: Upload test archives
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-archive-linux
+          path: artifacts/*.tar.zst
+          compression-level: 0
+          retention-days: 1
+
+  run-linux-headless:
+    name: Linux headless (nextest)
+    needs: [prepare-image, archive-linux]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: ghcr.io/${{ github.repository }}/ci-image-panechord:${{ needs.prepare-image.outputs.image_tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download test archive
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: test-archive-linux
+          path: artifacts
+      - name: Run headless tests with coverage
+        run: |
+          mkdir -p coverage target/llvm-cov-target
+          cargo llvm-cov nextest --no-report --archive-file artifacts/linux-gtk.tar.zst \
+            -E 'package(panechord-runtime) or package(panechord-markup) or package(panechord-macros)'
+          cargo llvm-cov report \
+            --nextest-archive-file artifacts/linux-gtk.tar.zst \
+            --no-default-ignore-filename-regex \
+            --lcov --output-path coverage/raw.info
+          workspace_root="${PWD%/}/"
+          awk -v prefix="SF:${workspace_root}" '
+            /^SF:/ { include = index($0, prefix) == 1 }
+            include { print }
+            /^end_of_record$/ { include = 0 }
+          ' coverage/raw.info > coverage/lcov-linux-headless.info
+          rm coverage/raw.info
+          sed -i "s#^SF:${workspace_root}#SF:#" coverage/*.info
+      - name: Upload coverage report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lcov-linux-headless
+          path: coverage/*.info
+          retention-days: 1
+
+  run-linux-gtk:
+    name: Linux GTK display (nextest, Xvfb)
+    needs: [prepare-image, archive-linux]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    container:
+      image: ghcr.io/${{ github.repository }}/ci-image-panechord:${{ needs.prepare-image.outputs.image_tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    env:
+      GDK_BACKEND: x11
+      GSK_RENDERER: cairo
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download test archive
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: test-archive-linux
+          path: artifacts
+      # nextest isolates each test in its own process, which the GTK3/GTK4
+      # separation requires (see scripts/verify.sh).
+      - name: Run GTK tests with coverage
+        run: |
+          export PANECHORD_ALLOW_CLIPBOARD_PROBE=1
+          mkdir -p coverage target/llvm-cov-target
+          xvfb-run cargo llvm-cov nextest --no-report --archive-file artifacts/linux-gtk.tar.zst \
+            -E 'package(panechord-gtk) or package(panechord-library)'
+          xvfb-run cargo llvm-cov nextest --no-report --archive-file artifacts/linux-gtk.tar.zst \
+            -E 'package(panechord-gtk)' --run-ignored only
+          cargo llvm-cov report \
+            --nextest-archive-file artifacts/linux-gtk.tar.zst \
+            --no-default-ignore-filename-regex \
+            --lcov --output-path coverage/raw.info
+          workspace_root="${PWD%/}/"
+          awk -v prefix="SF:${workspace_root}" '
+            /^SF:/ { include = index($0, prefix) == 1 }
+            include { print }
+            /^end_of_record$/ { include = 0 }
+          ' coverage/raw.info > coverage/lcov-linux-gtk.info
+          rm coverage/raw.info
+          sed -i "s#^SF:${workspace_root}#SF:#" coverage/*.info
+      - name: Upload coverage report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lcov-linux-gtk
+          path: coverage/*.info
+          retention-days: 1
+
+  run-linux-tao:
+    name: Linux Tao display (nextest, Xvfb)
+    needs: [prepare-image, archive-linux]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    container:
+      image: ghcr.io/${{ github.repository }}/ci-image-panechord:${{ needs.prepare-image.outputs.image_tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download test archive
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: test-archive-linux
+          path: artifacts
+      - name: Run Tao tests with coverage
+        run: |
+          export PANECHORD_ALLOW_CLIPBOARD_PROBE=1
+          mkdir -p coverage target/llvm-cov-target
+          xvfb-run cargo llvm-cov nextest --no-report --archive-file artifacts/linux-tao.tar.zst
+          xvfb-run cargo llvm-cov nextest --no-report --archive-file artifacts/linux-tao.tar.zst \
+            --run-ignored only
+          cargo llvm-cov report \
+            --nextest-archive-file artifacts/linux-tao.tar.zst \
+            --no-default-ignore-filename-regex \
+            --lcov --output-path coverage/raw.info
+          workspace_root="${PWD%/}/"
+          awk -v prefix="SF:${workspace_root}" '
+            /^SF:/ { include = index($0, prefix) == 1 }
+            include { print }
+            /^end_of_record$/ { include = 0 }
+          ' coverage/raw.info > coverage/lcov-linux-tao.info
+          rm coverage/raw.info
+          sed -i "s#^SF:${workspace_root}#SF:#" coverage/*.info
+      - name: Upload coverage report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lcov-linux-tao
+          path: coverage/*.info
+          retention-days: 1
+
+  build-windows:
+    name: Build Windows archive
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: 1.99.1
+          components: rustfmt, clippy, llvm-tools-preview
+      - name: Restore tool cache
+        id: tool-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin
+          key: ${{ runner.os }}-nextest-0.9.143-llvm-cov-0.8.7
+      - name: Install nextest and llvm-cov
+        if: steps.tool-cache.outputs.cache-hit != 'true'
+        run: |
+          cargo install cargo-llvm-cov --locked --version=0.8.7
+          cargo install cargo-nextest --locked --version=0.9.143 --no-default-features --features=default-no-update
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          cache-all-crates: "true"
+          workspaces: |
+            . -> target
+            . -> target/llvm-cov-target
+      - name: Build test archives (Tao backend)
+        run: |
+          mkdir artifacts
+          cargo llvm-cov nextest-archive -p panechord-runtime -p panechord-markup -p panechord-macros `
+            -p panechord-tao -p panechord-library `
+            --no-default-features --features backend-tao --archive-file artifacts/windows.tar.zst
+      - name: Upload test archives
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-archive-windows
+          path: artifacts/*.tar.zst
+          compression-level: 0
+          retention-days: 1
+
+  run-windows:
+    name: Windows tests (nextest)
+    needs: build-windows
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: 1.99.1
+          components: llvm-tools-preview
+      - name: Restore tool cache
+        id: tool-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin
+          key: ${{ runner.os }}-nextest-0.9.143-llvm-cov-0.8.7
+      - name: Install nextest and llvm-cov
+        if: steps.tool-cache.outputs.cache-hit != 'true'
+        run: |
+          cargo install cargo-llvm-cov --locked --version=0.8.7
+          cargo install cargo-nextest --locked --version=0.9.143 --no-default-features --features=default-no-update
+      - name: Download test archive
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: test-archive-windows
+          path: artifacts
+      - name: Run tests with coverage
+        run: |
+          mkdir coverage, target/llvm-cov-target -Force | Out-Null
+          $root = ((Get-Location).Path -replace '\\', '/') + '/'
+          cargo llvm-cov nextest --no-report --archive-file artifacts/windows.tar.zst
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo llvm-cov report --nextest-archive-file artifacts/windows.tar.zst `
+            --no-default-ignore-filename-regex --lcov --output-path coverage/raw.info
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-Content coverage/raw.info |
+            Where-Object { $_ -notmatch '^SF:' -or $_.Substring(3).StartsWith($root) } |
+            ForEach-Object { $_ -replace ('^SF:' + [regex]::Escape($root)), 'SF:' } |
+            Set-Content coverage/lcov-windows.info
+          Remove-Item coverage/raw.info
+          Get-ChildItem coverage/
+      - name: Upload coverage report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lcov-windows
+          path: coverage/*.info
+          retention-days: 1
+
+  build-macos:
+    name: Build macOS archive (M1)
+    runs-on: macos-14
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: 1.99.1
+          components: rustfmt, clippy, llvm-tools-preview
+      - name: Restore tool cache
+        id: tool-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin
+          key: ${{ runner.os }}-nextest-0.9.143-llvm-cov-0.8.7
+      - name: Install nextest and llvm-cov
+        if: steps.tool-cache.outputs.cache-hit != 'true'
+        run: |
+          cargo install cargo-llvm-cov --locked --version=0.8.7
+          cargo install cargo-nextest --locked --version=0.9.143 --no-default-features --features=default-no-update
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          cache-all-crates: "true"
+          workspaces: |
+            . -> target
+            . -> target/llvm-cov-target
+      - name: Build test archive (macOS backend, headless subset)
+        run: |
+          mkdir -p artifacts
+          cargo llvm-cov nextest-archive -p panechord-runtime -p panechord-markup -p panechord-macros \
+            -p panechord-macos -p panechord-library \
+            --no-default-features --features backend-macos --archive-file artifacts/macos.tar.zst
+      - name: Upload test archive
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-archive-macos
+          path: artifacts/*.tar.zst
+          compression-level: 0
+          retention-days: 1
+
+  run-macos:
+    name: macOS tests (nextest, headless)
+    needs: build-macos
+    runs-on: macos-14
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: 1.99.1
+          components: llvm-tools-preview
+      - name: Restore tool cache
+        id: tool-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin
+          key: ${{ runner.os }}-nextest-0.9.143-llvm-cov-0.8.7
+      - name: Install nextest and llvm-cov
+        if: steps.tool-cache.outputs.cache-hit != 'true'
+        run: |
+          cargo install cargo-llvm-cov --locked --version=0.8.7
+          cargo install cargo-nextest --locked --version=0.9.143 --no-default-features --features=default-no-update
+      - name: Download test archive
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: test-archive-macos
+          path: artifacts
+      - name: Run tests with coverage
+        run: |
+          mkdir -p coverage target/llvm-cov-target
+          cargo llvm-cov nextest --no-report --archive-file artifacts/macos.tar.zst
+          cargo llvm-cov report \
+            --nextest-archive-file artifacts/macos.tar.zst \
+            --no-default-ignore-filename-regex \
+            --lcov --output-path coverage/raw.info
+          workspace_root="${PWD%/}/"
+          awk -v prefix="SF:${workspace_root}" '
+            /^SF:/ { include = index($0, prefix) == 1 }
+            include { print }
+            /^end_of_record$/ { include = 0 }
+          ' coverage/raw.info > coverage/lcov-macos.info
+          rm coverage/raw.info
+          sed -i '' "s#^SF:${workspace_root}#SF:#" coverage/*.info
+      - name: Upload coverage report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lcov-macos
+          path: coverage/*.info
+          retention-days: 1
+
+  sonarcloud:
+    name: SonarCloud
+    needs:
+      - run-linux-headless
+      - run-linux-gtk
+      - run-linux-tao
+      - run-windows
+      - run-macos
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download coverage reports
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: lcov-*
+          path: coverage
+          merge-multiple: true
+      - name: Run SonarCloud scan
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        env:
+          SONAR_HOST_URL: https://sonarcloud.io
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

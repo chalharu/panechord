@@ -159,15 +159,17 @@ shape; the trait gains defaulted methods instead of new dispatch arms.
 4. `Executor`: implement `spawn`. Override `dispatch_budget` only for a
    cooperative single-thread loop (AppKit returns 64); preemptive loop
    integrations keep the default unbounded.
-5. Free functions the facade re-exports: `run_host`, `pick_file`,
-   `set_allows_automatic_window_tabbing`, `set_initial_window_size`. No-op
-   the setters where the platform has no equivalent. Add the `Backend` struct
-   (see `gtk/src/view.rs`) with a short `NAME` for logs.
+5. Backend surface the facade names only through `backend`: `run_host`,
+   `pick_file`, `set_allows_automatic_window_tabbing`,
+   `set_initial_window_size`, plus the `Backend` struct
+   (see `gtk/src/view.rs`) with a short `NAME` for logs. No-op
+   the setters where the platform has no equivalent.
 6. Facade (`panechord/src/lib.rs`): extend the `compile_error!` exclusivity
-   guard, add `pub use panechord-<name>` plus the standard re-export line and
-   the `as backend` alias. `SelectedBackend` and `Runner` follow
-   automatically; screens keep using `panechord::backend` and
-   `Backend::NAME`, never per-file backend aliases.
+   guard, add `pub use panechord-<name> as <name>` and the `as backend`
+   alias. No per-symbol re-exports: concrete `View`/`Parent`/`WeakView`
+   resolve through `panechord::backend` only. `SelectedBackend` and
+   `Runner` follow automatically; screens keep using `panechord::backend`
+   and `Backend::NAME`, never per-file backend aliases.
 7. Consumers: add `backend-<name> = ["panechord/<feature>"]` to
    `demo/Cargo.toml` and `library/Cargo.toml`. Shared screens must build
    under every backend with zero `cfg(feature)`; backend-only measurement

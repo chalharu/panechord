@@ -181,7 +181,7 @@ root:
   Layouts do not add extra ID components. `path: root.field` always escapes to
   the original outer Store, not the immediately enclosing item Store.
   `command: root.add` similarly targets the outer model.
-- ItemsControl and BindableLayout both call `View::items`; viewport is explicit,
+- ItemsControl calls `View::items`; viewport is explicit,
   either a binding or `{literal: {start: 0, count: 20, row_height: 48}}`.
   ContentControl uses an `Option<Keyed<T>>` binding and `View::content`.
 - StackLayout accepts `orientation: Horizontal` (default Vertical) and `gap`;

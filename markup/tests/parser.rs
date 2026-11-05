@@ -313,7 +313,6 @@ fn source_diagnostics_schema_and_fingerprint() {
         "Grid",
         "AbsoluteLayout",
         "FlexLayout",
-        "BindableLayout",
         "ItemsControl",
         "ContentControl",
         "Label",

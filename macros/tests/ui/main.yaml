@@ -98,7 +98,7 @@ root:
             text: {literal: Save}
             command: save
             argument: {literal: saved}
-          - type: BindableLayout
+          - type: ItemsControl
             id: rows
             items: {bind: {path: rows}}
             viewport: {bind: {path: viewport, mode: TwoWay}}

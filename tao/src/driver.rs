@@ -228,15 +228,34 @@ fn displayed(node: &super::Node) -> bool {
 /// Whether a pump rasterizes after updating state.
 // Variants split by platform: Linux frames use `IfDirty`, other targets
 // use `Always` for OS-requested exposes, so one side is always unused.
-#[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Paint {
     /// State-only pump: scroll flushes and input-event evaluations.
     Never,
     /// Frame pump that paints only when the update dirtied anything, so
     /// coalesced no-op scrolls skip the screenshot and cairo present.
+    #[cfg_attr(
+        not(any(
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "openbsd",
+            target_os = "dragonfly"
+        )),
+        allow(dead_code)
+    )]
     IfDirty,
     /// Frame pump that always paints (OS-requested redraws).
+    #[cfg_attr(
+        any(
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "openbsd",
+            target_os = "dragonfly"
+        ),
+        allow(dead_code)
+    )]
     Always,
 }
 /// What a pump did: the iced messages plus whether anything dirtied (a

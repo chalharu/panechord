@@ -301,7 +301,6 @@ controls! {
     AbsoluteLayout { #[serde(default)] children: Vec<Control>, },
     FlexLayout { #[serde(default)] gap: f32, #[serde(default)] children: Vec<Control>, },
     Repeat { items: Property, item_template: String, #[serde(default)] gap: f32, },
-    BindableLayout { items: Property, item_template: String, viewport: Property, },
     ItemsControl { items: Property, item_template: String, viewport: Property, },
     ContentControl { content: Property, content_template: String, },
     Label { text: Property, },
@@ -759,9 +758,9 @@ impl Document {
             Control::Image { source, .. } | Control::Table { source, .. } => {
                 read_only(source, "source")?
             }
-            Control::Combo { items, .. }
-            | Control::ItemsControl { items, .. }
-            | Control::BindableLayout { items, .. } => read_only(items, "items")?,
+            Control::Combo { items, .. } | Control::ItemsControl { items, .. } => {
+                read_only(items, "items")?
+            }
             Control::TabItems { items, title, .. } => {
                 read_only(items, "items")?;
                 read_only(title, "title")?;
@@ -930,8 +929,7 @@ impl Document {
                 }
                 Some(item_template)
             }
-            Control::ItemsControl { item_template, .. }
-            | Control::BindableLayout { item_template, .. } => Some(item_template),
+            Control::ItemsControl { item_template, .. } => Some(item_template),
             Control::TabItems {
                 selected,
                 item_template,

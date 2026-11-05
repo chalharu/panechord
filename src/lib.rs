@@ -10,30 +10,15 @@ compile_error!("select exactly one Panechord native backend");
 
 #[cfg(feature = "gtk")]
 pub use panechord_gtk as gtk;
-#[cfg(feature = "gtk")]
-pub use panechord_gtk::{
-    Parent, View, WeakView, pick_file, set_allows_automatic_window_tabbing, set_initial_window_size,
-};
 #[cfg(feature = "macos")]
 pub use panechord_macos as macos;
-#[cfg(feature = "macos")]
-pub use panechord_macos::{
-    Parent, View, WeakView, pick_file, set_allows_automatic_window_tabbing, set_initial_window_size,
-};
-#[cfg(feature = "tao")]
-pub use panechord_tao as tao;
-#[cfg(feature = "tao")]
-pub use panechord_tao::{
-    Parent, View, WeakView, pick_file, set_allows_automatic_window_tabbing, set_initial_window_size,
-};
-
 #[cfg(all(
     feature = "native",
     not(any(feature = "gtk", feature = "tao", feature = "macos"))
 ))]
-pub use panechord_native::{
-    Parent, View, WeakView, pick_file, set_allows_automatic_window_tabbing, set_initial_window_size,
-};
+pub use panechord_native as native;
+#[cfg(feature = "tao")]
+pub use panechord_tao as tao;
 
 /// Startup builder: pre-build window options flow into the backend before the
 /// single `run_host` loop starts. Views are built inside `run`, so every

@@ -513,13 +513,9 @@ fn scoped_replacement_skips_clones_unrelated_projections_and_noop_generations() 
 #[test]
 fn handwritten_dirty_hints_cannot_leave_other_fields_stale() {
     let (_, store) = local((0, 0));
-    let right = store.bind_scoped(
-        "left",
-        |state| state.1,
-        Some(|state, value| state.1 = value),
-    );
+    let right = store.bind(|state| state.1, Some(|state, value| state.1 = value));
     let (values, token) = record(&right);
-    assert!(store.update_scoped(&["left"], |_| Some((0, 1))));
+    assert!(store.update(|state| *state = (0, 1)));
     assert_eq!(&*values.borrow(), &[0, 1]);
     assert!(right.set(2));
     assert_eq!(&*values.borrow(), &[0, 1, 2]);

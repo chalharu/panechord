@@ -835,17 +835,6 @@ impl<S: Clone + 'static> Store<S> {
         self.core
             .enqueue(Box::new(move |core| core.mutate(update)), true)
     }
-    /// Clone-free replacement with conservative notification. None skips publication.
-    /// Field hints never suppress notifications; use update_scoped_explicit only
-    /// when the caller can prove that its complete dependency set is correct.
-    #[must_use = "check acceptance or explicitly discard it"]
-    pub fn update_scoped(
-        &self,
-        _fields: &[&'static str],
-        replace: impl FnOnce(&S) -> Option<S> + 'static,
-    ) -> bool {
-        self.replace(None, replace)
-    }
     /// Advanced dependency contract: omitted changed fields can leave observers stale.
     #[must_use = "check acceptance or explicitly discard it"]
     pub fn update_scoped_explicit(
@@ -949,15 +938,6 @@ impl<S: Clone + 'static> Store<S> {
     }
     pub fn bind<T: Clone + PartialEq + 'static>(
         &self,
-        read: impl Fn(&S) -> T + 'static,
-        write: Option<fn(&mut S, T)>,
-    ) -> Binding<T> {
-        self.bind_inner(None, read, write)
-    }
-    /// Conservative binding: a handwritten field hint cannot suppress notifications.
-    pub fn bind_scoped<T: Clone + PartialEq + 'static>(
-        &self,
-        _field: &'static str,
         read: impl Fn(&S) -> T + 'static,
         write: Option<fn(&mut S, T)>,
     ) -> Binding<T> {

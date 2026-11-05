@@ -101,10 +101,9 @@ pub fn generate(doc: &Document, backend: &Path, owned: bool) -> syn::Result<Toke
             as ::panechord_runtime::ViewCore>::new(#title);
         {
             // Pin the full capability contract without naming the umbrella
-            // `View` in trait position: the facade also exports the concrete
-            // `View` struct under that name, so a rewritten `::panechord::View`
-            // bound would not resolve. These twelve bounds are exactly the
-            // blanket impl behind `View`, and none of them collide.
+            // `View` in trait position: construction already goes through
+            // `Backend::View`, so the twelve bounds below (exactly the
+            // blanket impl behind `View`) pin capabilities with no collision.
             fn __panechord_assert_view<
                 V: ::panechord_runtime::ViewCore
                     + ::panechord_runtime::LayoutView
@@ -830,12 +829,6 @@ fn control_inner(
             quote!(let __panechord_parent = __panechord_view.dialog(&__panechord_parent, &__id, #title, #open); #body)
         }
         Control::ItemsControl {
-            items,
-            item_template,
-            viewport,
-            ..
-        }
-        | Control::BindableLayout {
             items,
             item_template,
             viewport,

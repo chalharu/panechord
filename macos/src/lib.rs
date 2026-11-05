@@ -1082,11 +1082,7 @@ impl View {
         id: &str,
         footer: panechord_runtime::DialogFooter,
     ) {
-        let panechord_runtime::DialogFooter {
-            accept,
-            cancel,
-            destructive,
-        } = footer;
+        let panechord_runtime::DialogFooter { destructive, .. } = &footer;
         let row = self.layout(
             parent,
             id,
@@ -1100,8 +1096,14 @@ impl View {
             ..Style::default()
         };
         self.style(id, style);
-        self.button(&row, &format!("{id}/cancel"), cancel.text, cancel.command);
-        self.button(&row, &format!("{id}/accept"), accept.text, accept.command);
+        for (sub, part) in footer.ordered() {
+            self.button(
+                &row,
+                &format!("{id}/{sub}"),
+                part.text.clone(),
+                part.command.clone(),
+            );
+        }
         // Destructive emphasis travels on property channel 19
         // (`NSButton.hasDestructiveAction` in the AppKit bridge): a
         // destructive accept renders with the system destructive style,
@@ -1110,7 +1112,7 @@ impl View {
         // non-destructive accept answers Return.
         self.set(
             &format!("{id}/accept"),
-            if destructive { "1" } else { "0" },
+            if *destructive { "1" } else { "0" },
             19,
         );
         // HIG Return/Escape: non-destructive accept is the default button
@@ -1118,7 +1120,7 @@ impl View {
         // no Return equivalent.
         self.set(
             &format!("{id}/accept"),
-            if destructive { "0" } else { "1" },
+            if *destructive { "0" } else { "1" },
             20,
         );
         self.set(&format!("{id}/cancel"), "1", 21);

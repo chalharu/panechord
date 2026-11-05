@@ -154,11 +154,13 @@ jobs:
           export RUSTFLAGS="${RUSTFLAGS-} -C link-arg=-fuse-ld=mold -C debuginfo=0"
           mkdir -p artifacts
           # Default features resolve demo/library to the GTK backend.
-          cargo llvm-cov nextest-archive --workspace --archive-file artifacts/linux-gtk.tar.zst
+          cargo llvm-cov nextest-archive --workspace -E 'not binary(cargo_ui)' \
+            --archive-file artifacts/linux-gtk.tar.zst
           # One archive for the Tao backend: the flag applies to the packages
           # that define it (demo/library); featureless packages are unaffected.
           cargo llvm-cov nextest-archive -p panechord-tao -p panechord-library \
-            --no-default-features --features backend-tao --archive-file artifacts/linux-tao.tar.zst
+            --no-default-features --features backend-tao -E 'not binary(cargo_ui)' \
+            --archive-file artifacts/linux-tao.tar.zst
       - name: Upload test archives
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -241,22 +243,36 @@ jobs:
       - name: Run GTK tests with coverage
         run: |
           export PANECHORD_ALLOW_CLIPBOARD_PROBE=1
+          # Each archive run extracts into target/llvm-cov-target and collides
+          # with any previous content (stale or from an earlier invocation),
+          # so start clean and report + drop the dir between runs.
+          rm -rf target/llvm-cov-target
           mkdir -p coverage target/llvm-cov-target
           xvfb-run cargo llvm-cov nextest --no-report --archive-file artifacts/linux-gtk.tar.zst \
             -E 'package(panechord-gtk) or package(panechord-library)'
+          cargo llvm-cov report \
+            --nextest-archive-file artifacts/linux-gtk.tar.zst \
+            --no-default-ignore-filename-regex \
+            --lcov --output-path coverage/raw-gtk.info
+          rm -rf target/llvm-cov-target
+          mkdir -p target/llvm-cov-target
           xvfb-run cargo llvm-cov nextest --no-report --archive-file artifacts/linux-gtk.tar.zst \
             -E 'package(panechord-gtk)' --run-ignored only
           cargo llvm-cov report \
             --nextest-archive-file artifacts/linux-gtk.tar.zst \
             --no-default-ignore-filename-regex \
-            --lcov --output-path coverage/raw.info
+            --lcov --output-path coverage/raw-gtk-ignored.info
+          rm -rf target/llvm-cov-target
           workspace_root="${PWD%/}/"
-          awk -v prefix="SF:${workspace_root}" '
-            /^SF:/ { include = index($0, prefix) == 1 }
-            include { print }
-            /^end_of_record$/ { include = 0 }
-          ' coverage/raw.info > coverage/lcov-linux-gtk.info
-          rm coverage/raw.info
+          for raw in coverage/raw-gtk.info coverage/raw-gtk-ignored.info; do
+            out="coverage/lcov-linux-$(basename "$raw" .info | sed 's/^raw-//').info"
+            awk -v prefix="SF:${workspace_root}" '
+              /^SF:/ { include = index($0, prefix) == 1 }
+              include { print }
+              /^end_of_record$/ { include = 0 }
+            ' "$raw" > "$out"
+            rm "$raw"
+          done
           sed -i "s#^SF:${workspace_root}#SF:#" coverage/*.info
       - name: Upload coverage report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -289,21 +305,35 @@ jobs:
       - name: Run Tao tests with coverage
         run: |
           export PANECHORD_ALLOW_CLIPBOARD_PROBE=1
+          # Each archive run extracts into target/llvm-cov-target and collides
+          # with any previous content (stale or from an earlier invocation),
+          # so start clean and report + drop the dir between runs.
+          rm -rf target/llvm-cov-target
           mkdir -p coverage target/llvm-cov-target
           xvfb-run cargo llvm-cov nextest --no-report --archive-file artifacts/linux-tao.tar.zst
+          cargo llvm-cov report \
+            --nextest-archive-file artifacts/linux-tao.tar.zst \
+            --no-default-ignore-filename-regex \
+            --lcov --output-path coverage/raw-tao.info
+          rm -rf target/llvm-cov-target
+          mkdir -p target/llvm-cov-target
           xvfb-run cargo llvm-cov nextest --no-report --archive-file artifacts/linux-tao.tar.zst \
             --run-ignored only
           cargo llvm-cov report \
             --nextest-archive-file artifacts/linux-tao.tar.zst \
             --no-default-ignore-filename-regex \
-            --lcov --output-path coverage/raw.info
+            --lcov --output-path coverage/raw-tao-ignored.info
+          rm -rf target/llvm-cov-target
           workspace_root="${PWD%/}/"
-          awk -v prefix="SF:${workspace_root}" '
-            /^SF:/ { include = index($0, prefix) == 1 }
-            include { print }
-            /^end_of_record$/ { include = 0 }
-          ' coverage/raw.info > coverage/lcov-linux-tao.info
-          rm coverage/raw.info
+          for raw in coverage/raw-tao.info coverage/raw-tao-ignored.info; do
+            out="coverage/lcov-linux-$(basename "$raw" .info | sed 's/^raw-//').info"
+            awk -v prefix="SF:${workspace_root}" '
+              /^SF:/ { include = index($0, prefix) == 1 }
+              include { print }
+              /^end_of_record$/ { include = 0 }
+            ' "$raw" > "$out"
+            rm "$raw"
+          done
           sed -i "s#^SF:${workspace_root}#SF:#" coverage/*.info
       - name: Upload coverage report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -350,7 +380,8 @@ jobs:
           mkdir artifacts
           cargo llvm-cov nextest-archive -p panechord-runtime -p panechord-markup -p panechord-macros `
             -p panechord-tao -p panechord-library `
-            --no-default-features --features backend-tao --archive-file artifacts/windows.tar.zst
+            --no-default-features --features backend-tao -E 'not binary(cargo_ui)' \
+            --archive-file artifacts/windows.tar.zst
       - name: Upload test archives
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -451,7 +482,8 @@ jobs:
           mkdir -p artifacts
           cargo llvm-cov nextest-archive -p panechord-runtime -p panechord-markup -p panechord-macros \
             -p panechord-macos -p panechord-library \
-            --no-default-features --features backend-macos --archive-file artifacts/macos.tar.zst
+            --no-default-features --features backend-macos -E 'not binary(cargo_ui)' \
+            --archive-file artifacts/macos.tar.zst
       - name: Upload test archive
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

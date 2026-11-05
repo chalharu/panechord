@@ -329,7 +329,11 @@ mod tests {
             .join("tests/ui/main.yaml")
             .canonicalize()
             .unwrap();
-        assert!(text.contains(absolute.to_str().unwrap()));
+        // Token-stream rendering escapes `\`, so compare separator-blind: the
+        // assertion tracks the absolute fixture path, not path spelling.
+        let rendered = text.replace('\\', "/");
+        let expected = absolute.to_str().unwrap().replace('\\', "/");
+        assert!(rendered.contains(&expected));
         assert!(!text.contains("OUT_DIR"));
         assert!(text.contains("on_close"));
         syn::parse2::<syn::Expr>(code).unwrap();

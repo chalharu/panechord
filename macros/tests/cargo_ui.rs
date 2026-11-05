@@ -91,17 +91,20 @@ impl Fixture {
     }
 
     fn cargo(&self, args: &[&str]) -> Output {
+        // Cargo spawns RUSTC_WRAPPER via CreateProcess, which cannot execute
+        // a .py file directly on Windows (no shebang support): route through
+        // the interpreter there via the .cmd shim.
+        let wrapper = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("scripts/yaml-rustc.py");
+        #[cfg(windows)]
+        let wrapper = wrapper.with_extension("cmd");
         let output = Command::new(env!("CARGO"))
             .current_dir(&self.root)
             .env("CARGO_TARGET_DIR", session().join("target"))
             .env("CARGO_TERM_COLOR", "never")
-            .env(
-                "RUSTC_WRAPPER",
-                Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .parent()
-                    .unwrap()
-                    .join("scripts/yaml-rustc.py"),
-            )
+            .env("RUSTC_WRAPPER", wrapper)
             .args(args)
             .arg("--offline")
             .output()

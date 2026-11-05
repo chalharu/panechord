@@ -1497,9 +1497,17 @@ fn native_menu_append_failure(hierarchical: bool) {
             *gtk::gdk::keys::constants::n,
             gtk::gdk::ModifierType::CONTROL_MASK
         ));
+        // Both shortcuts are invalid per the shared grammar, so validation
+        // rejects them before any native mutation: the reported error names
+        // the rejection layer, and the snapshot-restore path itself is
+        // covered by the `replace_snapshot` unit test.
+        assert!(
+            view.error().unwrap().contains("invalid menu shortcut"),
+            "unexpected error: {:?}",
+            view.error()
+        );
     }
-    assert!(view.error().unwrap().contains("previous snapshot restored"));
-    // A valid update after rollback must still work, including native Quit enablement.
+    // A valid update after rejection must still work, including native Quit enablement.
     let _ = state.update(move |s| {
         s.1 = original;
         s.1[1].enabled = false;

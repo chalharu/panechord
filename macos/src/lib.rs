@@ -4,9 +4,22 @@
 mod controls;
 mod input;
 pub mod shortcut;
-mod view;
 
-pub use view::Backend;
+/// This backend's [`panechord_runtime::Backend`] implementation. The facade
+/// drives startup through this type instead of naming `panechord_macos` free
+/// functions per call site.
+pub struct Backend;
+panechord_runtime::backend_view_impls!(
+    Backend,
+    View,
+    Parent,
+    WeakView,
+    MacHost,
+    "macos",
+    run_host,
+    set_allows_automatic_window_tabbing,
+    set_initial_window_size
+);
 
 use futures::future::LocalBoxFuture;
 use panechord_runtime::{

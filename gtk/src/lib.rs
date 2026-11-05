@@ -7,9 +7,22 @@ pub use panechord_runtime::Alignment;
 mod controls;
 pub mod shortcut;
 mod table;
-mod view;
 
-pub use view::Backend;
+/// This backend's [`panechord_runtime::Backend`] implementation. The facade
+/// drives startup through this type instead of naming `panechord_gtk` free
+/// functions per call site.
+pub struct Backend;
+panechord_runtime::backend_view_impls!(
+    Backend,
+    View,
+    Parent,
+    WeakView,
+    GtkHost,
+    "gtk",
+    run_host,
+    set_allows_automatic_window_tabbing,
+    set_initial_window_size
+);
 
 use std::{
     cell::{Cell, RefCell},

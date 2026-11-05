@@ -8,9 +8,22 @@ mod menu;
 mod scheduler;
 pub mod shortcut;
 mod surface;
-mod view;
 
-pub use view::Backend;
+/// This backend's [`panechord_runtime::Backend`] implementation. The facade
+/// drives startup through this type instead of naming `panechord_tao` free
+/// functions per call site.
+pub struct Backend;
+panechord_runtime::backend_view_impls!(
+    Backend,
+    View,
+    Parent,
+    WeakView,
+    TaoHost,
+    "tao",
+    run_host,
+    set_allows_automatic_window_tabbing,
+    set_initial_window_size
+);
 #[cfg(test)]
 mod tests;
 

@@ -329,14 +329,31 @@ mod tests {
             .join("tests/ui/main.yaml")
             .canonicalize()
             .unwrap();
-        // Token-stream rendering escapes `\`, so compare separator-blind: the
-        // assertion tracks the absolute fixture path, not path spelling.
-        let rendered = text.replace('\\', "/");
-        let expected = absolute.to_str().unwrap().replace('\\', "/");
-        assert!(rendered.contains(&expected));
+        // Compare the embedded path semantically, not as rendered text:
+        // TokenStream string escaping and Windows verbatim prefixes make
+        // textual comparison platform-fragile.
+        let parsed = syn::parse2::<syn::Expr>(code).unwrap();
+        let embedded = match &parsed {
+            syn::Expr::Block(block) => block.block.stmts.iter().find_map(|stmt| match stmt {
+                syn::Stmt::Item(syn::Item::Const(item)) => match &*item.expr {
+                    syn::Expr::Macro(item) if item.mac.path.is_ident("include_str") => {
+                        item.mac.parse_body::<syn::LitStr>().ok()
+                    }
+                    _ => None,
+                },
+                _ => None,
+            }),
+            _ => None,
+        }
+        .expect("generated code embeds the fixture via include_str");
+        assert_eq!(
+            std::path::Path::new(&embedded.value())
+                .canonicalize()
+                .unwrap(),
+            absolute
+        );
         assert!(!text.contains("OUT_DIR"));
         assert!(text.contains("on_close"));
-        syn::parse2::<syn::Expr>(code).unwrap();
     }
     #[test]
     fn invocation_syntax_is_strict() {

@@ -96,7 +96,9 @@ impl Settings {
                     id: "copy".into(),
                     label: "Copy".into(),
                     argument: String::new(),
-                    shortcut: Some("Primary+C".into()),
+                    // Predefined roles own their OS accelerators: custom
+                    // shortcuts are rejected (see tao/README.md).
+                    shortcut: None,
                     role: MenuRole::Copy,
                     enabled: true,
                     visible: true,
@@ -105,7 +107,9 @@ impl Settings {
                     id: "cut".into(),
                     label: "Cut".into(),
                     argument: String::new(),
-                    shortcut: Some("Primary+X".into()),
+                    // Predefined roles own their OS accelerators: custom
+                    // shortcuts are rejected (see tao/README.md).
+                    shortcut: None,
                     role: MenuRole::Cut,
                     enabled: true,
                     visible: true,
@@ -114,7 +118,9 @@ impl Settings {
                     id: "paste".into(),
                     label: "Paste".into(),
                     argument: String::new(),
-                    shortcut: Some("Primary+V".into()),
+                    // Predefined roles own their OS accelerators: custom
+                    // shortcuts are rejected (see tao/README.md).
+                    shortcut: None,
                     role: MenuRole::Paste,
                     enabled: true,
                     visible: true,
@@ -123,7 +129,9 @@ impl Settings {
                     id: "select-all".into(),
                     label: "Select All".into(),
                     argument: String::new(),
-                    shortcut: Some("Primary+A".into()),
+                    // Predefined roles own their OS accelerators: custom
+                    // shortcuts are rejected (see tao/README.md).
+                    shortcut: None,
                     role: MenuRole::SelectAll,
                     enabled: true,
                     visible: true,

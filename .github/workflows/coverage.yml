@@ -227,6 +227,8 @@ jobs:
     env:
       GDK_BACKEND: x11
       GSK_RENDERER: cairo
+      GTK_IM_MODULE: simple
+      PANECHORD_REQUIRE_XTEST: 1
     permissions:
       contents: read
     steps:
@@ -291,6 +293,9 @@ jobs:
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+    env:
+      GTK_IM_MODULE: simple
+      PANECHORD_REQUIRE_XTEST: 1
     permissions:
       contents: read
     steps:
@@ -380,7 +385,7 @@ jobs:
           mkdir artifacts
           cargo llvm-cov nextest-archive -p panechord-runtime -p panechord-markup -p panechord-macros `
             -p panechord-tao -p panechord-library `
-            --no-default-features --features backend-tao -E 'not binary(cargo_ui)' \
+            --no-default-features --features backend-tao -E 'not binary(cargo_ui)' `
             --archive-file artifacts/windows.tar.zst
       - name: Upload test archives
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

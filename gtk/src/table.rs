@@ -1,6 +1,27 @@
 use super::*;
 use panechord_runtime::{Table, TableColumn, TableRow, TableSelection, TextOverflow};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+
+/// Display-wide row-padding reset for panechord tables. ListView-managed
+/// row widgets do not consult providers attached to the ListView itself,
+/// so the reset lives at display scope, keyed to our own `panechord-table`
+/// class: no other widget is affected. Installed once; never touched per
+/// bind, since provider churn on ListView-managed widgets corrupts the item
+/// tracker and crashes a later teardown or reopen.
+fn ensure_table_row_padding_reset() {
+    static INSTALLED: OnceLock<()> = OnceLock::new();
+    INSTALLED.get_or_init(|| {
+        let css = gtk4::CssProvider::new();
+        css.load_from_data(".panechord-table row { padding: 0; }");
+        if let Some(display) = gtk4::gdk::Display::default() {
+            gtk4::style_context_add_provider_for_display(
+                &display,
+                &css,
+                gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+            );
+        }
+    });
+}
 
 #[derive(Clone)]
 struct MountedRow {
@@ -311,8 +332,6 @@ impl View {
             item.set_child(Some(&gtk4::Box::new(gtk4::Orientation::Horizontal, 0)));
         });
         let weak = Rc::downgrade(&state);
-        let row_css = gtk4::CssProvider::new();
-        row_css.load_from_data("row { padding: 0; }");
         factory.connect_bind(move |_, object| {
             let Some(state) = weak.upgrade() else { return };
             let item = object.downcast_ref::<gtk4::ListItem>().unwrap();
@@ -428,13 +447,14 @@ impl View {
         });
         let native_selection = gtk4::NoSelection::new(Some(state.rows.clone()));
         let list = gtk4::ListView::new(Some(native_selection), Some(factory));
-        // Padding reset for the internal row widgets: attach once to the
-        // ListView (providers inherit down to the rows). Never touch the
-        // internal row widgets per bind: provider churn on ListView-managed
-        // widgets corrupts the item tracker and crashes a later teardown or
-        // reopen (notification history, second open).
-        list.style_context()
-            .add_provider(&row_css, gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION);
+        // Row widgets ignore providers attached to the ListView; the reset
+        // is display-scoped (see `ensure_table_row_padding_reset`) and this
+        // class opts the ListView into it. Never touch the internal row
+        // widgets per bind: provider churn on ListView-managed widgets
+        // corrupts the item tracker and crashes a later teardown or reopen
+        // (notification history, second open).
+        ensure_table_row_padding_reset();
+        list.add_css_class("panechord-table");
         list.set_vexpand(true);
         list.set_hexpand(true);
         let scroll = gtk4::ScrolledWindow::new();

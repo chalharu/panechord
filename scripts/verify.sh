@@ -1,8 +1,11 @@
 #!/bin/sh
 # GTK4 and GTK3/Tao must run in separate processes, including each GTK test.
-# Sections (`lint`, `headless`, `gtk`, `tao`) run independently so CI can
-# parallelize them; the default `all` preserves the local formal gate.
-# Each section is self-contained (it builds what it runs).
+# Sections (`lint`, `headless`, `gtk`, `tao`) run independently for local
+# iteration; the default `all` preserves the local formal gate. CI no longer
+# calls this script: `.github/workflows/coverage.yml` is the single pipeline
+# and shares prebuilt test binaries across legs via nextest archives, so each
+# binary is compiled once. Each section stays self-contained (it builds what
+# it runs) so local runs need no CI artifacts.
 set -eu
 cd "$(dirname "$0")/.."
 export GDK_BACKEND=x11 GSK_RENDERER=cairo G_DEBUG=fatal-criticals

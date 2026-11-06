@@ -115,7 +115,7 @@ Metadata-only scans preserve content and mtime.
   The GitHub workflow invokes `verify-docker.sh` on relevant pushes/PRs. Its hosted
   result must be checked after push; local success is not evidence that a remote
   workflow has already completed.
-- Windows gate: `.github/workflows/panechord.yml` `windows` job builds
+- Windows gate: `.github/workflows/coverage.yml` `build-windows` job builds
   `panechord-demo --no-default-features --features backend-tao`, runs strict Clippy
   on it and executes the display-free runtime/markup/macros suites. Native window
   behavior on Windows must be verified on a Windows machine; a green CI job is

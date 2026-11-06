@@ -1,11 +1,13 @@
-# Coverage pipeline: build once, distribute, run per OS, merge on SonarCloud.
+# Single CI pipeline: build once, distribute, run per OS, merge on SonarCloud.
 #
-# Linux archives are built once inside the prebuilt GHCR container
+# Linux test binaries are built once inside the prebuilt GHCR container
 # (.github/workflows/docker/Dockerfile.ci, content-hash tagged) and fanned
 # out to the Linux run legs as nextest archives -- the same distribution
-# pattern as nerust's rom-tests. No `apt-get` runs inside any Linux job, so
-# Ubuntu-repository flakes cannot fail the gate and the environment setup is
-# a container pull plus the Rust cache.
+# pattern as nerust's rom-tests. Display examples are compiled once in the
+# examples leg and every leg runs its binaries under llvm-cov, so each
+# binary is built exactly once and all legs contribute coverage. No `apt-get`
+# runs inside any Linux job, so Ubuntu-repository flakes cannot fail the gate
+# and the environment setup is a container pull plus the Rust cache.
 #
 # Windows/macOS archives are NOT cross-built from Ubuntu: GTK system
 # libraries, the Tao Windows links and the AppKit/Swift bridge cannot link
@@ -136,6 +138,16 @@ jobs:
           cargo clippy --locked -p panechord -p panechord-runtime -p panechord-markup
           -p panechord-macros -p panechord-gtk -p panechord-tao -p panechord-macos
           -p panechord-demo -p panechord-library --all-targets -- -D warnings
+      - name: Clippy (Tao backend)
+        run: >-
+          cargo clippy --locked -p panechord-demo --all-targets
+          --no-default-features --features backend-tao -- -D warnings
+      - name: Clippy library (Tao backend)
+        run: >-
+          cargo clippy --locked -p panechord-library --all-targets --no-default-features
+          --features backend-tao -- -D warnings
+      - name: YAML rustc wrapper tests
+        run: python3 scripts/test-yaml-rustc.py
 
   archive-linux:
     name: Build Linux archive
@@ -217,14 +229,8 @@ jobs:
             --nextest-archive-file artifacts/linux-gtk.tar.zst \
             -p panechord-runtime -p panechord-markup -p panechord-macros \
             --lcov --output-path coverage/raw.info
-          workspace_root="${PWD%/}/"
-          awk -v prefix="SF:${workspace_root}" '
-            /^SF:/ { include = index($0, prefix) == 1 }
-            include { print }
-            /^end_of_record$/ { include = 0 }
-          ' coverage/raw.info > coverage/lcov-linux-headless.info
+          sh scripts/lcov-workspace.sh coverage/raw.info coverage/lcov-linux-headless.info
           rm coverage/raw.info
-          sed -i "s#^SF:${workspace_root}#SF:#" coverage/*.info
       - name: Upload coverage report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -286,17 +292,11 @@ jobs:
             -p panechord-gtk \
             --lcov --output-path coverage/raw-gtk-ignored.info
           rm -rf target/llvm-cov-target
-          workspace_root="${PWD%/}/"
           for raw in coverage/raw-gtk.info coverage/raw-gtk-ignored.info; do
             out="coverage/lcov-linux-$(basename "$raw" .info | sed 's/^raw-//').info"
-            awk -v prefix="SF:${workspace_root}" '
-              /^SF:/ { include = index($0, prefix) == 1 }
-              include { print }
-              /^end_of_record$/ { include = 0 }
-            ' "$raw" > "$out"
+            sh scripts/lcov-workspace.sh "$raw" "$out"
             rm "$raw"
           done
-          sed -i "s#^SF:${workspace_root}#SF:#" coverage/*.info
       - name: Upload coverage report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -353,21 +353,145 @@ jobs:
             -p panechord-tao \
             --lcov --output-path coverage/raw-tao-ignored.info
           rm -rf target/llvm-cov-target
-          workspace_root="${PWD%/}/"
           for raw in coverage/raw-tao.info coverage/raw-tao-ignored.info; do
             out="coverage/lcov-linux-$(basename "$raw" .info | sed 's/^raw-//').info"
-            awk -v prefix="SF:${workspace_root}" '
-              /^SF:/ { include = index($0, prefix) == 1 }
-              include { print }
-              /^end_of_record$/ { include = 0 }
-            ' "$raw" > "$out"
+            sh scripts/lcov-workspace.sh "$raw" "$out"
             rm "$raw"
           done
-          sed -i "s#^SF:${workspace_root}#SF:#" coverage/*.info
       - name: Upload coverage report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lcov-linux-tao
+          path: coverage/*.info
+          retention-days: 1
+
+  run-linux-examples:
+    name: Linux examples (Xvfb)
+    needs: prepare-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: ghcr.io/${{ github.repository }}/ci-image-panechord:${{ needs.prepare-image.outputs.image_tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    env:
+      GDK_BACKEND: x11
+      GSK_RENDERER: cairo
+      GTK_IM_MODULE: simple
+      PANECHORD_REQUIRE_XTEST: 1
+      PANECHORD_ALLOW_CLIPBOARD_PROBE: 1
+      RUSTFLAGS: "-C link-arg=-fuse-ld=mold -C debuginfo=0"
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          # Unique target cache per job: heterogeneous jobs sharing one key
+          # poison each other (e.g. a clippy-only or failed partial target).
+          # The registry stays shared via shared-key (immutable content).
+          key: panechord-examples
+          shared-key: ${{ runner.os }}-cargo-shared-${{ hashFiles('**/Cargo.lock') }}
+          cache-all-crates: "true"
+          workspaces: |
+            . -> target
+            . -> target/llvm-cov-target
+      # Example binaries are built once here, not per display leg, and every
+      # run below reuses them through llvm-cov fingerprints. Plain cargo
+      # builds cannot instrument: seed the instrumented flags from show-env
+      # so the timed runs below never compile inside their 45s bounds.
+      - name: Warm instrumented example builds
+        run: |
+          rm -rf target/llvm-cov-target
+          show_env="$(cargo llvm-cov show-env --sh 2>/dev/null | grep '^export ')"
+          [ -n "$show_env" ] || { echo 'llvm-cov show-env produced no exports' >&2; exit 1; }
+          eval "$show_env"
+          cargo build --locked -p panechord-runtime --example scaling
+          cargo build --locked -p panechord-demo --examples
+          cargo build --locked -p panechord-demo --bins
+          cargo build --locked -p panechord-tao --examples
+          cargo build --locked -p panechord-library --bins
+          cargo build --locked --no-default-features --features backend-tao -p panechord-demo --examples
+          cargo build --locked --no-default-features --features backend-tao -p panechord-demo --bins
+          cargo build --locked --no-default-features --features backend-tao -p panechord-library --bins
+      - name: Run GTK examples with coverage
+        run: |
+          mkdir -p coverage
+          native_timeout="${PANECHORD_NATIVE_TIMEOUT_SECONDS:-45}s"
+          output=$(timeout "$native_timeout" xvfb-run -a cargo llvm-cov run --no-report --locked \
+            -p panechord-demo --example controls)
+          printf '%s\n' "$output"
+          printf '%s\n' "$output" | grep -q '^CONTRACT3 PASS slider closed capacity conversion readonly ' \
+            'hidden disabled normalized-display$'
+          printf '%s\n' "$output" | grep -q '^MENUS3 PASS nested typed-argument parent-enablement$'
+          printf '%s\n' "$output" | grep -q '^DIALOG3 PASS readonly hidden-parent close-reopen$'
+          printf '%s\n' "$output" | grep -q '^TABS3 PASS top bottom left right selection retained$'
+          printf '%s\n' "$output" | grep -q '^CONTROLS3 PASS checkbox readonly radio slider combo image tab dialog$'
+          output=$(timeout "$native_timeout" xvfb-run -a cargo llvm-cov run --no-report --locked \
+            -p panechord-runtime --example scaling)
+          printf '%s\n' "$output"
+          printf '%s\n' "$output" | grep -q '^SCALING3 PASS: read clones=0, update clones=1, notification counts exact$'
+          output=$(timeout "$native_timeout" xvfb-run -a cargo llvm-cov run --no-report --locked \
+            -p panechord-demo -- --smoke)
+          printf '%s\n' "$output"
+          printf '%s\n' "$output" | grep -q '^PROTOTYPE2 PASS templates=item+content virtualization=1000 ' \
+            'conversions=checked validation=async menu=dynamic saves=2 closed=true$'
+          output=$(timeout "$native_timeout" xvfb-run -a cargo llvm-cov run --no-report --locked \
+            -p panechord-library -- --smoke)
+          printf '%s\n' "$output"
+          printf '%s\n' "$output" | grep -q '^LIBRARY3 gtk PASS native-events scan filter selection ' \
+            'invalid-folder recovery rescan$'
+          printf '%s\n' "$output" | grep -q '^LIBRARY3 gtk PASS native-close model-closed$'
+          cargo llvm-cov report -p panechord-runtime -p panechord-demo -p panechord-gtk -p panechord-library \
+            --lcov --output-path coverage/raw-examples-gtk.info
+          rm -rf target/llvm-cov-target
+      - name: Run Tao examples with coverage
+        run: |
+          mkdir -p target/llvm-cov-target
+          native_timeout="${PANECHORD_NATIVE_TIMEOUT_SECONDS:-45}s"
+          output=$(timeout "$native_timeout" xvfb-run -a \
+            cargo llvm-cov run --no-report --locked -p panechord-demo --example controls \
+            --no-default-features --features backend-tao)
+          printf '%s\n' "$output"
+          printf '%s\n' "$output" | grep -q '^CONTROLS3 PASS checkbox readonly radio slider combo image tab dialog$'
+          output=$(timeout "$native_timeout" xvfb-run -a cargo llvm-cov run --no-report --locked \
+            -p panechord-demo --no-default-features --features backend-tao \
+            -- --smoke)
+          printf '%s\n' "$output"
+          printf '%s\n' "$output" | grep -q '^PROTOTYPE2 PASS templates=item+content virtualization=1000 ' \
+            'conversions=checked validation=async menu=dynamic saves=2 closed=true$'
+          output=$(timeout "$native_timeout" xvfb-run -a cargo llvm-cov run --no-report --locked \
+            -p panechord-library --no-default-features --features backend-tao \
+            -- --smoke)
+          printf '%s\n' "$output"
+          printf '%s\n' "$output" | grep -q '^LIBRARY3 tao PASS native-events scan filter selection ' \
+            'invalid-folder recovery rescan$'
+          printf '%s\n' "$output" | grep -q '^LIBRARY3 tao PASS native-close model-closed$'
+          output=$(timeout "$native_timeout" xvfb-run -a cargo llvm-cov run --no-report --locked \
+            -p panechord-tao --example native_smoke)
+          printf '%s\n' "$output"
+          printf '%s\n' "$output" | grep -q '^native-smoke: close callback OK'
+          output=$(timeout "$native_timeout" xvfb-run -a cargo llvm-cov run --no-report --locked \
+            -p panechord-tao --example multiwindow)
+          printf '%s\n' "$output"
+          printf '%s\n' "$output" | grep -q '^TAO3 PASS multiwindow drawn shared-store primary-close reopen ' \
+            'foreign-and-closed-rejected veto-drain-close recoverable-auxiliary-error-isolated$'
+          cargo llvm-cov report -p panechord-tao -p panechord-demo -p panechord-library \
+            --lcov --output-path coverage/raw-examples-tao.info
+          rm -rf target/llvm-cov-target
+          mkdir -p coverage
+          sh scripts/lcov-workspace.sh coverage/raw-examples-gtk.info coverage/lcov-linux-examples-gtk.info
+          rm coverage/raw-examples-gtk.info
+          sh scripts/lcov-workspace.sh coverage/raw-examples-tao.info coverage/lcov-linux-examples-tao.info
+          rm coverage/raw-examples-tao.info
+      - name: Upload coverage report
+        uses: actions/upload-artifact@cf43030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lcov-linux-examples
           path: coverage/*.info
           retention-days: 1
 
@@ -404,8 +528,8 @@ jobs:
           $ntFile = "cargo-nextest-$env:NEXTEST_VERSION-x86_64-pc-windows-msvc.zip"
           $lcBase = "https://github.com/taiki-e/cargo-llvm-cov/releases/download"
           $lcFile = "cargo-llvm-cov-x86_64-pc-windows-msvc.zip"
-          curl.exe -fsSL -o "$tools\nextest.zip" "$ntBase/cargo-nextest-$env:NEXTEST_VERSION/$ntFile"
-          curl.exe -fsSL -o "$tools\llvm-cov.zip" "$lcBase/v$env:LLVM_COV_VERSION/$lcFile"
+          curl.exe --proto '=https' -fsSL -o "$tools\nextest.zip" "$ntBase/cargo-nextest-$env:NEXTEST_VERSION/$ntFile"
+          curl.exe --proto '=https' -fsSL -o "$tools\llvm-cov.zip" "$lcBase/v$env:LLVM_COV_VERSION/$lcFile"
           Expand-Archive -Path "$tools\nextest.zip" -DestinationPath $tools -Force
           Expand-Archive -Path "$tools\llvm-cov.zip" -DestinationPath $tools -Force
           & "$tools\cargo-nextest.exe" --version
@@ -431,6 +555,12 @@ jobs:
           workspaces: |
             . -> target
             . -> target/llvm-cov-target
+      - name: Tao demo build (Windows backend)
+        run: cargo build --locked -p panechord-demo --no-default-features --features backend-tao
+      - name: Tao demo clippy (Windows backend)
+        run: >-
+          cargo clippy --locked -p panechord-demo --all-targets
+          --no-default-features --features backend-tao -- -D warnings
       - name: Build test archives (Tao backend)
         run: |
           mkdir artifacts
@@ -480,8 +610,8 @@ jobs:
           $ntFile = "cargo-nextest-$env:NEXTEST_VERSION-x86_64-pc-windows-msvc.zip"
           $lcBase = "https://github.com/taiki-e/cargo-llvm-cov/releases/download"
           $lcFile = "cargo-llvm-cov-x86_64-pc-windows-msvc.zip"
-          curl.exe -fsSL -o "$tools\nextest.zip" "$ntBase/cargo-nextest-$env:NEXTEST_VERSION/$ntFile"
-          curl.exe -fsSL -o "$tools\llvm-cov.zip" "$lcBase/v$env:LLVM_COV_VERSION/$lcFile"
+          curl.exe --proto '=https' -fsSL -o "$tools\nextest.zip" "$ntBase/cargo-nextest-$env:NEXTEST_VERSION/$ntFile"
+          curl.exe --proto '=https' -fsSL -o "$tools\llvm-cov.zip" "$lcBase/v$env:LLVM_COV_VERSION/$lcFile"
           Expand-Archive -Path "$tools\nextest.zip" -DestinationPath $tools -Force
           Expand-Archive -Path "$tools\llvm-cov.zip" -DestinationPath $tools -Force
           & "$tools\cargo-nextest.exe" --version
@@ -555,8 +685,9 @@ jobs:
           ntFile=cargo-nextest-${NEXTEST_VERSION}-universal-apple-darwin.tar.gz
           lcBase=https://github.com/taiki-e/cargo-llvm-cov/releases/download
           lcFile=cargo-llvm-cov-aarch64-apple-darwin.tar.gz
-          curl -fsSL -o "${RUNNER_TEMP}/ci-tools/nextest.tar.gz" "$ntBase/cargo-nextest-$NEXTEST_VERSION/$ntFile"
-          curl -fsSL -o "${RUNNER_TEMP}/ci-tools/llvm-cov.tar.gz" "$lcBase/v$LLVM_COV_VERSION/$lcFile"
+          curl --proto '=https' -fsSL -o "${RUNNER_TEMP}/ci-tools/nextest.tar.gz" \
+            "$ntBase/cargo-nextest-$NEXTEST_VERSION/$ntFile"
+          curl --proto '=https' -fsSL -o "${RUNNER_TEMP}/ci-tools/llvm-cov.tar.gz" "$lcBase/v$LLVM_COV_VERSION/$lcFile"
           tar -xzf "${RUNNER_TEMP}/ci-tools/nextest.tar.gz" -C "${RUNNER_TEMP}/ci-tools"
           tar -xzf "${RUNNER_TEMP}/ci-tools/llvm-cov.tar.gz" -C "${RUNNER_TEMP}/ci-tools"
           "${RUNNER_TEMP}/ci-tools/cargo-nextest" --version
@@ -629,8 +760,9 @@ jobs:
           ntFile=cargo-nextest-${NEXTEST_VERSION}-universal-apple-darwin.tar.gz
           lcBase=https://github.com/taiki-e/cargo-llvm-cov/releases/download
           lcFile=cargo-llvm-cov-aarch64-apple-darwin.tar.gz
-          curl -fsSL -o "${RUNNER_TEMP}/ci-tools/nextest.tar.gz" "$ntBase/cargo-nextest-$NEXTEST_VERSION/$ntFile"
-          curl -fsSL -o "${RUNNER_TEMP}/ci-tools/llvm-cov.tar.gz" "$lcBase/v$LLVM_COV_VERSION/$lcFile"
+          curl --proto '=https' -fsSL -o "${RUNNER_TEMP}/ci-tools/nextest.tar.gz" \
+            "$ntBase/cargo-nextest-$NEXTEST_VERSION/$ntFile"
+          curl --proto '=https' -fsSL -o "${RUNNER_TEMP}/ci-tools/llvm-cov.tar.gz" "$lcBase/v$LLVM_COV_VERSION/$lcFile"
           tar -xzf "${RUNNER_TEMP}/ci-tools/nextest.tar.gz" -C "${RUNNER_TEMP}/ci-tools"
           tar -xzf "${RUNNER_TEMP}/ci-tools/llvm-cov.tar.gz" -C "${RUNNER_TEMP}/ci-tools"
           "${RUNNER_TEMP}/ci-tools/cargo-nextest" --version
@@ -656,14 +788,8 @@ jobs:
             --nextest-archive-file artifacts/macos.tar.zst \
             -p panechord-runtime -p panechord-markup -p panechord-macros -p panechord-macos -p panechord-library \
             --lcov --output-path coverage/raw.info
-          workspace_root="${PWD%/}/"
-          awk -v prefix="SF:${workspace_root}" '
-            /^SF:/ { include = index($0, prefix) == 1 }
-            include { print }
-            /^end_of_record$/ { include = 0 }
-          ' coverage/raw.info > coverage/lcov-macos.info
+          sh scripts/lcov-workspace.sh coverage/raw.info coverage/lcov-macos.info
           rm coverage/raw.info
-          sed -i '' "s#^SF:${workspace_root}#SF:#" coverage/*.info
       - name: Upload coverage report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -671,12 +797,43 @@ jobs:
           path: coverage/*.info
           retention-days: 1
 
+  run-linux-measure:
+    name: Linux release CPU budgets
+    needs: prepare-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: ghcr.io/${{ github.repository }}/ci-image-panechord:${{ needs.prepare-image.outputs.image_tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          # Unique target cache per job: heterogeneous jobs sharing one key
+          # poison each other (e.g. a clippy-only or failed partial target).
+          # The registry stays shared via shared-key (immutable content).
+          key: panechord-measure
+          shared-key: ${{ runner.os }}-cargo-shared-${{ hashFiles('**/Cargo.lock') }}
+          cache-all-crates: "true"
+          workspaces: |
+            . -> target
+      - name: Release CPU budgets
+        run: sh scripts/measure.sh
+
   sonarcloud:
     name: SonarCloud
     needs:
       - run-linux-headless
       - run-linux-gtk
       - run-linux-tao
+      - run-linux-examples
       - run-windows
       - run-macos
     runs-on: ubuntu-latest

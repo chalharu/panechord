@@ -2,8 +2,8 @@
 use panechord_macos::View;
 #[cfg(target_os = "macos")]
 use panechord_runtime::{
-    Binding, DialogFooter, FooterButton, Keyed, Layout, Limits, MenuItem, MenuRole, Store, Style,
-    Viewport, validation,
+    Binding, DialogFooter, Executor, FooterButton, Keyed, Layout, Limits, MenuItem, MenuRole,
+    Store, Style, Viewport, validation,
 };
 #[cfg(target_os = "macos")]
 use std::{
@@ -34,6 +34,269 @@ fn main() {
     eprintln!("AppKit conformance requires macOS");
 }
 
+/// Close-recovery, conversion normalization and the Grid/Flex/Absolute
+/// layouts with a meter, on a throwaway view.
+#[cfg(target_os = "macos")]
+fn check_close_recovery(executor: Rc<dyn Executor>) {
+    let recovery = View::new(Binding::constant("Recovery".into()));
+    let calls = Rc::new(Cell::new(0));
+    let observed = calls.clone();
+    recovery.on_close_request(Rc::new(move || {
+        observed.set(observed.get() + 1);
+        if observed.get() == 1 {
+            panic!("close recovery payload");
+        }
+    }));
+    recovery.request_close();
+    recovery.request_close();
+    assert_eq!(calls.get(), 2);
+    // All four layout kinds are supported: invalid geometry still
+    // rejects, but Grid/Flex/Absolute now build and place children.
+    assert!(
+        recovery
+            .try_layout(
+                &recovery.root(),
+                "invalid_grid",
+                Layout::Grid {
+                    columns: u32::MAX,
+                    gap: 0.0
+                }
+            )
+            .is_err()
+    );
+    let grid = recovery
+        .try_layout(
+            &recovery.root(),
+            "grid",
+            Layout::Grid {
+                columns: 2,
+                gap: 8.0,
+            },
+        )
+        .expect("grid layout");
+    recovery.label(&grid, "grid_cell", Binding::constant("cell".into()));
+    recovery.style(
+        "grid_cell",
+        Style {
+            placement: panechord_runtime::Placement {
+                row: 0,
+                column: 1,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    );
+    let flex = recovery
+        .try_layout(&recovery.root(), "flex", Layout::Flex { gap: 4.0 })
+        .expect("flex layout");
+    recovery.label(&flex, "flex_cell", Binding::constant("flow".into()));
+    let absolute = recovery
+        .try_layout(&recovery.root(), "absolute", Layout::Absolute)
+        .expect("absolute layout");
+    recovery.label(
+        &absolute,
+        "absolute_cell",
+        Binding::constant("placed".into()),
+    );
+    recovery.style(
+        "absolute_cell",
+        Style {
+            placement: panechord_runtime::Placement {
+                x: 12.0,
+                y: 4.0,
+                width: Some(240.0),
+                height: Some(24.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    );
+    assert!(recovery.text("grid_cell").as_deref() == Some("cell"));
+    assert!(recovery.text("absolute_cell").as_deref() == Some("placed"));
+    recovery.meter(&flex, "recovery_meter", Binding::constant(0.5));
+    let number = Store::new(2i32, executor.clone());
+    recovery.entry(
+        &recovery.root(),
+        "normalized",
+        number
+            .bind(|state| *state, Some(|state, value| *state = value))
+            .convert(
+                |value| value.to_string(),
+                |value: String| value.parse::<i32>().map_err(|error| error.to_string()),
+            ),
+    );
+    recovery.edit("normalized", "02").unwrap();
+    assert_eq!(recovery.text("normalized").as_deref(), Some("2"));
+    recovery.close();
+    println!(
+        "MACOS3 PASS close-recovery panic-flag-restored conversion-noop-normalized grid-flex-absolute-meter-supported"
+    );
+}
+
+/// Dialog footer contract: live caption bindings, per-button dispatch and
+/// command-driven enablement.
+#[cfg(target_os = "macos")]
+fn check_dialog_footer(executor: Rc<dyn Executor>) {
+    // Dialog footer contract, on the AppKit main thread: captions are
+    // live bindings on scoped sub-ids, clicks dispatch to their own
+    // commands, and enablement rides the command like `button`.
+    // (Covers the unit test ignored off the main thread: libtest runs
+    // on background threads, but NSWindow requires the main thread.
+    // Enablement follows the same-store pattern as the tao suite: the
+    // command's can-execute reads the store that owns it, so updates
+    // propagate to the native button synchronously.)
+    let footer = View::new(Binding::constant("Footer".into()));
+    let accept_text = Store::new("Save".to_owned(), executor.clone());
+    let cancel_text = Store::new("Cancel".to_owned(), executor.clone());
+    let accept_on = Store::new(true, executor.clone());
+    let cancel_on = Store::new(true, executor.clone());
+    let accepted = Rc::new(Cell::new(0usize));
+    let cancelled = Rc::new(Cell::new(0usize));
+    let accept_count = accepted.clone();
+    let cancel_count = cancelled.clone();
+    let accept_command = accept_on.command(
+        |on| *on,
+        move |_, ()| {
+            accept_count.set(accept_count.get() + 1);
+        },
+        Binding::constant(()),
+    );
+    let cancel_command = cancel_on.command(
+        |on| *on,
+        move |_, ()| {
+            cancel_count.set(cancel_count.get() + 1);
+        },
+        Binding::constant(()),
+    );
+    footer.dialog_footer(
+        &footer.root(),
+        "footer",
+        DialogFooter {
+            accept: FooterButton {
+                text: accept_text.bind(Clone::clone, None),
+                command: accept_command,
+            },
+            cancel: FooterButton {
+                text: cancel_text.bind(Clone::clone, None),
+                command: cancel_command,
+            },
+            destructive: false,
+        },
+    );
+    assert_eq!(footer.text("footer/accept").as_deref(), Some("Save"));
+    assert_eq!(footer.text("footer/cancel").as_deref(), Some("Cancel"));
+    footer.click("footer/accept").unwrap();
+    footer.click("footer/cancel").unwrap();
+    assert_eq!(accepted.get(), 1);
+    assert_eq!(cancelled.get(), 1);
+    assert!(accept_text.update(|text| *text = "Apply".into()));
+    assert!(cancel_text.update(|text| *text = "Close".into()));
+    assert_eq!(footer.text("footer/accept").as_deref(), Some("Apply"));
+    assert_eq!(footer.text("footer/cancel").as_deref(), Some("Close"));
+    assert!(accept_on.update(|on| *on = false));
+    assert!(footer.click("footer/accept").is_err());
+    assert_eq!(accepted.get(), 1);
+    footer.click("footer/cancel").unwrap();
+    assert_eq!(cancelled.get(), 2);
+    assert!(accept_on.update(|on| *on = true));
+    footer.click("footer/accept").unwrap();
+    assert_eq!(accepted.get(), 2);
+    let flagged = Rc::new(Cell::new(0usize));
+    let flag_count = flagged.clone();
+    let destructive_command = accept_on.command(
+        |_| true,
+        move |_, ()| {
+            flag_count.set(flag_count.get() + 1);
+        },
+        Binding::constant(()),
+    );
+    footer.dialog_footer(
+        &footer.root(),
+        "destructive",
+        DialogFooter {
+            accept: FooterButton {
+                text: Binding::constant("Discard".into()),
+                command: destructive_command,
+            },
+            cancel: FooterButton {
+                text: Binding::constant("Keep".into()),
+                command: {
+                    let cancel_count = cancelled.clone();
+                    cancel_on.command(
+                        |on| *on,
+                        move |_, ()| {
+                            cancel_count.set(cancel_count.get() + 1);
+                        },
+                        Binding::constant(()),
+                    )
+                },
+            },
+            destructive: true,
+        },
+    );
+    assert_eq!(
+        footer.text("destructive/accept").as_deref(),
+        Some("Discard")
+    );
+    assert_eq!(footer.text("destructive/cancel").as_deref(), Some("Keep"));
+    footer.click("destructive/accept").unwrap();
+    assert_eq!(flagged.get(), 1);
+    assert_eq!(cancelled.get(), 2);
+    footer.close();
+    println!("MACOS3 PASS dialog-footer captions enablement dispatch destructive");
+}
+
+/// Nested item scopes release handlers, tokens and widgets on clear so keys
+/// stay reusable.
+#[cfg(target_os = "macos")]
+fn check_nested_cleanup(view: &View, parent: &panechord_macos::Parent, executor: Rc<dyn Executor>) {
+    let nested_rows = Store::new(Vec::<Keyed<String>>::new(), executor.clone());
+    let lifetimes = Rc::new(RefCell::new(Vec::new()));
+    let output = lifetimes.clone();
+    view.items(
+        parent,
+        "nested",
+        nested_rows.bind(Clone::clone, None),
+        Binding::constant(Viewport::default()),
+        Rc::new(move |view, parent, scope, model: Store<String>| {
+            let lifetime = Rc::new(());
+            output.borrow_mut().push(Rc::downgrade(&lifetime));
+            view.items(
+                parent,
+                &format!("{scope}/children"),
+                Binding::constant(vec![Keyed::new("child", model)]),
+                Binding::constant(Viewport::default()),
+                Rc::new(move |view, parent, scope, model: Store<String>| {
+                    let _retained = &lifetime;
+                    view.label(
+                        parent,
+                        &format!("{scope}/label"),
+                        model.bind(Clone::clone, None),
+                    );
+                }),
+            );
+        }),
+    );
+    for _ in 0..3 {
+        let row = Keyed::new("parent", Store::new("Child".to_owned(), executor.clone()));
+        let _ = nested_rows.update(move |rows| rows.push(row));
+        assert_eq!(view.item_keys("nested/parent/children"), ["child"]);
+        let _ = nested_rows.update(Vec::clear);
+        assert_eq!(view.mounted_count("nested/parent/children"), 0);
+        assert!(view.item_keys("nested/parent/children").is_empty());
+        assert!(view.text("nested/parent/children/child/label").is_none());
+        view.viewport("nested/parent/children", 0);
+        assert!(view.text("nested/parent/children/child/label").is_none());
+        assert!(
+            lifetimes
+                .borrow()
+                .iter()
+                .all(|lifetime| lifetime.upgrade().is_none())
+        );
+    }
+    println!("MACOS3 PASS nested-cleanup registries handlers tokens released key-reuse");
+}
+
 #[cfg(target_os = "macos")]
 fn main() -> Result<(), String> {
     let passed = Rc::new(Cell::new(false));
@@ -43,206 +306,8 @@ fn main() -> Result<(), String> {
         let session = Session::new();
         host.attach(session.clone())?;
         let executor = host.executor();
-        let recovery = View::new(Binding::constant("Recovery".into()));
-        let calls = Rc::new(Cell::new(0));
-        let observed = calls.clone();
-        recovery.on_close_request(Rc::new(move || {
-            observed.set(observed.get() + 1);
-            if observed.get() == 1 {
-                panic!("close recovery payload");
-            }
-        }));
-        recovery.request_close();
-        recovery.request_close();
-        assert_eq!(calls.get(), 2);
-        // All four layout kinds are supported: invalid geometry still
-        // rejects, but Grid/Flex/Absolute now build and place children.
-        assert!(
-            recovery
-                .try_layout(
-                    &recovery.root(),
-                    "invalid_grid",
-                    Layout::Grid {
-                        columns: u32::MAX,
-                        gap: 0.0
-                    }
-                )
-                .is_err()
-        );
-        let grid = recovery
-            .try_layout(
-                &recovery.root(),
-                "grid",
-                Layout::Grid {
-                    columns: 2,
-                    gap: 8.0,
-                },
-            )
-            .expect("grid layout");
-        recovery.label(&grid, "grid_cell", Binding::constant("cell".into()));
-        recovery.style(
-            "grid_cell",
-            Style {
-                placement: panechord_runtime::Placement {
-                    row: 0,
-                    column: 1,
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-        );
-        let flex = recovery
-            .try_layout(&recovery.root(), "flex", Layout::Flex { gap: 4.0 })
-            .expect("flex layout");
-        recovery.label(&flex, "flex_cell", Binding::constant("flow".into()));
-        let absolute = recovery
-            .try_layout(&recovery.root(), "absolute", Layout::Absolute)
-            .expect("absolute layout");
-        recovery.label(
-            &absolute,
-            "absolute_cell",
-            Binding::constant("placed".into()),
-        );
-        recovery.style(
-            "absolute_cell",
-            Style {
-                placement: panechord_runtime::Placement {
-                    x: 12.0,
-                    y: 4.0,
-                    width: Some(240.0),
-                    height: Some(24.0),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-        );
-        assert!(recovery.text("grid_cell").as_deref() == Some("cell"));
-        assert!(recovery.text("absolute_cell").as_deref() == Some("placed"));
-        recovery.meter(&flex, "recovery_meter", Binding::constant(0.5));
-        let number = Store::new(2i32, executor.clone());
-        recovery.entry(
-            &recovery.root(),
-            "normalized",
-            number
-                .bind(|state| *state, Some(|state, value| *state = value))
-                .convert(
-                    |value| value.to_string(),
-                    |value: String| value.parse::<i32>().map_err(|error| error.to_string()),
-                ),
-        );
-        recovery.edit("normalized", "02").unwrap();
-        assert_eq!(recovery.text("normalized").as_deref(), Some("2"));
-        recovery.close();
-        println!(
-            "MACOS3 PASS close-recovery panic-flag-restored conversion-noop-normalized grid-flex-absolute-meter-supported"
-        );
-        // Dialog footer contract, on the AppKit main thread: captions are
-        // live bindings on scoped sub-ids, clicks dispatch to their own
-        // commands, and enablement rides the command like `button`.
-        // (Covers the unit test ignored off the main thread: libtest runs
-        // on background threads, but NSWindow requires the main thread.
-        // Enablement follows the same-store pattern as the tao suite: the
-        // command's can-execute reads the store that owns it, so updates
-        // propagate to the native button synchronously.)
-        let footer = View::new(Binding::constant("Footer".into()));
-        let accept_text = Store::new("Save".to_owned(), executor.clone());
-        let cancel_text = Store::new("Cancel".to_owned(), executor.clone());
-        let accept_on = Store::new(true, executor.clone());
-        let cancel_on = Store::new(true, executor.clone());
-        let accepted = Rc::new(Cell::new(0usize));
-        let cancelled = Rc::new(Cell::new(0usize));
-        let accept_count = accepted.clone();
-        let cancel_count = cancelled.clone();
-        let accept_command = accept_on.command(
-            |on| *on,
-            move |_, ()| {
-                accept_count.set(accept_count.get() + 1);
-            },
-            Binding::constant(()),
-        );
-        let cancel_command = cancel_on.command(
-            |on| *on,
-            move |_, ()| {
-                cancel_count.set(cancel_count.get() + 1);
-            },
-            Binding::constant(()),
-        );
-        footer.dialog_footer(
-            &footer.root(),
-            "footer",
-            DialogFooter {
-                accept: FooterButton {
-                    text: accept_text.bind(Clone::clone, None),
-                    command: accept_command,
-                },
-                cancel: FooterButton {
-                    text: cancel_text.bind(Clone::clone, None),
-                    command: cancel_command,
-                },
-                destructive: false,
-            },
-        );
-        assert_eq!(footer.text("footer/accept").as_deref(), Some("Save"));
-        assert_eq!(footer.text("footer/cancel").as_deref(), Some("Cancel"));
-        footer.click("footer/accept").unwrap();
-        footer.click("footer/cancel").unwrap();
-        assert_eq!(accepted.get(), 1);
-        assert_eq!(cancelled.get(), 1);
-        assert!(accept_text.update(|text| *text = "Apply".into()));
-        assert!(cancel_text.update(|text| *text = "Close".into()));
-        assert_eq!(footer.text("footer/accept").as_deref(), Some("Apply"));
-        assert_eq!(footer.text("footer/cancel").as_deref(), Some("Close"));
-        assert!(accept_on.update(|on| *on = false));
-        assert!(footer.click("footer/accept").is_err());
-        assert_eq!(accepted.get(), 1);
-        footer.click("footer/cancel").unwrap();
-        assert_eq!(cancelled.get(), 2);
-        assert!(accept_on.update(|on| *on = true));
-        footer.click("footer/accept").unwrap();
-        assert_eq!(accepted.get(), 2);
-        let flagged = Rc::new(Cell::new(0usize));
-        let flag_count = flagged.clone();
-        let destructive_command = accept_on.command(
-            |_| true,
-            move |_, ()| {
-                flag_count.set(flag_count.get() + 1);
-            },
-            Binding::constant(()),
-        );
-        footer.dialog_footer(
-            &footer.root(),
-            "destructive",
-            DialogFooter {
-                accept: FooterButton {
-                    text: Binding::constant("Discard".into()),
-                    command: destructive_command,
-                },
-                cancel: FooterButton {
-                    text: Binding::constant("Keep".into()),
-                    command: {
-                        let cancel_count = cancelled.clone();
-                        cancel_on.command(
-                            |on| *on,
-                            move |_, ()| {
-                                cancel_count.set(cancel_count.get() + 1);
-                            },
-                            Binding::constant(()),
-                        )
-                    },
-                },
-                destructive: true,
-            },
-        );
-        assert_eq!(
-            footer.text("destructive/accept").as_deref(),
-            Some("Discard")
-        );
-        assert_eq!(footer.text("destructive/cancel").as_deref(), Some("Keep"));
-        footer.click("destructive/accept").unwrap();
-        assert_eq!(flagged.get(), 1);
-        assert_eq!(cancelled.get(), 2);
-        footer.close();
-        println!("MACOS3 PASS dialog-footer captions enablement dispatch destructive");
+        check_close_recovery(executor.clone());
+        check_dialog_footer(executor.clone());
         let model = Store::new(Model::default(), executor.clone());
         let view = View::new(Binding::constant("Panechord macOS conformance".into()));
         let parent = view.layout(
@@ -525,51 +590,7 @@ fn main() -> Result<(), String> {
         println!(
             "MACOS3 PASS menu-transaction invalid-id duplicate-id invalid-shortcut preserve-handler recovery"
         );
-        let nested_rows = Store::new(Vec::<Keyed<String>>::new(), executor.clone());
-        let lifetimes = Rc::new(RefCell::new(Vec::new()));
-        let output = lifetimes.clone();
-        view.items(
-            &parent,
-            "nested",
-            nested_rows.bind(Clone::clone, None),
-            Binding::constant(Viewport::default()),
-            Rc::new(move |view, parent, scope, model: Store<String>| {
-                let lifetime = Rc::new(());
-                output.borrow_mut().push(Rc::downgrade(&lifetime));
-                view.items(
-                    parent,
-                    &format!("{scope}/children"),
-                    Binding::constant(vec![Keyed::new("child", model)]),
-                    Binding::constant(Viewport::default()),
-                    Rc::new(move |view, parent, scope, model: Store<String>| {
-                        let _retained = &lifetime;
-                        view.label(
-                            parent,
-                            &format!("{scope}/label"),
-                            model.bind(Clone::clone, None),
-                        );
-                    }),
-                );
-            }),
-        );
-        for _ in 0..3 {
-            let row = Keyed::new("parent", Store::new("Child".to_owned(), executor.clone()));
-            let _ = nested_rows.update(move |rows| rows.push(row));
-            assert_eq!(view.item_keys("nested/parent/children"), ["child"]);
-            let _ = nested_rows.update(Vec::clear);
-            assert_eq!(view.mounted_count("nested/parent/children"), 0);
-            assert!(view.item_keys("nested/parent/children").is_empty());
-            assert!(view.text("nested/parent/children/child/label").is_none());
-            view.viewport("nested/parent/children", 0);
-            assert!(view.text("nested/parent/children/child/label").is_none());
-            assert!(
-                lifetimes
-                    .borrow()
-                    .iter()
-                    .all(|lifetime| lifetime.upgrade().is_none())
-            );
-        }
-        println!("MACOS3 PASS nested-cleanup registries handlers tokens released key-reuse");
+        check_nested_cleanup(&view, &parent, executor.clone());
         let enabled = Store::new(true, executor.clone());
         let clicks = Rc::new(Cell::new(0));
         let counter = clicks.clone();

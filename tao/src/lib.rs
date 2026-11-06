@@ -382,6 +382,144 @@ pub async fn pick_file() -> Option<std::path::PathBuf> {
         .map(|file| file.path().to_owned())
 }
 
+/// One table cell: heading or column style, width policy, wrap policy and
+/// explicit-or-style foreground.
+fn table_cell(
+    column: &panechord_runtime::TableColumn,
+    value: String,
+    heading: bool,
+    foreground: Option<[u8; 3]>,
+) -> Element {
+    let style = if heading {
+        panechord_runtime::TextStyle {
+            role: panechord_runtime::TextRole::Heading,
+            ..Default::default()
+        }
+    } else {
+        column.text
+    };
+    let (font, factor) = match style.role {
+        panechord_runtime::TextRole::Body => (iced::Font::default(), 1.0),
+        panechord_runtime::TextRole::Heading => (
+            iced::Font {
+                weight: iced::font::Weight::Bold,
+                ..Default::default()
+            },
+            1.2,
+        ),
+        panechord_runtime::TextRole::Code => (iced::Font::MONOSPACE, 1.0),
+        panechord_runtime::TextRole::Subtitle => (
+            iced::Font {
+                weight: iced::font::Weight::Bold,
+                ..Default::default()
+            },
+            1.0,
+        ),
+    };
+    let width = column
+        .width
+        .map(iced::Length::Fixed)
+        .unwrap_or(if column.stretch {
+            iced::Length::Fill
+        } else {
+            iced::Length::Shrink
+        });
+    let mut text = widget::text(value)
+        .font(font)
+        .size(16.0 * factor * style.scale)
+        .width(width)
+        .wrapping(
+            if !heading && column.overflow == panechord_runtime::TextOverflow::Wrap {
+                iced::widget::text::Wrapping::WordOrGlyph
+            } else {
+                iced::widget::text::Wrapping::None
+            },
+        );
+    if let Some([red, green, blue]) = foreground.or(style.foreground) {
+        text = text.color(iced::Color::from_rgb8(red, green, blue));
+    }
+    Element::from(text)
+}
+
+/// The whole table for one data snapshot: header row, selectable rows and
+/// the empty placeholder. Pure in the snapshot: revisioning stays with the
+/// bindings.
+fn render_table(
+    data: &panechord_runtime::Table,
+    selected: Option<&panechord_runtime::TableSelection>,
+    selectable: bool,
+    key: &str,
+) -> Element {
+    let headers = widget::Row::with_children(
+        data.columns
+            .iter()
+            .map(|column| table_cell(column, column.title.clone(), true, None))
+            .collect::<Vec<_>>(),
+    )
+    .spacing(data.column_gap);
+    let rows = widget::Column::with_children(
+        data.rows
+            .iter()
+            .map(|row| {
+                let row = widget::Row::with_children(
+                    data.columns
+                        .iter()
+                        .zip(&row.cells)
+                        .enumerate()
+                        .filter(|(_, (column, value))| !column.hide_empty || !value.text.is_empty())
+                        .map(|(index, (column, value))| {
+                            let content =
+                                table_cell(column, value.text.clone(), false, value.foreground);
+                            if selectable {
+                                let selection = panechord_runtime::TableSelection {
+                                    row_key: row.key.clone(),
+                                    column: index,
+                                };
+                                let active = selected == Some(&selection);
+                                let width = column.width.map(iced::Length::Fixed).unwrap_or(
+                                    if column.stretch {
+                                        iced::Length::Fill
+                                    } else {
+                                        iced::Length::Shrink
+                                    },
+                                );
+                                widget::button(content)
+                                    .width(width)
+                                    .padding(8)
+                                    .style(if active {
+                                        widget::button::primary
+                                    } else {
+                                        widget::button::text
+                                    })
+                                    .on_press(Message::TableCell(key.to_owned(), selection))
+                                    .into()
+                            } else {
+                                content
+                            }
+                        })
+                        .collect::<Vec<_>>(),
+                )
+                .spacing(data.column_gap);
+                widget::container(row).padding(data.row_inset).into()
+            })
+            .collect::<Vec<_>>(),
+    )
+    .spacing(data.row_gap);
+    let body: Element = if data.rows.is_empty() {
+        widget::container(widget::text(data.empty_text.clone()))
+            .center_x(iced::Length::Fill)
+            .center_y(iced::Length::Fill)
+            .into()
+    } else {
+        widget::scrollable(rows).height(iced::Length::Fill).into()
+    };
+    let mut table = widget::Column::new().spacing(2).height(iced::Length::Fill);
+    if data.columns.iter().any(|column| !column.title.is_empty()) {
+        table = table.push(headers).push(widget::rule::horizontal(1));
+    }
+    table.push(body).into()
+}
+
 impl View {
     pub fn new(title: Binding<String>) -> Self {
         let view = Self(Rc::new_cyclic(|owner| Inner {
@@ -645,45 +783,13 @@ impl View {
     ) {
         let node = self.add(parent, id, Kind::Content);
         let data = Rc::new(RefCell::new((panechord_runtime::Table::default(), 0u64)));
-        let updated = data.clone();
-        let owner = self.downgrade();
-        self.bind(&node, binding, move |next| {
-            if let Err(error) = next.validate() {
-                if let Some(view) = owner.upgrade() {
-                    view.report_error(error.into());
-                }
-                return;
-            }
-            let mut state = updated.borrow_mut();
-            if state.0 != next {
-                state.0 = next;
-                state.1 = state.1.wrapping_add(1);
-            }
-        });
+        Self::track_table_data(self, &node, binding, &data);
         let selected = Rc::new(RefCell::new(None::<panechord_runtime::TableSelection>));
         let selectable = selection.is_some();
         if let Some(selection) = selection {
             node.handler
                 .replace(Some(Handler::Table(selection.clone(), data.clone())));
-            let output = selected.clone();
-            let latest = data.clone();
-            let owner = self.downgrade();
-            self.bind(&node, selection, move |selection| {
-                let validation = selection
-                    .as_ref()
-                    .map(|selection| selection.validate(&latest.borrow().0));
-                if let Some(Err(error)) = validation {
-                    if let Some(view) = owner.upgrade() {
-                        view.report_error(error.into());
-                    }
-                    return;
-                }
-                if *output.borrow() != selection {
-                    output.replace(selection);
-                    let mut state = latest.borrow_mut();
-                    state.1 = state.1.wrapping_add(1);
-                }
-            });
+            Self::track_table_selection(self, &node, selection, &data, &selected);
         }
         // Message routing keys on the plain node id (like buttons and
         // entries): the `id#identity` widget key only disambiguates the iced
@@ -697,143 +803,62 @@ impl View {
             let key = key.clone();
             widget::lazy(revision, move |_| {
                 let data = latest.borrow().0.clone();
-                let cell = |column: &panechord_runtime::TableColumn,
-                            value: String,
-                            heading: bool,
-                            foreground: Option<[u8; 3]>| {
-                    let style = if heading {
-                        panechord_runtime::TextStyle {
-                            role: panechord_runtime::TextRole::Heading,
-                            ..Default::default()
-                        }
-                    } else {
-                        column.text
-                    };
-                    let (font, factor) = match style.role {
-                        panechord_runtime::TextRole::Body => (iced::Font::default(), 1.0),
-                        panechord_runtime::TextRole::Heading => (
-                            iced::Font {
-                                weight: iced::font::Weight::Bold,
-                                ..Default::default()
-                            },
-                            1.2,
-                        ),
-                        panechord_runtime::TextRole::Code => (iced::Font::MONOSPACE, 1.0),
-                        panechord_runtime::TextRole::Subtitle => (
-                            iced::Font {
-                                weight: iced::font::Weight::Bold,
-                                ..Default::default()
-                            },
-                            1.0,
-                        ),
-                    };
-                    let width =
-                        column
-                            .width
-                            .map(iced::Length::Fixed)
-                            .unwrap_or(if column.stretch {
-                                iced::Length::Fill
-                            } else {
-                                iced::Length::Shrink
-                            });
-                    let mut text = widget::text(value)
-                        .font(font)
-                        .size(16.0 * factor * style.scale)
-                        .width(width)
-                        .wrapping(
-                            if !heading && column.overflow == panechord_runtime::TextOverflow::Wrap
-                            {
-                                iced::widget::text::Wrapping::WordOrGlyph
-                            } else {
-                                iced::widget::text::Wrapping::None
-                            },
-                        );
-                    if let Some([red, green, blue]) = foreground.or(style.foreground) {
-                        text = text.color(iced::Color::from_rgb8(red, green, blue));
-                    }
-                    Element::from(text)
-                };
-                let headers = widget::Row::with_children(
-                    data.columns
-                        .iter()
-                        .map(|column| cell(column, column.title.clone(), true, None))
-                        .collect::<Vec<_>>(),
-                )
-                .spacing(data.column_gap);
-                let rows = widget::Column::with_children(
-                    data.rows
-                        .iter()
-                        .map(|row| {
-                            let row = widget::Row::with_children(
-                                data.columns
-                                    .iter()
-                                    .zip(&row.cells)
-                                    .enumerate()
-                                    .filter(|(_, (column, value))| {
-                                        !column.hide_empty || !value.text.is_empty()
-                                    })
-                                    .map(|(index, (column, value))| {
-                                        let content = cell(
-                                            column,
-                                            value.text.clone(),
-                                            false,
-                                            value.foreground,
-                                        );
-                                        if selectable {
-                                            let selection = panechord_runtime::TableSelection {
-                                                row_key: row.key.clone(),
-                                                column: index,
-                                            };
-                                            let active = selected.as_ref() == Some(&selection);
-                                            let width = column
-                                                .width
-                                                .map(iced::Length::Fixed)
-                                                .unwrap_or(if column.stretch {
-                                                    iced::Length::Fill
-                                                } else {
-                                                    iced::Length::Shrink
-                                                });
-                                            widget::button(content)
-                                                .width(width)
-                                                .padding(8)
-                                                .style(if active {
-                                                    widget::button::primary
-                                                } else {
-                                                    widget::button::text
-                                                })
-                                                .on_press(Message::TableCell(
-                                                    key.clone(),
-                                                    selection,
-                                                ))
-                                                .into()
-                                        } else {
-                                            content
-                                        }
-                                    })
-                                    .collect::<Vec<_>>(),
-                            )
-                            .spacing(data.column_gap);
-                            widget::container(row).padding(data.row_inset).into()
-                        })
-                        .collect::<Vec<_>>(),
-                )
-                .spacing(data.row_gap);
-                let body: Element = if data.rows.is_empty() {
-                    widget::container(widget::text(data.empty_text))
-                        .center_x(iced::Length::Fill)
-                        .center_y(iced::Length::Fill)
-                        .into()
-                } else {
-                    widget::scrollable(rows).height(iced::Length::Fill).into()
-                };
-                let mut table = widget::Column::new().spacing(2).height(iced::Length::Fill);
-                if data.columns.iter().any(|column| !column.title.is_empty()) {
-                    table = table.push(headers).push(widget::rule::horizontal(1));
-                }
-                table.push(body)
+                render_table(&data, selected.as_ref(), selectable, &key)
             })
             .into()
         })));
+    }
+
+    /// Validated table snapshots bump the lazy revision; invalid ones report.
+    fn track_table_data(
+        view: &View,
+        node: &Rc<Node>,
+        binding: Binding<panechord_runtime::Table>,
+        data: &Rc<RefCell<(panechord_runtime::Table, u64)>>,
+    ) {
+        let owner = view.downgrade();
+        let updated = data.clone();
+        view.bind(node, binding, move |next| {
+            if let Err(error) = next.validate() {
+                if let Some(view) = owner.upgrade() {
+                    view.report_error(error.into());
+                }
+                return;
+            }
+            let mut state = updated.borrow_mut();
+            if state.0 != next {
+                state.0 = next;
+                state.1 = state.1.wrapping_add(1);
+            }
+        });
+    }
+    /// Validated selection writes replace stale ones and bump the revision.
+    fn track_table_selection(
+        view: &View,
+        node: &Rc<Node>,
+        selection: Binding<Option<panechord_runtime::TableSelection>>,
+        data: &Rc<RefCell<(panechord_runtime::Table, u64)>>,
+        selected: &Rc<RefCell<Option<panechord_runtime::TableSelection>>>,
+    ) {
+        let output = selected.clone();
+        let latest = data.clone();
+        let owner = view.downgrade();
+        view.bind(node, selection, move |selection| {
+            let validation = selection
+                .as_ref()
+                .map(|selection| selection.validate(&latest.borrow().0));
+            if let Some(Err(error)) = validation {
+                if let Some(view) = owner.upgrade() {
+                    view.report_error(error.into());
+                }
+                return;
+            }
+            if *output.borrow() != selection {
+                output.replace(selection);
+                let mut state = latest.borrow_mut();
+                state.1 = state.1.wrapping_add(1);
+            }
+        });
     }
 
     pub fn separator(&self, parent: &Parent, id: &str, vertical: bool) {

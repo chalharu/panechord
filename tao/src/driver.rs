@@ -367,6 +367,82 @@ impl Painter {
         // structure moved (revision) or on the first pump. Bounds-only
         // changes relayout the existing root; steady input events reuse
         // the tree and only `update` below.
+        self.ensure_tree(view, bounds, revision, size_bits);
+        // Image floor: narrowing must keep source pixels instead of
+        // squeezing them (spec rule 4), matching the other backends whose
+        // toolkits derive window minima from content. Recompute only when
+        // image sizes change, then clamp the OS window minimum.
+        self.update_image_floor(view);
+        // Automation/bound viewport changes scroll the real iced widget, not just row data.
+        self.flush_scroll_ops(view);
+        let mut messages = Vec::new();
+        // iced text inputs retain their own modifier state. Clearing only the
+        // Tao converter on focus loss leaves Ctrl/Shift stuck if key-up goes to
+        // another window. Reset widgets before delivering the unfocus event.
+        let with_reset;
+        let events: &[iced::Event] = if matches!(
+            events,
+            [iced::Event::Window(iced::window::Event::Unfocused)]
+        ) {
+            with_reset = [
+                iced::Event::Keyboard(iced::keyboard::Event::ModifiersChanged(
+                    iced::keyboard::Modifiers::empty(),
+                )),
+                events[0].clone(),
+            ];
+            &with_reset
+        } else {
+            events
+        };
+        let (state, dirty) = self.update_widgets(events, &mut messages, paint);
+        if let State::Updated { input_method, .. } = &state {
+            self.ime_cursor = match input_method {
+                iced::advanced::input_method::InputMethod::Enabled { cursor, .. } => {
+                    Some(iced::Point::new(cursor.x, cursor.y + cursor.height))
+                }
+                _ => None,
+            };
+        }
+        match state {
+            State::Updated {
+                redraw_request: RedrawRequest::At(at),
+                ..
+            } => {
+                self.deadline = Some(self.deadline.map_or(at, |old| old.min(at)));
+            }
+            State::Updated {
+                redraw_request: RedrawRequest::NextFrame,
+                ..
+            }
+            | State::Outdated => self.deadline = Some(Instant::now()),
+            _ => {}
+        }
+        if self.should_paint(bounds, paint, dirty) {
+            let ui = self.ui.as_mut().expect("retained iced tree");
+            ui.draw(
+                &mut self.renderer,
+                &iced::Theme::Light,
+                &iced::advanced::renderer::Style::default(),
+                self.cursor,
+            );
+            view.0.frames.set(view.0.frames.get() + 1);
+            self.tainted.set(false);
+            return Pumped {
+                messages,
+                dirty,
+                painted: true,
+            };
+        }
+        Pumped {
+            messages,
+            dirty,
+            painted: false,
+        }
+    }
+
+    /// Rebuild the retained tree on revision moves, relayout on bounds-only
+    /// changes; steady input events keep reusing the tree.
+    fn ensure_tree(&mut self, view: &View, bounds: Size, revision: u64, size_bits: (u32, u32)) {
         let structure_changed = needs_rebuild(self.ui.is_none(), revision, self.ui_revision);
         if structure_changed {
             let root = &view.0.root.0;
@@ -382,10 +458,11 @@ impl Painter {
             self.ui = Some(retained.relayout(bounds, &mut self.renderer));
             self.ui_bounds.set(Some(size_bits));
         }
-        // Image floor: narrowing must keep source pixels instead of
-        // squeezing them (spec rule 4), matching the other backends whose
-        // toolkits derive window minima from content. Recompute only when
-        // image sizes change, then clamp the OS window minimum.
+    }
+
+    /// Recompute the OS window minimum from displayed source pixels plus
+    /// ancestor insets when image sizes change.
+    fn update_image_floor(&mut self, view: &View) {
         if view.0.media_version.get() != self.media_applied.get() {
             self.media_applied.set(view.0.media_version.get());
             let mut floor = (0u32, 0u32);
@@ -420,7 +497,10 @@ impl Painter {
                 ))
             });
         }
-        // Automation/bound viewport changes scroll the real iced widget, not just row data.
+    }
+
+    /// Apply queued automation scrolls to the real iced scrollables.
+    fn flush_scroll_ops(&mut self, view: &View) {
         if let Some(ui) = self.ui.as_mut() {
             for (id, offset) in view.0.scroll.take() {
                 use iced::advanced::widget::{Id, operation::scrollable};
@@ -434,32 +514,23 @@ impl Painter {
                 ui.operate(&self.renderer, &mut operation);
             }
         }
-        let mut messages = Vec::new();
-        // iced text inputs retain their own modifier state. Clearing only the
-        // Tao converter on focus loss leaves Ctrl/Shift stuck if key-up goes to
-        // another window. Reset widgets before delivering the unfocus event.
-        let with_reset;
-        let events: &[iced::Event] = if matches!(
-            events,
-            [iced::Event::Window(iced::window::Event::Unfocused)]
-        ) {
-            with_reset = [
-                iced::Event::Keyboard(iced::keyboard::Event::ModifiersChanged(
-                    iced::keyboard::Modifiers::empty(),
-                )),
-                events[0].clone(),
-            ];
-            &with_reset
-        } else {
-            events
-        };
+    }
+
+    /// Run the retained tree update; a state-only pump still notes paint
+    /// debt for iced-internal moves the next frame must present.
+    fn update_widgets(
+        &mut self,
+        events: &[iced::Event],
+        messages: &mut Vec<Message>,
+        paint: Paint,
+    ) -> (State, bool) {
         let ui = self.ui.as_mut().expect("retained iced tree");
         let (state, _) = ui.update(
             events,
             self.cursor,
             &mut self.renderer,
             &mut self.clipboard,
-            &mut messages,
+            messages,
         );
         let dirty = input::needs_redraw(&state, !messages.is_empty());
         // Sticky paint debt: a state-only pump may move iced-internal state
@@ -468,61 +539,22 @@ impl Painter {
         if paint == Paint::Never {
             self.tainted.set(self.tainted.get() || dirty);
         }
-        if let State::Updated { input_method, .. } = &state {
-            self.ime_cursor = match input_method {
-                iced::advanced::input_method::InputMethod::Enabled { cursor, .. } => {
-                    Some(iced::Point::new(cursor.x, cursor.y + cursor.height))
-                }
-                _ => None,
-            };
-        }
-        match state {
-            State::Updated {
-                redraw_request: RedrawRequest::At(at),
-                ..
-            } => {
-                self.deadline = Some(self.deadline.map_or(at, |old| old.min(at)));
-            }
-            State::Updated {
-                redraw_request: RedrawRequest::NextFrame,
-                ..
-            }
-            | State::Outdated => self.deadline = Some(Instant::now()),
-            _ => {}
-        }
-        if match paint {
+        (state, dirty)
+    }
+
+    /// First frame and resizes paint even when iced reports clean: a bare
+    /// RedrawRequested yields Wait although no pixels were ever presented
+    /// (or the surface was reconfigured for a new size).
+    fn should_paint(&mut self, bounds: Size, paint: Paint, dirty: bool) -> bool {
+        match paint {
             Paint::Always => true,
             Paint::Never => false,
             Paint::IfDirty => {
                 dirty || self.tainted.get() || {
-                    // First frame and resizes must paint even when iced
-                    // reports clean: a bare RedrawRequested yields Wait
-                    // although no pixels were ever presented (or the surface
-                    // was reconfigured for a new size).
                     let size = (bounds.width.to_bits(), bounds.height.to_bits());
                     self.painted_size.replace(Some(size)) != Some(size)
                 }
             }
-        } {
-            let ui = self.ui.as_mut().expect("retained iced tree");
-            ui.draw(
-                &mut self.renderer,
-                &iced::Theme::Light,
-                &iced::advanced::renderer::Style::default(),
-                self.cursor,
-            );
-            view.0.frames.set(view.0.frames.get() + 1);
-            self.tainted.set(false);
-            return Pumped {
-                messages,
-                dirty,
-                painted: true,
-            };
-        }
-        Pumped {
-            messages,
-            dirty,
-            painted: false,
         }
     }
 }

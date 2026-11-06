@@ -1408,7 +1408,7 @@ impl View {
             return;
         };
         let old_ids: HashSet<_> = menu_state.actions.borrow().iter().cloned().collect();
-        let Some(triggers) = self.validate_menu_items(id, &items, &old_ids) else {
+        let Some(triggers) = self.validate_menu_items(&items, &old_ids) else {
             return;
         };
         self.clear_menu(id);
@@ -1419,11 +1419,6 @@ impl View {
             return;
         };
         let mut section = gio::Menu::new();
-        // Bound once per rebuild: registration cannot change mid-rebuild,
-        // so naming and registration below always agree with each other and
-        // with the nested-structure pass over the same snapshot.
-        let app = self.0.window.application();
-        let prefix = if app.is_some() { "app" } else { "panechord" };
         for (item, trigger) in items.into_iter().zip(triggers) {
             if item.role == MenuRole::Separator {
                 if section.n_items() > 0 {
@@ -1432,16 +1427,7 @@ impl View {
                 section = gio::Menu::new();
                 continue;
             }
-            self.register_menu_item(
-                id,
-                &state,
-                &mut section,
-                &app,
-                &prefix,
-                item,
-                trigger,
-                &dispatch,
-            );
+            self.register_menu_item(id, &state, &mut section, item, trigger, &dispatch);
         }
         if section.n_items() > 0 {
             state.menu.append_section(None, &section);
@@ -1453,7 +1439,6 @@ impl View {
     /// shortcuts fail the whole rebuild before the old menu is touched.
     fn validate_menu_items<A: Clone + 'static>(
         &self,
-        id: &str,
         items: &[MenuItem<A>],
         old_ids: &HashSet<String>,
     ) -> Option<Vec<Option<gtk4::ShortcutTrigger>>> {
@@ -1491,12 +1476,15 @@ impl View {
         id: &str,
         state: &MenuState,
         section: &mut gio::Menu,
-        app: &Option<gtk4::Application>,
-        prefix: &str,
         item: MenuItem<A>,
         trigger: Option<gtk4::ShortcutTrigger>,
         dispatch: &Rc<dyn Fn(A) -> bool>,
     ) {
+        // Derived per registration: application actions need process-wide
+        // unique names (the shared menubar outlives any single view);
+        // window-group actions keep the per-view serial.
+        let app = self.0.window.application();
+        let prefix = if app.is_some() { "app" } else { "panechord" };
         let serial = self.0.serial.get();
         self.0.serial.set(serial + 1);
         let name = match app {

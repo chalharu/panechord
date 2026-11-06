@@ -344,75 +344,116 @@ unsafe extern "C" fn dispatch(
         return;
     }
     let result = catch_unwind(AssertUnwindSafe(|| {
-        let id = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(id, id_len) });
-        let text = if text_len == 0 {
-            String::new()
-        } else {
-            String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(text, text_len) })
-                .into_owned()
-        };
-        if let Some(event) = input::event(kind, &text) {
-            let callback = inner.surface_event.borrow().clone();
-            if let Some(callback) = callback {
-                callback(&event);
-            }
-        } else if kind == 1 || kind == 3 {
-            let Some(_gate) = inner.lifecycle.enter_request() else {
-                return;
-            };
-            let callback = if kind == 3 {
-                inner
-                    .quit_request
-                    .borrow()
-                    .clone()
-                    .or_else(|| inner.lifecycle.close_request())
-            } else {
-                inner.lifecycle.close_request()
-            };
-            if let Some(callback) = callback {
-                callback();
-            } else {
-                inner.shutdown();
-            }
+        let (id, text) = decode_event_payload(id, id_len, text, text_len);
+        if route_surface_event(inner, kind, &text) {
+            return;
+        }
+        if kind == 1 || kind == 3 {
+            handle_close_quit(inner, kind);
         } else if kind == 8 {
-            // Window content resize from `windowDidResize`: track the game
-            // bounds and notify the render viewport hook.
-            let mut dims = text.split(',');
-            if let (Some(width), Some(height)) = (dims.next(), dims.next())
-                && let (Ok(width), Ok(height)) = (width.parse::<f32>(), height.parse::<f32>())
-                && width > 0.0
-                && height > 0.0
-            {
-                inner.surface_size.set((width, height));
-                if let Some(hook) = inner.surface_viewport.borrow().clone() {
-                    hook(width, height);
-                }
-            }
+            handle_resize(inner, &text);
         } else if kind == 9 {
-            // Live-resize pump: AppKit runs a nested tracking loop inside
-            // `sendEvent`, so `w3_pump` never returns and the host loop
-            // stalls until mouse-up. `windowDidResize` fires inside that
-            // loop, so one turn here lets ready (timer-driven) frame tasks
-            // capture at the new viewport mid-drag. Reentrancy is safe:
-            // dispatch never runs inside a turn, and turns never synthesize
-            // resize events.
-            if let Some(executor) = inner.executor.borrow().clone() {
-                executor.turn();
-            }
+            pump_ready_turn(inner);
         } else {
-            let handler = if kind == 2 {
-                inner.viewport_handlers.borrow().get(id.as_ref()).cloned()
-            } else {
-                inner.handlers.borrow().get(id.as_ref()).cloned()
-            };
-            if let Some(handler) = handler {
-                handler(text);
-            }
+            dispatch_control_handler(inner, kind, &id, text);
         }
     }));
     if let Err(panic) = result {
         inner.error.replace(Some(panic_error(panic)));
         inner.shutdown();
+    }
+}
+
+/// Decode the raw FFI payloads; the id is copied out so no caller holds the
+/// raw parts past the call.
+fn decode_event_payload(
+    id: *const u8,
+    id_len: usize,
+    text: *const u8,
+    text_len: usize,
+) -> (String, String) {
+    let id =
+        String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(id, id_len) }).into_owned();
+    let text = if text_len == 0 {
+        String::new()
+    } else {
+        String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(text, text_len) }).into_owned()
+    };
+    (id, text)
+}
+
+/// Native input events go to the surface hook. True when handled.
+fn route_surface_event(inner: &Inner, kind: i32, text: &str) -> bool {
+    if let Some(event) = input::event(kind, text) {
+        let callback = inner.surface_event.borrow().clone();
+        if let Some(callback) = callback {
+            callback(&event);
+        }
+        true
+    } else {
+        false
+    }
+}
+
+/// Close (1) and Quit (3) run the vetoable close-request hooks; Quit falls
+/// back to the session quit request. No hook means force-close.
+fn handle_close_quit(inner: &Inner, kind: i32) {
+    let Some(_gate) = inner.lifecycle.enter_request() else {
+        return;
+    };
+    let callback = if kind == 3 {
+        inner
+            .quit_request
+            .borrow()
+            .clone()
+            .or_else(|| inner.lifecycle.close_request())
+    } else {
+        inner.lifecycle.close_request()
+    };
+    if let Some(callback) = callback {
+        callback();
+    } else {
+        inner.shutdown();
+    }
+}
+
+/// Window content resize from `windowDidResize`: track the game bounds and
+/// notify the render viewport hook.
+fn handle_resize(inner: &Inner, text: &str) {
+    let mut dims = text.split(',');
+    if let (Some(width), Some(height)) = (dims.next(), dims.next())
+        && let (Ok(width), Ok(height)) = (width.parse::<f32>(), height.parse::<f32>())
+        && width > 0.0
+        && height > 0.0
+    {
+        inner.surface_size.set((width, height));
+        if let Some(hook) = inner.surface_viewport.borrow().clone() {
+            hook(width, height);
+        }
+    }
+}
+
+/// Live-resize pump: AppKit runs a nested tracking loop inside `sendEvent`,
+/// so `w3_pump` never returns and the host loop stalls until mouse-up.
+/// `windowDidResize` fires inside that loop, so one turn here lets ready
+/// (timer-driven) frame tasks capture at the new viewport mid-drag.
+/// Reentrancy is safe: dispatch never runs inside a turn, and turns never
+/// synthesize resize events.
+fn pump_ready_turn(inner: &Inner) {
+    if let Some(executor) = inner.executor.borrow().clone() {
+        executor.turn();
+    }
+}
+
+/// Ordinary control callbacks keyed by id: viewport handlers for kind 2.
+fn dispatch_control_handler(inner: &Inner, kind: i32, id: &str, text: String) {
+    let handler = if kind == 2 {
+        inner.viewport_handlers.borrow().get(id).cloned()
+    } else {
+        inner.handlers.borrow().get(id).cloned()
+    };
+    if let Some(handler) = handler {
+        handler(text);
     }
 }
 
@@ -460,6 +501,134 @@ pub async fn pick_file() -> Option<std::path::PathBuf> {
     }
     let path = std::ffi::OsStr::from_bytes(&buffer[..written as usize]);
     Some(std::path::PathBuf::from(path))
+}
+
+/// The refresh closure's captured state, named: clamp the viewport to the
+/// source, mount the visible window, then commit the native order.
+struct ItemsRefresh<T> {
+    key: String,
+    list: Rc<List>,
+    source: Rc<RefCell<Vec<Keyed<T>>>>,
+    mounted: Rc<RefCell<Vec<Keyed<T>>>>,
+    viewport_writer: Binding<Viewport>,
+    template: Template<T>,
+}
+
+impl<T: Clone + 'static> ItemsRefresh<T> {
+    fn refresh(&self, view: &View) {
+        let Some((snapshot, start, viewport)) = self.clamped() else {
+            return;
+        };
+        let visible: Vec<_> = snapshot
+            .iter()
+            .skip(start)
+            .take(viewport.count)
+            .cloned()
+            .collect();
+        self.mount_visible(view, &visible, &viewport);
+        self.commit_order(view, snapshot.len(), start, &viewport, &visible);
+    }
+
+    /// Resolve the source window and write back a clamped viewport.
+    fn clamped(&self) -> Option<(Vec<Keyed<T>>, usize, Viewport)> {
+        let list = &self.list;
+        let snapshot = self.source.borrow().clone();
+        let Some(viewport) = list.current.get() else {
+            return None;
+        };
+        let start = match viewport.range(snapshot.len()) {
+            Ok(range) => range.start,
+            Err(error) => {
+                list.error.replace(Some(error.into()));
+                return None;
+            }
+        };
+        if viewport.start != start {
+            let effective = Viewport { start, ..viewport };
+            list.current.set(Some(effective));
+            let _ = self.viewport_writer.set(effective);
+        }
+        Some((snapshot, start, viewport))
+    }
+
+    /// Drop rows outside the window; mount new rows through the template and
+    /// pin every visible row to the configured height.
+    fn mount_visible(&self, view: &View, visible: &[Keyed<T>], viewport: &Viewport) {
+        let old = self.mounted.replace(visible.to_vec());
+        for row in &old {
+            if !visible.contains(row) {
+                view.remove(&format!("{}/{}", self.key, row.key));
+            }
+        }
+        for row in visible {
+            let scope = format!("{}/{}", self.key, row.key);
+            let row_parent = if !old.contains(row) {
+                Some(view.layout(
+                    &Parent(self.key.clone(), Rc::downgrade(&view.0)),
+                    &scope,
+                    Layout::default(),
+                ))
+            } else {
+                None
+            };
+            let mut style = Style::default();
+            style.placement.height = Some(viewport.row_height);
+            view.style(&scope, style);
+            if let Some(row_parent) = row_parent {
+                view.in_scope(&scope, || {
+                    (self.template)(view, &row_parent, &scope, row.model.clone());
+                });
+            }
+        }
+    }
+
+    /// Publish the visible order and window to the native list, then size the
+    /// container to the full window height.
+    fn commit_order(
+        &self,
+        view: &View,
+        snapshot_len: usize,
+        start: usize,
+        viewport: &Viewport,
+        visible: &[Keyed<T>],
+    ) {
+        let order: Vec<_> = visible
+            .iter()
+            .map(|row| format!("{}/{}", self.key, row.key))
+            .collect();
+        let order = serde_json::to_vec(&order).expect("string array serialization");
+        if unsafe {
+            w3_reorder(
+                view.0.native.get(),
+                self.key.as_ptr(),
+                self.key.len(),
+                order.as_ptr(),
+                order.len(),
+            )
+        } == 0
+        {
+            self.list
+                .error
+                .replace(Some("native row reorder failed".into()));
+        }
+        self.list
+            .mounted
+            .replace(visible.iter().map(|row| row.key.clone()).collect());
+        unsafe {
+            w3_rows(
+                view.0.native.get(),
+                self.key.as_ptr(),
+                self.key.len(),
+                snapshot_len,
+                start,
+                viewport.count,
+                f64::from(viewport.row_height),
+            );
+        }
+        let mut style = Style::default();
+        style.placement.height = Some(viewport.count as f32 * viewport.row_height);
+        view.style(&self.key, style);
+    }
 }
 
 impl View {
@@ -1155,98 +1324,17 @@ impl View {
             current: Cell::new(None),
         });
         self.0.lists.borrow_mut().insert(id.into(), list.clone());
-        let key = id.to_owned();
-        let mounted = Rc::new(RefCell::new(Vec::<Keyed<T>>::new()));
-        let source = Rc::new(RefCell::new(Vec::<Keyed<T>>::new()));
-        let accepted = source.clone();
-        let output = list.clone();
-        let viewport_writer = viewport.clone();
-        let refresh: Refresh = Rc::new(move |view| {
-            let list = &output;
-            let snapshot = source.borrow().clone();
-            let Some(viewport) = list.current.get() else {
-                return;
-            };
-            let start = match viewport.range(snapshot.len()) {
-                Ok(range) => range.start,
-                Err(error) => {
-                    list.error.replace(Some(error.into()));
-                    return;
-                }
-            };
-            if viewport.start != start {
-                let effective = Viewport { start, ..viewport };
-                list.current.set(Some(effective));
-                let _ = viewport_writer.set(effective);
-            }
-            let visible: Vec<_> = snapshot
-                .iter()
-                .skip(start)
-                .take(viewport.count)
-                .cloned()
-                .collect();
-            let old = mounted.replace(visible.clone());
-            for row in &old {
-                if !visible.contains(row) {
-                    view.remove(&format!("{key}/{}", row.key));
-                }
-            }
-            for row in &visible {
-                let scope = format!("{key}/{}", row.key);
-                let row_parent = if !old.contains(row) {
-                    Some(view.layout(
-                        &Parent(key.clone(), Rc::downgrade(&view.0)),
-                        &scope,
-                        Layout::default(),
-                    ))
-                } else {
-                    None
-                };
-                let mut style = Style::default();
-                style.placement.height = Some(viewport.row_height);
-                view.style(&scope, style);
-                if let Some(row_parent) = row_parent {
-                    view.in_scope(&scope, || {
-                        template(view, &row_parent, &scope, row.model.clone());
-                    });
-                }
-            }
-            let order: Vec<_> = visible
-                .iter()
-                .map(|row| format!("{key}/{}", row.key))
-                .collect();
-            let order = serde_json::to_vec(&order).expect("string array serialization");
-            if unsafe {
-                w3_reorder(
-                    view.0.native.get(),
-                    key.as_ptr(),
-                    key.len(),
-                    order.as_ptr(),
-                    order.len(),
-                )
-            } == 0
-            {
-                list.error.replace(Some("native row reorder failed".into()));
-            }
-            list.mounted
-                .replace(visible.iter().map(|row| row.key.clone()).collect());
-            unsafe {
-                w3_rows(
-                    view.0.native.get(),
-                    key.as_ptr(),
-                    key.len(),
-                    snapshot.len(),
-                    start,
-                    viewport.count,
-                    f64::from(viewport.row_height),
-                );
-            }
-            let mut style = Style::default();
-            style.placement.height = Some(viewport.count as f32 * viewport.row_height);
-            view.style(&key, style);
+        let refresh = Rc::new(ItemsRefresh {
+            key: id.to_owned(),
+            list: list.clone(),
+            source: Rc::new(RefCell::new(Vec::<Keyed<T>>::new())),
+            mounted: Rc::new(RefCell::new(Vec::<Keyed<T>>::new())),
+            viewport_writer: viewport.clone(),
+            template,
         });
-        let update = refresh.clone();
+        let accepted = refresh.source.clone();
         let output = list.clone();
+        let update = refresh.clone();
         self.bind(id, items, move |view, snapshot| {
             let mut seen = HashSet::new();
             if snapshot.iter().any(|row| {

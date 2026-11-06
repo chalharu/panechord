@@ -612,6 +612,28 @@ fn validate_menu_entries(
     Ok(())
 }
 
+/// The mutable validation cursor: node path, seen ids, template stack,
+/// node budget and depth travel together through the recursion.
+struct Traversal<'a> {
+    path: String,
+    ids: &'a mut BTreeSet<String>,
+    stack: &'a mut Vec<String>,
+    work: &'a mut usize,
+    depth: usize,
+}
+
+impl Traversal<'_> {
+    fn child(&mut self, segment: &str) -> Traversal<'_> {
+        Traversal {
+            path: format!("{}.{segment}", self.path),
+            ids: &mut *self.ids,
+            stack: &mut *self.stack,
+            work: &mut *self.work,
+            depth: self.depth + 1,
+        }
+    }
+}
+
 /// Node budget, depth, id shape and uniqueness: the cheapest rejects first.
 fn check_node_identity(
     c: &Control,
@@ -810,56 +832,45 @@ impl Document {
         let mut work = 0;
         self.walk(
             &self.root,
-            "root",
-            &mut BTreeSet::new(),
-            &mut Vec::new(),
-            &mut work,
-            0,
+            &mut Traversal {
+                path: "root".into(),
+                ids: &mut BTreeSet::new(),
+                stack: &mut Vec::new(),
+                work: &mut work,
+                depth: 0,
+            },
         )?;
         // Validate unused templates too, including indirect cycles.
         for (name, t) in &self.templates {
             self.walk(
                 &t.root,
-                &format!("templates.{name}.root"),
-                &mut BTreeSet::new(),
-                &mut vec![name.clone()],
-                &mut work,
-                0,
+                &mut Traversal {
+                    path: format!("templates.{name}.root"),
+                    ids: &mut BTreeSet::new(),
+                    stack: &mut vec![name.clone()],
+                    work: &mut work,
+                    depth: 0,
+                },
             )?;
         }
         Ok(())
     }
-    fn walk(
-        &self,
-        c: &Control,
-        path: &str,
-        ids: &mut BTreeSet<String>,
-        stack: &mut Vec<String>,
-        work: &mut usize,
-        depth: usize,
-    ) -> Result<(), (String, String)> {
-        check_node_identity(c, path, ids, work, depth)?;
-        check_node_style(&c.style(), path)?;
-        check_node_bindings(c, path)?;
-        let err = |s: String| (path.to_string(), s);
+    fn walk(&self, c: &Control, ctx: &mut Traversal) -> Result<(), (String, String)> {
+        check_node_identity(c, &ctx.path, ctx.ids, ctx.work, ctx.depth)?;
+        check_node_style(&c.style(), &ctx.path)?;
+        check_node_bindings(c, &ctx.path)?;
+        let err = |s: String| (ctx.path.clone(), s);
         let mut children = Vec::new();
         let template = match c {
             Control::Window { content, menus, .. } => {
-                if depth != 0 || path != "root" {
+                if ctx.depth != 0 || ctx.path != "root" {
                     return Err((
-                        path.to_string(),
+                        ctx.path.clone(),
                         "nested Window is unsupported by the single-View API".into(),
                     ));
                 }
-                check_window_menus(menus, path, ids)?;
-                self.walk(
-                    content,
-                    &format!("{path}.content"),
-                    ids,
-                    stack,
-                    work,
-                    depth + 1,
-                )?;
+                check_window_menus(menus, &ctx.path, ctx.ids)?;
+                self.walk(content, &mut ctx.child("content"))?;
                 None
             }
             Control::Grid {
@@ -894,20 +905,13 @@ impl Document {
                 None
             }
             Control::Dialog { content, .. } | Control::Scroll { content, .. } => {
-                self.walk(
-                    content,
-                    &format!("{path}.content"),
-                    ids,
-                    stack,
-                    work,
-                    depth + 1,
-                )?;
+                self.walk(content, &mut ctx.child("content"))?;
                 None
             }
             Control::Tab {
                 selected, pages, ..
             } => {
-                self.walk_tab_pages(selected, pages, path, ids, stack, work, depth)?;
+                self.walk_tab_pages(selected, pages, ctx)?;
                 None
             }
             Control::Slider { min, max, step, .. } => {
@@ -932,7 +936,7 @@ impl Document {
                 items,
                 ..
             } => {
-                check_read_only(items, path, "items")?;
+                check_read_only(items, &ctx.path, "items")?;
                 if !gap.is_finite() || !(0.0..=4096.0).contains(gap) {
                     return Err(err("invalid Repeat gap".into()));
                 }
@@ -946,7 +950,7 @@ impl Document {
             } => {
                 if matches!(selected, Property::Literal(value) if !value.literal.is_string()) {
                     return Err((
-                        format!("{path}.selected"),
+                        format!("{}.selected", ctx.path),
                         "Tab selection must be a string".into(),
                     ));
                 }
@@ -957,7 +961,7 @@ impl Document {
             } => Some(content_template),
             _ => None,
         };
-        self.walk_children_and_template(children, template, path, ids, stack, work, depth)
+        self.walk_children_and_template(children, template, ctx)
     }
 
     /// Tab pages validate like controls (id shape, title binding) and each
@@ -966,26 +970,23 @@ impl Document {
         &self,
         selected: &Property,
         pages: &[TabPage],
-        path: &str,
-        ids: &mut BTreeSet<String>,
-        stack: &mut Vec<String>,
-        work: &mut usize,
-        depth: usize,
+        ctx: &mut Traversal,
     ) -> Result<(), (String, String)> {
-        let err = |s: String| (path.to_string(), s);
+        let path = ctx.path.clone();
+        let err = move |s: String| (path.clone(), s);
         if pages.is_empty() || pages.len() > 256 {
             return Err(err("Tab requires 1..=256 pages".into()));
         }
         if let Property::Literal(value) = selected {
             let selected = value.literal.as_str().ok_or_else(|| {
                 (
-                    format!("{path}.selected"),
+                    format!("{}.selected", ctx.path),
                     "Tab selection must be a string".into(),
                 )
             })?;
             if !selected.is_empty() && !pages.iter().any(|page| page.id == selected) {
                 return Err((
-                    format!("{path}.selected"),
+                    format!("{}.selected", ctx.path),
                     "unknown selected tab page".into(),
                 ));
             }
@@ -993,18 +994,14 @@ impl Document {
         for (index, page) in pages.iter().enumerate() {
             if !panechord_runtime::valid_item_key(&page.id)
                 || page.id == "__root"
-                || !ids.insert(page.id.clone())
+                || !ctx.ids.insert(page.id.clone())
             {
                 return Err(err("invalid or duplicate tab page id".into()));
             }
-            check_read_only(&page.title, path, &format!("pages[{index}].title"))?;
+            check_read_only(&page.title, &ctx.path, &format!("pages[{index}].title"))?;
             self.walk(
                 &page.content,
-                &format!("{path}.pages[{index}].content"),
-                ids,
-                stack,
-                work,
-                depth + 1,
+                &mut ctx.child(&format!("pages[{index}].content")),
             )?;
         }
         Ok(())
@@ -1016,44 +1013,34 @@ impl Document {
         &self,
         children: Vec<&Control>,
         template: Option<&String>,
-        path: &str,
-        ids: &mut BTreeSet<String>,
-        stack: &mut Vec<String>,
-        work: &mut usize,
-        depth: usize,
+        ctx: &mut Traversal,
     ) -> Result<(), (String, String)> {
-        let err = |s: String| (path.to_string(), s);
         for (index, child) in children.into_iter().enumerate() {
-            self.walk(
-                child,
-                &format!("{path}.children[{index}]"),
-                ids,
-                stack,
-                work,
-                depth + 1,
-            )?;
+            self.walk(child, &mut ctx.child(&format!("children[{index}]")))?;
         }
         if let Some(name) = template {
-            if stack.contains(name) {
-                return Err(err(format!(
-                    "recursive template: {} -> {name}",
-                    stack.join(" -> ")
-                )));
+            if ctx.stack.contains(name) {
+                return Err((
+                    ctx.path.clone(),
+                    format!("recursive template: {} -> {name}", ctx.stack.join(" -> ")),
+                ));
             }
             let t = self
                 .templates
                 .get(name)
-                .ok_or_else(|| err(format!("unknown template `{name}`")))?;
-            stack.push(name.clone());
+                .ok_or_else(|| (ctx.path.clone(), format!("unknown template `{name}`")))?;
+            ctx.stack.push(name.clone());
             self.walk(
                 &t.root,
-                &format!("templates.{name}.root"),
-                &mut BTreeSet::new(),
-                stack,
-                work,
-                depth + 1,
+                &mut Traversal {
+                    path: format!("templates.{name}.root"),
+                    ids: &mut BTreeSet::new(),
+                    stack: &mut *ctx.stack,
+                    work: &mut *ctx.work,
+                    depth: ctx.depth + 1,
+                },
             )?;
-            stack.pop();
+            ctx.stack.pop();
         }
         Ok(())
     }

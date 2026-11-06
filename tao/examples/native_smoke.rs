@@ -387,6 +387,7 @@ fn main() -> Result<(), String> {
                     receive.await.unwrap();
                 }
                 assert_eq!(close_state.snapshot(), (2, false));
+                assert!(out.diagnostics().is_empty(), "{:?}", out.diagnostics());
                 let title = out.title();
                 let window = gtk::Window::list_toplevels()
                     .into_iter()

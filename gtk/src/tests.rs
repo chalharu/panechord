@@ -403,7 +403,11 @@ fn native_table_wraps_virtualizes_and_rejects_invalid_snapshots() {
     }));
     ready.set(false);
     let observed = ready.clone();
-    glib::timeout_add_local_once(Duration::from_secs(2), move || observed.set(true));
+    // Full re-measure of virtualized rows can outlast a fixed short wait on
+    // loaded hosts (especially under coverage instrumentation). Bound the
+    // wait generously instead: the assertion below still fails loudly if
+    // layout never converges, and it fits the 45s per-test CI envelope.
+    glib::timeout_add_local_once(Duration::from_secs(20), move || observed.set(true));
     let header = root.first_child().unwrap().first_child().unwrap();
     assert!(
         header.width_request() >= 200,

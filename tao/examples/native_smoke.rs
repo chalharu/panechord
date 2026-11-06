@@ -203,8 +203,13 @@ fn main() -> Result<(), String> {
             },
             Binding::constant(()),
         );
+        let trace = close_state.clone();
         view.on_close_request(Rc::new(move || {
             let _ = command.invoke();
+            eprintln!(
+                "TRACE request_close invoked, snapshot={:?}",
+                trace.snapshot()
+            );
         }));
         let panel = view.layout(
             &view.root(),
@@ -298,6 +303,7 @@ fn main() -> Result<(), String> {
         let owner = model.clone();
         let state = close_state.clone();
         view.on_close(Rc::new(move || {
+            eprintln!("TRACE on_close entry, snapshot={:?}", state.snapshot());
             assert_eq!(
                 state.snapshot(),
                 (3, true),

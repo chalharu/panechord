@@ -457,7 +457,7 @@ jobs:
 
   build-macos:
     name: Build macOS archive (M1)
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
     permissions:
       contents: read
@@ -506,7 +506,7 @@ jobs:
   run-macos:
     name: macOS tests (nextest, headless)
     needs: build-macos
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
     permissions:
       contents: read

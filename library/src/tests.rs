@@ -338,7 +338,18 @@ fn non_utf8_names_keep_distinct_selection_keys() {
     use std::{ffi::OsString, os::unix::ffi::OsStringExt};
     let sandbox = Sandbox::new().unwrap();
     for name in [b"same\xff.nes", b"same\xfe.nes"] {
-        std::fs::write(sandbox.dir.join(OsString::from_vec(name.to_vec())), []).unwrap();
+        let path = sandbox.dir.join(OsString::from_vec(name.to_vec()));
+        if std::fs::write(&path, []).is_err() {
+            // UTF-8-enforcing filesystems (APFS) reject these names: prove
+            // the sandbox itself is fine with an ASCII control, then the
+            // scanner has nothing to distinguish here. Key distinctness
+            // itself stays covered by
+            // non_utf8_paths_have_distinct_keys_without_lossy_aliasing.
+            let control = sandbox.dir.join("panechord-ascii-probe");
+            std::fs::write(&control, []).expect("fixture setup failed");
+            let _ = std::fs::remove_file(&control);
+            return;
+        }
     }
     let report = scan::scan(sandbox.dir.clone(), String::new()).unwrap();
     assert_eq!(report.entries.len(), 2);

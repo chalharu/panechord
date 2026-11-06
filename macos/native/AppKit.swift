@@ -991,7 +991,7 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
             if pressed { self.pressedCodes.insert(event.keyCode) }
             else { self.pressedCodes.remove(event.keyCode) }
             let repeated = event.type == .keyDown && event.isARepeat
-            let kind: Int
+            let kind: Int32
             if pressed { kind = repeated ? 7 : 5 } else { kind = 6 }
             self.emit("", String(event.keyCode), kind: kind)
             return event

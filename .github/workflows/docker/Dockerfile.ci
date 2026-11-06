@@ -2,10 +2,21 @@
 # jobs never run `apt-get update` at runtime (removes the Ubuntu-repository
 # flakiness and the per-run build cost). Content-hash tagged from CI; local
 # development keeps using scripts/Dockerfile.linux directly.
+# Tools are prebuilt upstream: download the pinned release binaries
+# instead of compiling them (faster image builds, no extra rustc needed).
+# Versions follow the 3-day minimum-age rule; keep in sync with
+# .github/workflows/coverage.yml.
 FROM rust:1.99.1-slim-bookworm@sha256:f2c004e3d2d8b547e8cf7ffbc29205385f4e71d23e53e4e383065db5e9f822cd AS builder
-RUN cargo install cargo-llvm-cov --locked --version=0.9.1 \
-    && cargo install cargo-nextest --locked --version=0.9.150 \
-    --no-default-features --features=default-no-update
+RUN apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /tools \
+    && curl -fsSL -o /tmp/nextest.tar.gz https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.150/cargo-nextest-0.9.150-x86_64-unknown-linux-gnu.tar.gz \
+    && curl -fsSL -o /tmp/llvm-cov.tar.gz https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.9.1/cargo-llvm-cov-x86_64-unknown-linux-gnu.tar.gz \
+    && tar -xzf /tmp/nextest.tar.gz -C /tools \
+    && tar -xzf /tmp/llvm-cov.tar.gz -C /tools \
+    && /tools/cargo-nextest --version \
+    && /tools/cargo-llvm-cov llvm-cov --version \
+    && rm /tmp/nextest.tar.gz /tmp/llvm-cov.tar.gz
 
 FROM rust:1.99.1-slim-bookworm@sha256:f2c004e3d2d8b547e8cf7ffbc29205385f4e71d23e53e4e383065db5e9f822cd
 
@@ -51,8 +62,8 @@ RUN apt-get update -qq && apt-get install -y --no-install-recommends \
     && rm -rf /usr/local/cargo/registry/cache/* \
     && rm -rf /usr/local/cargo/registry/index/*
 
-COPY --from=builder /usr/local/cargo/bin/cargo-llvm-cov /usr/local/cargo/bin/cargo-llvm-cov
-COPY --from=builder /usr/local/cargo/bin/cargo-nextest /usr/local/cargo/bin/cargo-nextest
+COPY --from=builder /tools/cargo-llvm-cov /usr/local/cargo/bin/cargo-llvm-cov
+COPY --from=builder /tools/cargo-nextest /usr/local/cargo/bin/cargo-nextest
 
 ENV CARGO_BUILD_JOBS=1 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
 WORKDIR /workspace

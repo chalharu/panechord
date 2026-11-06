@@ -287,6 +287,9 @@ jobs:
           # or concurrent windows steal each other's input.
           xvfb-run cargo llvm-cov nextest --no-report --archive-file artifacts/linux-gtk.tar.zst \
             --test-threads 1 -E 'package(panechord-gtk)' --run-ignored only
+          # HiDPI geometry variant of the grid contract (verify.sh parity).
+          GDK_SCALE=2 xvfb-run cargo llvm-cov nextest --no-report --archive-file artifacts/linux-gtk.tar.zst \
+            -E 'test(tests::native_grid_equal_columns_geometry_and_spans)'
           cargo llvm-cov report \
             --nextest-archive-file artifacts/linux-gtk.tar.zst \
             -p panechord-gtk \
@@ -457,6 +460,11 @@ jobs:
             cargo llvm-cov run --no-report --locked -p panechord-demo --example controls \
             --no-default-features --features backend-tao)
           printf '%s\n' "$output"
+          printf '%s\n' "$output" | grep -q '^CONTRACT3 PASS slider closed capacity conversion readonly ' \
+            'hidden disabled normalized-display$'
+          printf '%s\n' "$output" | grep -q '^MENUS3 PASS nested typed-argument parent-enablement$'
+          printf '%s\n' "$output" | grep -q '^DIALOG3 PASS readonly hidden-parent close-reopen$'
+          printf '%s\n' "$output" | grep -q '^TABS3 PASS top bottom left right selection retained$'
           printf '%s\n' "$output" | grep -q '^CONTROLS3 PASS checkbox readonly radio slider combo image tab dialog$'
           output=$(timeout "$native_timeout" xvfb-run -a cargo llvm-cov run --no-report --locked \
             -p panechord-demo --no-default-features --features backend-tao \
@@ -489,7 +497,7 @@ jobs:
           sh scripts/lcov-workspace.sh coverage/raw-examples-tao.info coverage/lcov-linux-examples-tao.info
           rm coverage/raw-examples-tao.info
       - name: Upload coverage report
-        uses: actions/upload-artifact@cf43030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        uses: actions/upload-artifact@cf430030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lcov-linux-examples
           path: coverage/*.info

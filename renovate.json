@@ -83,6 +83,46 @@
                 "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+readonly DEFAULT_CARGO_NDK_VERSION=\"(?<currentValue>[^\"]+)\""
             ],
             "versioningTemplate": "semver"
+        },
+        {
+            "customType": "regex",
+            "description": "Track prebuilt nextest version in CI tooling",
+            "managerFilePatterns": [
+                "/(^|/)\\.github/workflows/coverage\\.ya?ml$/",
+                "/(^|/)Dockerfile\\.ci$/"
+            ],
+            "matchStrings": [
+                "NEXTEST_VERSION[=:]\\s*[\"']?(?<currentValue>[^\"'\\s]+)[\"']?"
+            ],
+            "datasourceTemplate": "github-releases",
+            "depNameTemplate": "nextest-rs/nextest",
+            "extractVersionTemplate": "^cargo-nextest-(?<version>.+)$"
+        },
+        {
+            "customType": "regex",
+            "description": "Track prebuilt cargo-llvm-cov version in CI tooling",
+            "managerFilePatterns": [
+                "/(^|/)\\.github/workflows/coverage\\.ya?ml$/",
+                "/(^|/)Dockerfile\\.ci$/"
+            ],
+            "matchStrings": [
+                "LLVM_COV_VERSION[=:]\\s*[\"']?(?<currentValue>[^\"'\\s]+)[\"']?"
+            ],
+            "datasourceTemplate": "github-releases",
+            "depNameTemplate": "taiki-e/cargo-llvm-cov",
+            "extractVersionTemplate": "^v(?<version>.+)$"
+        },
+        {
+            "customType": "regex",
+            "description": "Track Rust toolchain version in CI workflows",
+            "managerFilePatterns": [
+                "/(^|/)\\.github/workflows/(coverage|panechord)\\.ya?ml$/"
+            ],
+            "matchStrings": [
+                "RUST_TOOLCHAIN:\\s*\"(?<currentValue>[^\"]+)\""
+            ],
+            "datasourceTemplate": "github-releases",
+            "depNameTemplate": "rust-lang/rust"
         }
     ]
 }

@@ -7,11 +7,15 @@
 # Versions follow the 3-day minimum-age rule; keep in sync with
 # .github/workflows/coverage.yml.
 FROM rust:1.99.1-slim-bookworm@sha256:f2c004e3d2d8b547e8cf7ffbc29205385f4e71d23e53e4e383065db5e9f822cd AS builder
+# Prebuilt tool versions (single source; renovate tracks the ARGs).
+# New releases apply only after the 3-day minimum release age.
+ARG NEXTEST_VERSION=0.9.150
+ARG LLVM_COV_VERSION=0.9.1
 RUN apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /tools \
-    && curl -fsSL -o /tmp/nextest.tar.gz https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.150/cargo-nextest-0.9.150-x86_64-unknown-linux-gnu.tar.gz \
-    && curl -fsSL -o /tmp/llvm-cov.tar.gz https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.9.1/cargo-llvm-cov-x86_64-unknown-linux-gnu.tar.gz \
+    && curl -fsSL -o /tmp/nextest.tar.gz "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-${NEXTEST_VERSION}/cargo-nextest-${NEXTEST_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+    && curl -fsSL -o /tmp/llvm-cov.tar.gz "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v${LLVM_COV_VERSION}/cargo-llvm-cov-${LLVM_COV_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
     && tar -xzf /tmp/nextest.tar.gz -C /tools \
     && tar -xzf /tmp/llvm-cov.tar.gz -C /tools \
     && /tools/cargo-nextest --version \

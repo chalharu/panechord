@@ -118,43 +118,77 @@ impl View {
                         continue;
                     }
                     let previous = current.replace(items.clone());
-                    for item in &previous {
-                        if !items.iter().any(|candidate| candidate == item) {
-                            view.cleanup(&format!("{key}/{}", item.key));
-                        }
+                    view.evict_missing(&key, &previous, &items);
+                    if !view.mount_new(&container, &key, &template, &previous, &items) {
+                        return;
                     }
-                    for item in &items {
-                        if view.0.lifecycle.is_closed() {
-                            return;
-                        }
-                        if !previous.iter().any(|candidate| candidate == item) {
-                            view.content(
-                                &container,
-                                &format!("{key}/{}", item.key),
-                                Binding::constant(Some(item.clone())),
-                                template.clone(),
-                            );
-                        }
-                    }
-                    let mut after: Option<gtk4::Widget> = None;
-                    for item in items {
-                        if view.0.lifecycle.is_closed() {
-                            return;
-                        }
-                        let frame = view
-                            .0
-                            .nodes
-                            .borrow()
-                            .get(&format!("{key}/{}", item.key))
-                            .unwrap()
-                            .frame
-                            .clone();
-                        native.reorder_child_after(&frame, after.as_ref());
-                        after = Some(frame.upcast());
+                    if !view.reorder_to_source(&key, &native, &items) {
+                        return;
                     }
                 }
             })),
         );
+    }
+
+    /// Drop rows absent from the source.
+    fn evict_missing<T: Clone>(&self, key: &str, previous: &[Keyed<T>], items: &[Keyed<T>]) {
+        for item in previous {
+            if !items.iter().any(|candidate| candidate == item) {
+                self.cleanup(&format!("{key}/{}", item.key));
+            }
+        }
+    }
+
+    /// Mount rows new to the source through the item template. False when the
+    /// view closed mid-pass.
+    fn mount_new<T: Clone + 'static>(
+        &self,
+        container: &Parent,
+        key: &str,
+        template: &Template<T>,
+        previous: &[Keyed<T>],
+        items: &[Keyed<T>],
+    ) -> bool {
+        for item in items {
+            if self.0.lifecycle.is_closed() {
+                return false;
+            }
+            if !previous.iter().any(|candidate| candidate == item) {
+                self.content(
+                    container,
+                    &format!("{key}/{}", item.key),
+                    Binding::constant(Some(item.clone())),
+                    template.clone(),
+                );
+            }
+        }
+        true
+    }
+
+    /// Reorder native rows to source order. False when the view closed mid-pass.
+    fn reorder_to_source<T: Clone>(
+        &self,
+        key: &str,
+        native: &gtk4::Box,
+        items: &[Keyed<T>],
+    ) -> bool {
+        let mut after: Option<gtk4::Widget> = None;
+        for item in items {
+            if self.0.lifecycle.is_closed() {
+                return false;
+            }
+            let frame = self
+                .0
+                .nodes
+                .borrow()
+                .get(&format!("{key}/{}", item.key))
+                .unwrap()
+                .frame
+                .clone();
+            native.reorder_child_after(&frame, after.as_ref());
+            after = Some(frame.upcast());
+        }
+        true
     }
 
     pub fn entry_with_placeholder(
@@ -183,6 +217,63 @@ impl View {
     pub fn image_update_count(&self) -> usize {
         self.0.image_updates.get()
     }
+    /// Visible leaves link their registered actions; submenus recurse.
+    fn build_gio_subtree<A>(
+        view: &View,
+        key: &str,
+        tree: &[panechord_runtime::MenuNode<A>],
+    ) -> gio::Menu {
+        let result = gio::Menu::new();
+        let mut section = gio::Menu::new();
+        for node in tree {
+            match node {
+                panechord_runtime::MenuNode::Item(item) => {
+                    if !item.visible {
+                        continue;
+                    }
+                    if item.role == MenuRole::Separator {
+                        if section.n_items() > 0 {
+                            result.append_section(None, &section);
+                            section = gio::Menu::new();
+                        }
+                        continue;
+                    }
+                    if let Some(action) = view.0.actions.borrow().get(&format!("{key}/{}", item.id))
+                    {
+                        section.append(
+                            Some(&item.label),
+                            Some(&format!("{}.{}", view.action_prefix(), action.name)),
+                        );
+                    }
+                }
+                panechord_runtime::MenuNode::Submenu {
+                    label, children, ..
+                } => section
+                    .append_submenu(Some(label), &Self::build_gio_subtree(view, key, children)),
+            }
+        }
+        if section.n_items() > 0 {
+            result.append_section(None, &section);
+        }
+        result
+    }
+
+    /// Render the validated nested tree into the menu model: visible leaves
+    /// link their registered actions, submenus recurse. An empty section link
+    /// still occupies the menubar model, so only non-empty content attaches
+    /// and vacant menus stay out.
+    fn render_nested_menu<A>(view: &View, key: &str, tree: Vec<panechord_runtime::MenuNode<A>>) {
+        let state = view.0.menu_states.borrow().get(key).cloned();
+        if let Some(state) = state {
+            let nested = Self::build_gio_subtree(view, key, &tree);
+            state.menu.remove_all();
+            if nested.n_items() > 0 {
+                state.menu.append_section(None, &nested);
+            }
+            view.sync_menu_membership(key);
+        }
+    }
+
     pub fn hierarchical_menu<A: Clone + PartialEq + 'static>(
         &self,
         id: &str,
@@ -226,56 +317,7 @@ impl View {
         let key = id.to_owned();
         let render = Rc::new(
             move |view: &View, tree: Vec<panechord_runtime::MenuNode<A>>| {
-                fn menu<A>(
-                    view: &View,
-                    key: &str,
-                    tree: &[panechord_runtime::MenuNode<A>],
-                ) -> gio::Menu {
-                    let result = gio::Menu::new();
-                    let mut section = gio::Menu::new();
-                    for node in tree {
-                        match node {
-                            panechord_runtime::MenuNode::Item(item) => {
-                                if !item.visible {
-                                    continue;
-                                }
-                                if item.role == MenuRole::Separator {
-                                    if section.n_items() > 0 {
-                                        result.append_section(None, &section);
-                                        section = gio::Menu::new();
-                                    }
-                                    continue;
-                                }
-                                if let Some(action) =
-                                    view.0.actions.borrow().get(&format!("{key}/{}", item.id))
-                                {
-                                    section.append(
-                                        Some(&item.label),
-                                        Some(&format!("{}.{}", view.action_prefix(), action.name)),
-                                    );
-                                }
-                            }
-                            panechord_runtime::MenuNode::Submenu {
-                                label, children, ..
-                            } => section.append_submenu(Some(label), &menu(view, key, children)),
-                        }
-                    }
-                    if section.n_items() > 0 {
-                        result.append_section(None, &section);
-                    }
-                    result
-                }
-                let state = view.0.menu_states.borrow().get(&key).cloned();
-                if let Some(state) = state {
-                    let nested = menu(view, &key, &tree);
-                    state.menu.remove_all();
-                    // An empty section link still occupies the menubar model:
-                    // only attach non-empty content so vacant menus stay out.
-                    if nested.n_items() > 0 {
-                        state.menu.append_section(None, &nested);
-                    }
-                    view.sync_menu_membership(&key);
-                }
+                Self::render_nested_menu(view, &key, tree);
             },
         );
         let token = checked.subscribe(Rc::new({

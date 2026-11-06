@@ -612,6 +612,193 @@ fn validate_menu_entries(
     Ok(())
 }
 
+/// Node budget, depth, id shape and uniqueness: the cheapest rejects first.
+fn check_node_identity(
+    c: &Control,
+    path: &str,
+    ids: &mut BTreeSet<String>,
+    work: &mut usize,
+    depth: usize,
+) -> Result<(), (String, String)> {
+    let err = |s: String| (path.to_string(), s);
+    *work += 1;
+    if *work > MAX_NODES {
+        return Err(err("expanded template node budget exceeded".into()));
+    }
+    if depth > MAX_DEPTH {
+        return Err(err("expanded control/template depth 64 exceeded".into()));
+    }
+    if c.id().is_empty() || c.id().contains('/') {
+        return Err(err("id must be nonempty and contain no `/`".into()));
+    }
+    if c.id() == "__root" {
+        return Err(err("id `__root` is reserved for the backend root".into()));
+    }
+    if !ids.insert(c.id().into()) {
+        return Err(err(format!("duplicate id `{}`", c.id())));
+    }
+    Ok(())
+}
+
+/// TwoWay bindings target backend state; a read-only property cannot provide it.
+fn check_read_only(property: &Property, path: &str, name: &str) -> Result<(), (String, String)> {
+    if matches!(property, Property::Bind(bound) if bound.bind.mode == Mode::TwoWay) {
+        Err((
+            format!("{path}.{name}.bind.mode"),
+            "TwoWay is not supported for a read-only property".into(),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+/// Finite text scale, finite placement inside the layout limit, and margins
+/// that fit alongside padding.
+fn check_node_style(s: &Style, path: &str) -> Result<(), (String, String)> {
+    let err = |s: String| (path.to_string(), s);
+    if s.text
+        .is_some_and(|text| !text.scale.is_finite() || text.scale <= 0.0 || text.scale > 16.0)
+    {
+        return Err(err("text scale must be finite and within (0, 16]".into()));
+    }
+    let sides = |e: &Edges| match e {
+        Edges::Scalar(v) => vec![*v; 4],
+        Edges::Sides(v) => vec![v.top, v.right, v.bottom, v.left],
+    };
+    let p = &s.placement;
+    if sides(&s.margin)
+        .iter()
+        .chain(sides(&s.padding).iter())
+        .any(|x| !x.is_finite() || !(0.0..=panechord_runtime::MAX_LAYOUT_SIZE).contains(x))
+        || p.row < 0
+        || p.column < 0
+        || p.row_span < 1
+        || p.column_span < 1
+        || !p.x.is_finite()
+        || !p.y.is_finite()
+        || p.x.abs() > panechord_runtime::MAX_LAYOUT_SIZE
+        || p.y.abs() > panechord_runtime::MAX_LAYOUT_SIZE
+        || [p.width, p.height]
+            .into_iter()
+            .flatten()
+            .any(|v| !v.is_finite() || v < 0.0 || v > panechord_runtime::MAX_LAYOUT_SIZE)
+    {
+        return Err(err("invalid spacing or placement".into()));
+    }
+    if sides(&s.margin)
+        .iter()
+        .zip(sides(&s.padding))
+        .any(|(margin, padding)| margin + padding > panechord_runtime::MAX_LAYOUT_SIZE)
+    {
+        return Err(err("combined margin and padding exceed layout limit".into()));
+    }
+    Ok(())
+}
+
+/// Read-only surface: appearance entries must bind one way and style entries
+/// must be boolean literals; each variant upholds the same for its own fields.
+fn check_node_bindings(c: &Control, path: &str) -> Result<(), (String, String)> {
+    for (name, property) in c.appearance() {
+        if let Some(property) = property {
+            check_read_only(property, path, name)?;
+            if name != "style_binding"
+                && matches!(property, Property::Literal(value) if !value.literal.is_boolean())
+            {
+                return Err((format!("{path}.{name}"), "expected boolean literal".into()));
+            }
+        }
+    }
+    match c {
+        Control::TextBox {
+            placeholder: Some(placeholder),
+            ..
+        } => check_read_only(placeholder, path, "placeholder")?,
+        Control::Label { text, .. }
+        | Control::CheckBox { text, .. }
+        | Control::Radio { text, .. } => check_read_only(text, path, "text")?,
+        Control::Button { text, argument, .. } => {
+            check_read_only(text, path, "text")?;
+            if let Some(argument) = argument {
+                check_read_only(argument, path, "argument")?;
+            }
+        }
+        Control::DialogFooter {
+            accept_text,
+            accept_argument,
+            cancel_text,
+            cancel_argument,
+            ..
+        } => {
+            check_read_only(accept_text, path, "accept_text")?;
+            if let Some(argument) = accept_argument {
+                check_read_only(argument, path, "accept_argument")?;
+            }
+            check_read_only(cancel_text, path, "cancel_text")?;
+            if let Some(argument) = cancel_argument {
+                check_read_only(argument, path, "cancel_argument")?;
+            }
+        }
+        Control::Image { source, .. } | Control::Table { source, .. } => {
+            check_read_only(source, path, "source")?
+        }
+        Control::Combo { items, .. } | Control::ItemsControl { items, .. } => {
+            check_read_only(items, path, "items")?
+        }
+        Control::TabItems { items, title, .. } => {
+            check_read_only(items, path, "items")?;
+            check_read_only(title, path, "title")?;
+        }
+        Control::ContentControl { content, .. } => check_read_only(content, path, "content")?,
+        Control::Window { title, .. } | Control::Dialog { title, .. } => {
+            check_read_only(title, path, "title")?
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Menu ids live in a per-menu namespace (backends prefix them), so
+/// uniqueness is checked within the menu rather than against control ids.
+fn check_window_menus(
+    menus: &[Menu],
+    path: &str,
+    ids: &mut BTreeSet<String>,
+) -> Result<(), (String, String)> {
+    let err = |s: String| (path.to_string(), s);
+    for (index, m) in menus.iter().enumerate() {
+        check_read_only(&m.title, path, &format!("menus[{index}].title"))?;
+        match &m.items {
+            MenuItems::Binding(items) => {
+                check_read_only(items, path, &format!("menus[{index}].items"))?
+            }
+            MenuItems::Entries(entries) => {
+                let nested = entries.iter().any(|entry| entry.children.is_some());
+                if nested && !m.nested {
+                    return Err(err("static submenus require nested menus".into()));
+                }
+                // Entry ids are namespaced per menu by the
+                // backends, so uniqueness is checked within the
+                // menu rather than against control ids.
+                validate_menu_entries(
+                    entries,
+                    &format!("menus[{index}].items"),
+                    &mut BTreeSet::new(),
+                )
+                .map_err(|message| (path.to_string(), message))?;
+            }
+        }
+        if m.id == "__root" {
+            return Err(err(
+                "menu id `__root` is reserved for the backend root".into()
+            ));
+        }
+        if m.id.is_empty() || m.id.contains('/') || !ids.insert(m.id.clone()) {
+            return Err(err(format!("invalid or duplicate menu id `{}`", m.id)));
+        }
+    }
+    Ok(())
+}
+
 impl Document {
     pub fn validate(&self) -> Result<(), (String, String)> {
         if self.schema_version != 2 {
@@ -651,165 +838,20 @@ impl Document {
         work: &mut usize,
         depth: usize,
     ) -> Result<(), (String, String)> {
+        check_node_identity(c, path, ids, work, depth)?;
+        check_node_style(&c.style(), path)?;
+        check_node_bindings(c, path)?;
         let err = |s: String| (path.to_string(), s);
-        *work += 1;
-        if *work > MAX_NODES {
-            return Err(err("expanded template node budget exceeded".into()));
-        }
-        if depth > MAX_DEPTH {
-            return Err(err("expanded control/template depth 64 exceeded".into()));
-        }
-        if c.id().is_empty() || c.id().contains('/') {
-            return Err(err("id must be nonempty and contain no `/`".into()));
-        }
-        if c.id() == "__root" {
-            return Err(err("id `__root` is reserved for the backend root".into()));
-        }
-        if !ids.insert(c.id().into()) {
-            return Err(err(format!("duplicate id `{}`", c.id())));
-        }
-        let s = c.style();
-        if s.text
-            .is_some_and(|text| !text.scale.is_finite() || text.scale <= 0.0 || text.scale > 16.0)
-        {
-            return Err(err("text scale must be finite and within (0, 16]".into()));
-        }
-        let sides = |e: &Edges| match e {
-            Edges::Scalar(v) => vec![*v; 4],
-            Edges::Sides(v) => vec![v.top, v.right, v.bottom, v.left],
-        };
-        let p = s.placement;
-        if sides(&s.margin)
-            .iter()
-            .chain(sides(&s.padding).iter())
-            .any(|x| !x.is_finite() || !(0.0..=panechord_runtime::MAX_LAYOUT_SIZE).contains(x))
-            || p.row < 0
-            || p.column < 0
-            || p.row_span < 1
-            || p.column_span < 1
-            || !p.x.is_finite()
-            || !p.y.is_finite()
-            || p.x.abs() > panechord_runtime::MAX_LAYOUT_SIZE
-            || p.y.abs() > panechord_runtime::MAX_LAYOUT_SIZE
-            || [p.width, p.height]
-                .into_iter()
-                .flatten()
-                .any(|v| !v.is_finite() || v < 0.0 || v > panechord_runtime::MAX_LAYOUT_SIZE)
-        {
-            return Err(err("invalid spacing or placement".into()));
-        }
-        if sides(&s.margin)
-            .iter()
-            .zip(sides(&s.padding))
-            .any(|(margin, padding)| margin + padding > panechord_runtime::MAX_LAYOUT_SIZE)
-        {
-            return Err(err("combined margin and padding exceed layout limit".into()));
-        }
-        let read_only = |property: &Property, name: &str| {
-            if matches!(property, Property::Bind(bound) if bound.bind.mode == Mode::TwoWay) {
-                Err((
-                    format!("{path}.{name}.bind.mode"),
-                    "TwoWay is not supported for a read-only property".into(),
-                ))
-            } else {
-                Ok(())
-            }
-        };
-        for (name, property) in c.appearance() {
-            if let Some(property) = property {
-                read_only(property, name)?;
-                if name != "style_binding"
-                    && matches!(property, Property::Literal(value) if !value.literal.is_boolean())
-                {
-                    return Err((format!("{path}.{name}"), "expected boolean literal".into()));
-                }
-            }
-        }
-        match c {
-            Control::TextBox {
-                placeholder: Some(placeholder),
-                ..
-            } => read_only(placeholder, "placeholder")?,
-            Control::Label { text, .. }
-            | Control::CheckBox { text, .. }
-            | Control::Radio { text, .. } => read_only(text, "text")?,
-            Control::Button { text, argument, .. } => {
-                read_only(text, "text")?;
-                if let Some(argument) = argument {
-                    read_only(argument, "argument")?;
-                }
-            }
-            Control::DialogFooter {
-                accept_text,
-                accept_argument,
-                cancel_text,
-                cancel_argument,
-                ..
-            } => {
-                read_only(accept_text, "accept_text")?;
-                if let Some(argument) = accept_argument {
-                    read_only(argument, "accept_argument")?;
-                }
-                read_only(cancel_text, "cancel_text")?;
-                if let Some(argument) = cancel_argument {
-                    read_only(argument, "cancel_argument")?;
-                }
-            }
-            Control::Image { source, .. } | Control::Table { source, .. } => {
-                read_only(source, "source")?
-            }
-            Control::Combo { items, .. } | Control::ItemsControl { items, .. } => {
-                read_only(items, "items")?
-            }
-            Control::TabItems { items, title, .. } => {
-                read_only(items, "items")?;
-                read_only(title, "title")?;
-            }
-            Control::ContentControl { content, .. } => read_only(content, "content")?,
-            Control::Window { title, .. } | Control::Dialog { title, .. } => {
-                read_only(title, "title")?
-            }
-            _ => {}
-        }
         let mut children = Vec::new();
         let template = match c {
             Control::Window { content, menus, .. } => {
                 if depth != 0 || path != "root" {
-                    return Err(err(
-                        "nested Window is unsupported by the single-View API".into()
+                    return Err((
+                        path.to_string(),
+                        "nested Window is unsupported by the single-View API".into(),
                     ));
                 }
-                for (index, m) in menus.iter().enumerate() {
-                    read_only(&m.title, &format!("menus[{index}].title"))?;
-                    match &m.items {
-                        MenuItems::Binding(items) => {
-                            read_only(items, &format!("menus[{index}].items"))?
-                        }
-                        MenuItems::Entries(entries) => {
-                            let nested = entries.iter().any(|entry| entry.children.is_some());
-                            if nested && !m.nested {
-                                return Err(err("static submenus require nested menus".into()));
-                            }
-                            // Entry ids are namespaced per menu by the
-                            // backends, so uniqueness is checked within the
-                            // menu rather than against control ids.
-                            validate_menu_entries(
-                                entries,
-                                &format!("menus[{index}].items"),
-                                &mut BTreeSet::new(),
-                            )
-                            .map_err(|message| (path.to_string(), message))?;
-                        }
-                    }
-                    if m.id == "__root" {
-                        return Err(err(
-                            "menu id `__root` is reserved for the backend root".into()
-                        ));
-                    }
-                    if m.id.is_empty() || m.id.contains('/') || !ids.insert(m.id.clone()) {
-                        return Err(err(format!("invalid or duplicate menu id `{}`", m.id)));
-                    }
-                }
+                check_window_menus(menus, path, ids)?;
                 self.walk(
                     content,
                     &format!("{path}.content"),
@@ -865,40 +907,7 @@ impl Document {
             Control::Tab {
                 selected, pages, ..
             } => {
-                if pages.is_empty() || pages.len() > 256 {
-                    return Err(err("Tab requires 1..=256 pages".into()));
-                }
-                if let Property::Literal(value) = selected {
-                    let selected = value.literal.as_str().ok_or_else(|| {
-                        (
-                            format!("{path}.selected"),
-                            "Tab selection must be a string".into(),
-                        )
-                    })?;
-                    if !selected.is_empty() && !pages.iter().any(|page| page.id == selected) {
-                        return Err((
-                            format!("{path}.selected"),
-                            "unknown selected tab page".into(),
-                        ));
-                    }
-                }
-                for (index, page) in pages.iter().enumerate() {
-                    if !panechord_runtime::valid_item_key(&page.id)
-                        || page.id == "__root"
-                        || !ids.insert(page.id.clone())
-                    {
-                        return Err(err("invalid or duplicate tab page id".into()));
-                    }
-                    read_only(&page.title, &format!("pages[{index}].title"))?;
-                    self.walk(
-                        &page.content,
-                        &format!("{path}.pages[{index}].content"),
-                        ids,
-                        stack,
-                        work,
-                        depth + 1,
-                    )?;
-                }
+                self.walk_tab_pages(selected, pages, path, ids, stack, work, depth)?;
                 None
             }
             Control::Slider { min, max, step, .. } => {
@@ -923,7 +932,7 @@ impl Document {
                 items,
                 ..
             } => {
-                read_only(items, "items")?;
+                check_read_only(items, path, "items")?;
                 if !gap.is_finite() || !(0.0..=4096.0).contains(gap) {
                     return Err(err("invalid Repeat gap".into()));
                 }
@@ -948,6 +957,72 @@ impl Document {
             } => Some(content_template),
             _ => None,
         };
+        self.walk_children_and_template(children, template, path, ids, stack, work, depth)
+    }
+
+    /// Tab pages validate like controls (id shape, title binding) and each
+    /// page content walks as its own subtree.
+    fn walk_tab_pages(
+        &self,
+        selected: &Property,
+        pages: &[TabPage],
+        path: &str,
+        ids: &mut BTreeSet<String>,
+        stack: &mut Vec<String>,
+        work: &mut usize,
+        depth: usize,
+    ) -> Result<(), (String, String)> {
+        let err = |s: String| (path.to_string(), s);
+        if pages.is_empty() || pages.len() > 256 {
+            return Err(err("Tab requires 1..=256 pages".into()));
+        }
+        if let Property::Literal(value) = selected {
+            let selected = value.literal.as_str().ok_or_else(|| {
+                (
+                    format!("{path}.selected"),
+                    "Tab selection must be a string".into(),
+                )
+            })?;
+            if !selected.is_empty() && !pages.iter().any(|page| page.id == selected) {
+                return Err((
+                    format!("{path}.selected"),
+                    "unknown selected tab page".into(),
+                ));
+            }
+        }
+        for (index, page) in pages.iter().enumerate() {
+            if !panechord_runtime::valid_item_key(&page.id)
+                || page.id == "__root"
+                || !ids.insert(page.id.clone())
+            {
+                return Err(err("invalid or duplicate tab page id".into()));
+            }
+            check_read_only(&page.title, path, &format!("pages[{index}].title"))?;
+            self.walk(
+                &page.content,
+                &format!("{path}.pages[{index}].content"),
+                ids,
+                stack,
+                work,
+                depth + 1,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Collected children walk in order; a named template expands once its
+    /// own subtree validates, with recursion guarded by the active stack.
+    fn walk_children_and_template(
+        &self,
+        children: Vec<&Control>,
+        template: Option<&String>,
+        path: &str,
+        ids: &mut BTreeSet<String>,
+        stack: &mut Vec<String>,
+        work: &mut usize,
+        depth: usize,
+    ) -> Result<(), (String, String)> {
+        let err = |s: String| (path.to_string(), s);
         for (index, child) in children.into_iter().enumerate() {
             self.walk(
                 child,

@@ -149,6 +149,229 @@ fn replace_snapshot<T>(
     }
     Ok(())
 }
+/// A validated snapshot rendered to native leaves plus the routes each leaf
+/// registers: native kind for the hierarchy zip, accelerators, dispatch
+/// actions and the native-id ledger.
+struct NativeLeaves {
+    native: Vec<muda::MenuItemKind>,
+    accelerators: Vec<(muda::MenuItem, Option<Accelerator>)>,
+    actions: Vec<(String, Action)>,
+    ids: Vec<(muda::MenuId, String)>,
+}
+
+/// Ordinary items (Normal plus the vetoable Quit) become native leaves with
+/// dispatch actions; predefined roles stay OS actions without Command aliases.
+fn build_native_leaves<A: Clone + 'static>(
+    values: Vec<MenuItem<A>>,
+    menu_id: &str,
+    dispatch: &Rc<dyn Fn(A) -> bool>,
+    weak: &Weak<Inner>,
+) -> NativeLeaves {
+    let mut native = Vec::new();
+    let mut accelerators = Vec::new();
+    let mut actions = Vec::new();
+    let mut ids = Vec::new();
+    for item in values {
+        let argument = item.argument;
+        let invoke = dispatch.clone();
+        let dispatch: Rc<dyn Fn(String) -> bool> = Rc::new(move |_| invoke(argument.clone()));
+        let item = MenuItem {
+            id: item.id,
+            label: item.label,
+            argument: String::new(),
+            shortcut: item.shortcut,
+            role: item.role,
+            enabled: item.enabled,
+            visible: item.visible,
+        };
+        let key = format!("{menu_id}/{}", item.id);
+        if item.role == MenuRole::Normal || vetoed_quit(&item.role) {
+            let accelerator = item
+                .shortcut
+                .as_deref()
+                .map(|raw| parse_shortcut(raw).expect("validated shortcut"));
+            let entry = muda::MenuItem::new(&item.label, item.enabled, accelerator);
+            ids.push((entry.id().clone(), key.clone()));
+            // Predefined Quit directly terminates the native loop/app on
+            // Windows/macOS (not vetoable). Always use an ordinary item
+            // that routes through the vetoable close request like GTK.
+            let close = if vetoed_quit(&item.role) {
+                let owner = weak.clone();
+                Some(Rc::new(move || {
+                    if let Some(inner) = owner.upgrade() {
+                        View(inner).request_close();
+                    }
+                }) as Rc<dyn Fn()>)
+            } else {
+                None
+            };
+            accelerators.push((entry.clone(), accelerator));
+            actions.push((
+                key,
+                Action {
+                    item,
+                    dispatch: dispatch.clone(),
+                    close,
+                },
+            ));
+            native.push(entry.kind());
+        } else {
+            let entry = predefined(&item);
+            // Predefined roles are OS actions, not application Command aliases.
+            native.push(entry.kind());
+            actions.push((
+                key,
+                Action {
+                    item,
+                    dispatch: dispatch.clone(),
+                    close: None,
+                },
+            ));
+        }
+    }
+    NativeLeaves {
+        native,
+        accelerators,
+        actions,
+        ids,
+    }
+}
+
+/// Nothing to show: withdraw the vacancy and retire its routes so stale
+/// native IDs can neither render nor dispatch.
+fn withdraw_vacancy(
+    inner: &Inner,
+    root: &muda::Menu,
+    submenu: &muda::Submenu,
+    order: usize,
+    old_keys: &RefCell<Vec<String>>,
+    old_native: &RefCell<Vec<muda::MenuId>>,
+    old_accelerators: &RefCell<Vec<(muda::MenuItem, Option<Accelerator>)>>,
+) {
+    {
+        let mut slots = inner.menu_attached.borrow_mut();
+        if let Some(index) = slots.iter().position(|(id, _)| *id == order) {
+            match root.remove(submenu) {
+                Ok(()) => {
+                    slots.remove(index);
+                }
+                Err(error) => {
+                    inner.report(error.to_string());
+                }
+            }
+        }
+    }
+    for key in old_keys.take() {
+        inner.menu_actions.borrow_mut().remove(&key);
+    }
+    for id in old_native.take() {
+        inner.menu_ids.borrow_mut().remove(&id);
+    }
+    for (item, _) in old_accelerators.take() {
+        let _ = item.set_accelerator(None);
+    }
+    inner.refresh();
+}
+
+/// Attach at install order on first content; a late attach inserts at its
+/// install position via the order ledger. Reports and fails on error.
+fn ensure_attached(
+    inner: &Inner,
+    root: &muda::Menu,
+    submenu: &muda::Submenu,
+    order: usize,
+) -> Result<(), ()> {
+    let mut slots = inner.menu_attached.borrow_mut();
+    if !slots.iter().any(|(id, _)| *id == order) {
+        let position = slots.partition_point(|(id, _)| *id < order);
+        match root.insert(submenu, position) {
+            Ok(()) => slots.insert(position, (order, submenu.clone())),
+            Err(error) => {
+                inner.report(error.to_string());
+                return Err(());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Swap the live submenu to the new snapshot with rollback; the registries
+/// only commit after this succeeds. Reports and fails on error.
+fn apply_snapshot(
+    inner: &Inner,
+    submenu: &muda::Submenu,
+    old: &[muda::MenuItemKind],
+    native: &[muda::MenuItemKind],
+    old_accelerators: &RefCell<Vec<(muda::MenuItem, Option<Accelerator>)>>,
+) -> Result<(), ()> {
+    // Offscreen Submenu + root insert is not a strong-guarantee swap:
+    // muda platform attach can fail while creating descendants, before its
+    // public children registry is updated. Restore the existing submenu instead.
+    let update = replace_snapshot(
+        old,
+        native,
+        || clear_accelerators(old),
+        |item| submenu.remove(native_ref(item)).map_err(|e| e.to_string()),
+        |item| submenu.append(native_ref(item)).map_err(|e| e.to_string()),
+        || {
+            let mut errors = Vec::new();
+            // Also clear candidates whose platform attach failed part-way.
+            if let Err(e) = clear_accelerators(native) {
+                errors.push(e);
+            }
+            if let Err(e) = clear_accelerators(old) {
+                errors.push(e);
+            }
+            while submenu.remove_at(0).is_some() {}
+            for item in old {
+                if let Err(e) = submenu.append(native_ref(item)) {
+                    errors.push(e.to_string());
+                }
+            }
+            for (item, accelerator) in old_accelerators.borrow().iter() {
+                if let Err(e) = item.set_accelerator(*accelerator) {
+                    errors.push(e.to_string());
+                }
+            }
+            if errors.is_empty() {
+                Ok(())
+            } else {
+                Err(errors.join("; "))
+            }
+        },
+    );
+    if let Err(error) = update {
+        inner.report(error);
+        Err(())
+    } else {
+        Ok(())
+    }
+}
+
+/// Retire the previous routes and publish the new ones after the native swap.
+fn commit_registrations(
+    inner: &Inner,
+    actions: Vec<(String, Action)>,
+    ids: Vec<(muda::MenuId, String)>,
+    accelerators: Vec<(muda::MenuItem, Option<Accelerator>)>,
+    old_keys: &RefCell<Vec<String>>,
+    old_native: &RefCell<Vec<muda::MenuId>>,
+    old_accelerators: &RefCell<Vec<(muda::MenuItem, Option<Accelerator>)>>,
+) {
+    for key in old_keys.take() {
+        inner.menu_actions.borrow_mut().remove(&key);
+    }
+    for id in old_native.take() {
+        inner.menu_ids.borrow_mut().remove(&id);
+    }
+    old_accelerators.replace(accelerators);
+    old_keys.replace(actions.iter().map(|(key, _)| key.clone()).collect());
+    old_native.replace(ids.iter().map(|(id, _)| id.clone()).collect());
+    inner.menu_actions.borrow_mut().extend(actions);
+    inner.menu_ids.borrow_mut().extend(ids);
+    inner.refresh();
+}
+
 impl View {
     pub fn hierarchical_menu<A: Clone + PartialEq + 'static>(
         &self,
@@ -240,70 +463,8 @@ impl View {
                 return;
             }
             // Validate and build the entire snapshot before changing the live native menu.
-            let mut native = Vec::new();
-            let mut accelerators = Vec::new();
-            let mut actions = Vec::new();
-            let mut ids = Vec::new();
-            for item in values {
-                let argument = item.argument;
-                let invoke = dispatch.clone();
-                let dispatch: Rc<dyn Fn(String) -> bool> =
-                    Rc::new(move |_| invoke(argument.clone()));
-                let item = MenuItem {
-                    id: item.id,
-                    label: item.label,
-                    argument: String::new(),
-                    shortcut: item.shortcut,
-                    role: item.role,
-                    enabled: item.enabled,
-                    visible: item.visible,
-                };
-                let key = format!("{menu_id}/{}", item.id);
-                if item.role == MenuRole::Normal || vetoed_quit(&item.role) {
-                    let accelerator = item
-                        .shortcut
-                        .as_deref()
-                        .map(|raw| parse_shortcut(raw).expect("validated shortcut"));
-                    let entry = muda::MenuItem::new(&item.label, item.enabled, accelerator);
-                    ids.push((entry.id().clone(), key.clone()));
-                    // Predefined Quit directly terminates the native loop/app on
-                    // Windows/macOS (not vetoable). Always use an ordinary item
-                    // that routes through the vetoable close request like GTK.
-                    let close = if vetoed_quit(&item.role) {
-                        let owner = weak.clone();
-                        Some(Rc::new(move || {
-                            if let Some(inner) = owner.upgrade() {
-                                View(inner).request_close();
-                            }
-                        }) as Rc<dyn Fn()>)
-                    } else {
-                        None
-                    };
-                    accelerators.push((entry.clone(), accelerator));
-                    actions.push((
-                        key,
-                        Action {
-                            item,
-                            dispatch: dispatch.clone(),
-                            close,
-                        },
-                    ));
-                    native.push(entry.kind());
-                } else {
-                    let entry = predefined(&item);
-                    // Predefined roles are OS actions, not application Command aliases.
-                    native.push(entry.kind());
-                    actions.push((
-                        key,
-                        Action {
-                            item,
-                            dispatch: dispatch.clone(),
-                            close: None,
-                        },
-                    ));
-                }
-            }
-            let native = match build_hierarchy(&tree, &mut native.into_iter()) {
+            let leaves = build_native_leaves(values, &menu_id, &dispatch, &weak);
+            let native = match build_hierarchy(&tree, &mut leaves.native.into_iter()) {
                 Ok(native) => native,
                 Err(error) => {
                     inner.report(error);
@@ -312,98 +473,32 @@ impl View {
             };
             let old = submenu.items();
             if native.is_empty() {
-                // Nothing to show: withdraw the vacancy and retire its routes
-                // so stale native IDs can neither render nor dispatch.
-                {
-                    let mut slots = inner.menu_attached.borrow_mut();
-                    if let Some(index) = slots.iter().position(|(id, _)| *id == order) {
-                        match root.remove(&submenu) {
-                            Ok(()) => {
-                                slots.remove(index);
-                            }
-                            Err(error) => {
-                                inner.report(error.to_string());
-                            }
-                        }
-                    }
-                }
-                for key in old_keys.take() {
-                    inner.menu_actions.borrow_mut().remove(&key);
-                }
-                for id in old_native.take() {
-                    inner.menu_ids.borrow_mut().remove(&id);
-                }
-                for (item, _) in old_accelerators.take() {
-                    let _ = item.set_accelerator(None);
-                }
-                inner.refresh();
+                withdraw_vacancy(
+                    &inner,
+                    &root,
+                    &submenu,
+                    order,
+                    &old_keys,
+                    &old_native,
+                    &old_accelerators,
+                );
                 return;
             }
-            {
-                let mut slots = inner.menu_attached.borrow_mut();
-                if !slots.iter().any(|(id, _)| *id == order) {
-                    let position = slots.partition_point(|(id, _)| *id < order);
-                    match root.insert(&submenu, position) {
-                        Ok(()) => slots.insert(position, (order, submenu.clone())),
-                        Err(error) => {
-                            inner.report(error.to_string());
-                            return;
-                        }
-                    }
-                }
+            if ensure_attached(&inner, &root, &submenu, order).is_err() {
+                return;
             }
-            // Offscreen Submenu + root insert is not a strong-guarantee swap:
-            // muda platform attach can fail while creating descendants, before its
-            // public children registry is updated. Restore the existing submenu instead.
-            let update = replace_snapshot(
-                &old,
-                &native,
-                || clear_accelerators(&old),
-                |item| submenu.remove(native_ref(item)).map_err(|e| e.to_string()),
-                |item| submenu.append(native_ref(item)).map_err(|e| e.to_string()),
-                || {
-                    let mut errors = Vec::new();
-                    // Also clear candidates whose platform attach failed part-way.
-                    if let Err(e) = clear_accelerators(&native) {
-                        errors.push(e);
-                    }
-                    if let Err(e) = clear_accelerators(&old) {
-                        errors.push(e);
-                    }
-                    while submenu.remove_at(0).is_some() {}
-                    for item in &old {
-                        if let Err(e) = submenu.append(native_ref(item)) {
-                            errors.push(e.to_string());
-                        }
-                    }
-                    for (item, accelerator) in old_accelerators.borrow().iter() {
-                        if let Err(e) = item.set_accelerator(*accelerator) {
-                            errors.push(e.to_string());
-                        }
-                    }
-                    if errors.is_empty() {
-                        Ok(())
-                    } else {
-                        Err(errors.join("; "))
-                    }
-                },
+            if apply_snapshot(&inner, &submenu, &old, &native, &old_accelerators).is_err() {
+                return;
+            }
+            commit_registrations(
+                &inner,
+                leaves.actions,
+                leaves.ids,
+                leaves.accelerators,
+                &old_keys,
+                &old_native,
+                &old_accelerators,
             );
-            if let Err(error) = update {
-                inner.report(error);
-                return;
-            }
-            for key in old_keys.take() {
-                inner.menu_actions.borrow_mut().remove(&key);
-            }
-            for id in old_native.take() {
-                inner.menu_ids.borrow_mut().remove(&id);
-            }
-            old_accelerators.replace(accelerators);
-            old_keys.replace(actions.iter().map(|(key, _)| key.clone()).collect());
-            old_native.replace(ids.iter().map(|(id, _)| id.clone()).collect());
-            inner.menu_actions.borrow_mut().extend(actions);
-            inner.menu_ids.borrow_mut().extend(ids);
-            inner.refresh();
         }));
         self.keep(token);
     }

@@ -1183,114 +1183,19 @@ impl View {
         }
     }
     fn dispatch(&self, message: Message) -> Result<(), String> {
-        if self.0.lifecycle.is_closed() {
-            return Err("view is closed".into());
-        }
-        let target = match &message {
-            Message::Edit(id, _)
-            | Message::Pointer(id, _)
-            | Message::TableCell(id, _)
-            | Message::Click(id)
-            | Message::Scroll(id, _)
-            | Message::Custom(id)
-            | Message::Toggle(id, _)
-            | Message::Slide(id, _)
-            | Message::Select(id, _)
-            | Message::Open(id, _) => Some(id.as_str()),
-            _ => None,
-        };
-        if let Some(dialog) = self.active_dialog()
-            && (matches!(message, Message::Menu(_))
-                || target.is_some_and(|target| !self.in_dialog(target, &dialog)))
-        {
+        if !self.dispatch_gate(&message)? {
             return Ok(());
         }
         match message {
             Message::Ignored => Ok(()),
-            Message::TableCell(id, selection) => {
-                let node = self
-                    .find(&id)
-                    .ok_or_else(|| format!("missing table: {id}"))?;
-                if !node.interactive() {
-                    return Ok(());
-                }
-                let handler = node.handler.borrow().clone();
-                if let Some(Handler::Table(binding, data)) = handler {
-                    let valid = selection.validate(&data.borrow().0);
-                    if valid.is_ok() && binding.is_writable() {
-                        binding
-                            .try_set(Some(selection))
-                            .map_err(|error| error.to_string())?;
-                        self.0.refresh();
-                    }
-                }
-                Ok(())
-            }
-            Message::Pointer(id, position) => {
-                let node = self
-                    .find(&id)
-                    .ok_or_else(|| format!("missing pointer target: {id}"))?;
-                if !node.interactive()
-                    || position.is_some_and(|point| !point.x.is_finite() || !point.y.is_finite())
-                {
-                    return Ok(());
-                }
-                let handler = node.handler.borrow().clone();
-                if let Some(Handler::Pointer(binding)) = handler {
-                    if !binding.is_writable() {
-                        return Ok(());
-                    }
-                    binding
-                        .try_set(position)
-                        .map_err(|error| error.to_string())?;
-                    self.0.refresh();
-                }
-                Ok(())
-            }
+            Message::TableCell(id, selection) => self.handle_table_cell(&id, selection),
+            Message::Pointer(id, position) => self.handle_pointer(&id, position),
             Message::Toggle(id, value) => self.control_update(&id, controls::Input::Toggle(value)),
             Message::Slide(id, value) => self.control_update(&id, controls::Input::Slide(value)),
             Message::Select(id, value) => self.control_update(&id, controls::Input::Select(value)),
             Message::Open(id, value) => self.control_update(&id, controls::Input::Open(value)),
-            Message::Edit(id, value) => {
-                let node = self
-                    .find(&id)
-                    .ok_or_else(|| format!("missing entry: {id}"))?;
-                let handler = node.handler.borrow().clone();
-                if let Some(Handler::Entry(binding)) = handler {
-                    if !binding.set(value) {
-                        return Err(format!("read-only, invalid, or closed entry: {id}"));
-                    }
-                    if let Some(text) = node.text.borrow().as_ref() {
-                        text.replace(binding.get());
-                    }
-                    self.0.refresh();
-                    Ok(())
-                } else {
-                    Err(format!("not an entry: {id}"))
-                }
-            }
-            Message::Click(id) => {
-                let handler = self.find(&id).and_then(|n| n.handler.borrow().clone());
-                if let Some(Handler::Toggle(binding)) = &handler {
-                    return self.control_update(&id, controls::Input::Toggle(!binding.get()));
-                }
-                if let Some(Handler::Radio(binding, value)) = &handler {
-                    binding
-                        .try_set(value.clone())
-                        .map_err(|error| error.to_string())?;
-                    self.0.refresh();
-                    return Ok(());
-                }
-                if let Some(Handler::Button(command)) = handler {
-                    if command.invoke() {
-                        Ok(())
-                    } else {
-                        Err(format!("disabled or closed command: {id}"))
-                    }
-                } else {
-                    Err(format!("not a button: {id}"))
-                }
-            }
+            Message::Edit(id, value) => self.handle_edit(&id, value),
+            Message::Click(id) => self.handle_click(&id),
             Message::Menu(id) => self.activate_menu(&id),
             Message::Scroll(id, offset) => {
                 let host = self.find(&id).and_then(|n| match &*n.kind.borrow() {
@@ -1313,6 +1218,130 @@ impl View {
                     Err(format!("missing primitive callback: {id}"))
                 }
             }
+        }
+    }
+
+    /// Closed views reject everything; messages for controls outside the
+    /// active modal dialog are swallowed. True when dispatch may proceed.
+    fn dispatch_gate(&self, message: &Message) -> Result<bool, String> {
+        if self.0.lifecycle.is_closed() {
+            return Err("view is closed".into());
+        }
+        let target = match message {
+            Message::Edit(id, _)
+            | Message::Pointer(id, _)
+            | Message::TableCell(id, _)
+            | Message::Click(id)
+            | Message::Scroll(id, _)
+            | Message::Custom(id)
+            | Message::Toggle(id, _)
+            | Message::Slide(id, _)
+            | Message::Select(id, _)
+            | Message::Open(id, _) => Some(id.as_str()),
+            _ => None,
+        };
+        if let Some(dialog) = self.active_dialog()
+            && (matches!(message, Message::Menu(_))
+                || target.is_some_and(|target| !self.in_dialog(target, &dialog)))
+        {
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
+    /// Validated table selection writes through the bound table state.
+    fn handle_table_cell(
+        &self,
+        id: &str,
+        selection: panechord_runtime::TableSelection,
+    ) -> Result<(), String> {
+        let node = self
+            .find(id)
+            .ok_or_else(|| format!("missing table: {id}"))?;
+        if !node.interactive() {
+            return Ok(());
+        }
+        let handler = node.handler.borrow().clone();
+        if let Some(Handler::Table(binding, data)) = handler {
+            let valid = selection.validate(&data.borrow().0);
+            if valid.is_ok() && binding.is_writable() {
+                binding
+                    .try_set(Some(selection))
+                    .map_err(|error| error.to_string())?;
+                self.0.refresh();
+            }
+        }
+        Ok(())
+    }
+
+    /// Pointer motion writes through the bound position unless unwritable.
+    fn handle_pointer(
+        &self,
+        id: &str,
+        position: Option<panechord_runtime::PointerPosition>,
+    ) -> Result<(), String> {
+        let node = self
+            .find(id)
+            .ok_or_else(|| format!("missing pointer target: {id}"))?;
+        if !node.interactive()
+            || position.is_some_and(|point| !point.x.is_finite() || !point.y.is_finite())
+        {
+            return Ok(());
+        }
+        let handler = node.handler.borrow().clone();
+        if let Some(Handler::Pointer(binding)) = handler {
+            if !binding.is_writable() {
+                return Ok(());
+            }
+            binding
+                .try_set(position)
+                .map_err(|error| error.to_string())?;
+            self.0.refresh();
+        }
+        Ok(())
+    }
+
+    /// Entry edits write through the bound text and mirror it natively.
+    fn handle_edit(&self, id: &str, value: String) -> Result<(), String> {
+        let node = self
+            .find(id)
+            .ok_or_else(|| format!("missing entry: {id}"))?;
+        let handler = node.handler.borrow().clone();
+        if let Some(Handler::Entry(binding)) = handler {
+            if !binding.set(value) {
+                return Err(format!("read-only, invalid, or closed entry: {id}"));
+            }
+            if let Some(text) = node.text.borrow().as_ref() {
+                text.replace(binding.get());
+            }
+            self.0.refresh();
+            Ok(())
+        } else {
+            Err(format!("not an entry: {id}"))
+        }
+    }
+
+    /// Toggle and radio clicks flip their bindings; buttons invoke commands.
+    fn handle_click(&self, id: &str) -> Result<(), String> {
+        let handler = self.find(id).and_then(|n| n.handler.borrow().clone());
+        if let Some(Handler::Toggle(binding)) = &handler {
+            return self.control_update(id, controls::Input::Toggle(!binding.get()));
+        }
+        if let Some(Handler::Radio(binding, value)) = &handler {
+            binding
+                .try_set(value.clone())
+                .map_err(|error| error.to_string())?;
+            self.0.refresh();
+            return Ok(());
+        }
+        if let Some(Handler::Button(command)) = handler {
+            if command.invoke() {
+                Ok(())
+            } else {
+                Err(format!("disabled or closed command: {id}"))
+            }
+        } else {
+            Err(format!("not a button: {id}"))
         }
     }
     pub fn edit(&self, id: &str, value: &str) -> Result<(), String> {

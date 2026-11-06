@@ -159,41 +159,80 @@ impl View {
                     continue;
                 }
                 let previous = current.replace(items.clone());
-                for item in &previous {
-                    if !items.iter().any(|candidate| candidate == item) {
-                        let scope = format!("{key}/{}", item.key);
-                        let mut children = container.0.children.take();
-                        let removed: Vec<_> =
-                            children.extract_if(.., |child| child.id == scope).collect();
-                        container.0.children.replace(children);
-                        for child in removed {
-                            child.retire();
-                        }
-                    }
-                }
-                for item in &items {
-                    if view.0.lifecycle.is_closed() {
-                        return;
-                    }
-                    if !previous.iter().any(|candidate| candidate == item) {
-                        view.content(
-                            &container,
-                            &format!("{key}/{}", item.key),
-                            Binding::constant(Some(item.clone())),
-                            template.clone(),
-                        );
-                    }
-                }
-                if view.0.lifecycle.is_closed() {
+                view.evict_missing(&container, &key, &previous, &items);
+                if !view.mount_new(&container, &key, &template, &previous, &items) {
                     return;
                 }
-                let ordered = items
-                    .iter()
-                    .filter_map(|item| view.find(&format!("{key}/{}", item.key)))
-                    .collect();
-                container.0.children.replace(ordered);
+                if !view.reorder_to_source(&container, &key, &items) {
+                    return;
+                }
             }
         });
+    }
+
+    /// Drop rows absent from the source, retiring their scopes.
+    fn evict_missing<T: Clone>(
+        &self,
+        container: &Parent,
+        key: &str,
+        previous: &[Keyed<T>],
+        items: &[Keyed<T>],
+    ) {
+        for item in previous {
+            if !items.iter().any(|candidate| candidate == item) {
+                let scope = format!("{key}/{}", item.key);
+                let mut children = container.0.children.take();
+                let removed: Vec<_> = children.extract_if(.., |child| child.id == scope).collect();
+                container.0.children.replace(children);
+                for child in removed {
+                    child.retire();
+                }
+            }
+        }
+    }
+
+    /// Mount rows new to the source through the item template. False when the
+    /// view closed mid-pass.
+    fn mount_new<T: Clone + 'static>(
+        &self,
+        container: &Parent,
+        key: &str,
+        template: &Template<T>,
+        previous: &[Keyed<T>],
+        items: &[Keyed<T>],
+    ) -> bool {
+        for item in items {
+            if self.0.lifecycle.is_closed() {
+                return false;
+            }
+            if !previous.iter().any(|candidate| candidate == item) {
+                self.content(
+                    container,
+                    &format!("{key}/{}", item.key),
+                    Binding::constant(Some(item.clone())),
+                    template.clone(),
+                );
+            }
+        }
+        true
+    }
+
+    /// Reorder child nodes to source order. False when the view closed mid-pass.
+    fn reorder_to_source<T: Clone>(
+        &self,
+        container: &Parent,
+        key: &str,
+        items: &[Keyed<T>],
+    ) -> bool {
+        if self.0.lifecycle.is_closed() {
+            return false;
+        }
+        let ordered = items
+            .iter()
+            .filter_map(|item| self.find(&format!("{key}/{}", item.key)))
+            .collect();
+        container.0.children.replace(ordered);
+        true
     }
 
     pub fn image_update_count(&self) -> usize {

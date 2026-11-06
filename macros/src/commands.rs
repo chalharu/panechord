@@ -63,6 +63,47 @@ fn argument_type(source: &Type, model: &syn::TypePath) -> syn::Result<Type> {
 }
 
 pub fn expand(mut item: ItemImpl) -> syn::Result<TokenStream> {
+    let model = model_path(&item)?;
+    let trait_name = format_ident!("{}Commands", model.path.segments.last().unwrap().ident);
+    let mut declarations = Vec::new();
+    let mut methods = Vec::new();
+    for member in &mut item.items {
+        let ImplItem::Fn(method) = member else {
+            continue;
+        };
+        let Some(helper) = command_helper(method)? else {
+            continue;
+        };
+        let sig = &method.sig;
+        validate_command_signature(sig)?;
+        let name = &sig.ident;
+        let generated = format_ident!("command_{}", name.to_string().trim_start_matches("r#"));
+        let (action, argument_type) = command_action(&model, method)?;
+        let enabled = helper.map_or_else(
+            || quote!(|_| true),
+            |h| quote!(|__state| <#model>::#h(__state)),
+        );
+        // Preserve conditional compilation: never emit methods for a disabled source command.
+        let cfg: Vec<_> = method
+            .attrs
+            .iter()
+            .filter(|a| a.path().is_ident("cfg"))
+            .collect();
+        declarations.push(quote!(#(#cfg)* fn #generated(&self, argument: ::panechord_runtime::Binding<#argument_type>) -> ::panechord_runtime::Command;));
+        methods.push(quote!(#(#cfg)* fn #generated(&self, argument: ::panechord_runtime::Binding<#argument_type>) -> ::panechord_runtime::Command {
+            self.command(#enabled, |__store,__argument| { #action; }, argument)
+        }));
+    }
+    Ok(quote!(
+        #item
+        pub trait #trait_name { #(#declarations)* }
+        impl #trait_name for ::panechord_runtime::Store<#model> { #(#methods)* }
+    ))
+}
+
+/// Inherent, non-generic impl over a plain model path; anything else cannot
+/// name the Store the extension trait is implemented for.
+fn model_path(item: &ItemImpl) -> syn::Result<syn::TypePath> {
     if item.trait_.is_some()
         || !item.generics.params.is_empty()
         || item.generics.where_clause.is_some()
@@ -91,129 +132,123 @@ pub fn expand(mut item: ItemImpl) -> syn::Result<TokenStream> {
             "generic model types are unsupported",
         ));
     }
-    let trait_name = format_ident!("{}Commands", model.path.segments.last().unwrap().ident);
-    let mut declarations = Vec::new();
-    let mut methods = Vec::new();
-    for member in &mut item.items {
-        let ImplItem::Fn(method) = member else {
-            continue;
+    Ok(model)
+}
+
+/// The single `#[command]` attribute, if present. Absence means the method is
+/// not a command; the attribute is consumed so it never reaches the output.
+fn command_helper(method: &mut syn::ImplItemFn) -> syn::Result<Option<Option<syn::Ident>>> {
+    let attrs: Vec<_> = method
+        .attrs
+        .iter()
+        .filter(|a| a.path().is_ident("command"))
+        .cloned()
+        .collect();
+    if attrs.is_empty() {
+        return Ok(None);
+    }
+    if attrs.len() != 1 {
+        return Err(syn::Error::new(
+            method.span(),
+            "duplicate command attribute",
+        ));
+    }
+    method.attrs.retain(|a| !a.path().is_ident("command"));
+    let attr = &attrs[0];
+    let mut helper: Option<syn::Ident> = None;
+    if !matches!(attr.meta, syn::Meta::Path(_)) {
+        attr.parse_nested_meta(|meta| {
+            if !meta.path.is_ident("can_execute") || helper.is_some() {
+                return Err(meta.error("expected one can_execute=\"helper\""));
+            }
+            let value: LitStr = meta.value()?.parse()?;
+            helper = Some(
+                syn::parse_str(&value.value())
+                    .map_err(|_| syn::Error::new(value.span(), "expected helper identifier"))?,
+            );
+            Ok(())
+        })?;
+    }
+    Ok(Some(helper))
+}
+
+/// Commands run synchronously inside the Store update; async, unsafe, const,
+/// generic or non-unit methods cannot be expressed as a Command.
+fn validate_command_signature(sig: &syn::Signature) -> syn::Result<()> {
+    if sig.asyncness.is_some()
+        || !matches!(sig.safety, syn::Safety::Default)
+        || sig.constness.is_some()
+        || sig.abi.is_some()
+        || sig.variadic.is_some()
+        || !sig.generics.params.is_empty()
+        || sig.generics.where_clause.is_some()
+        || !matches!(sig.output, ReturnType::Default)
+            && !matches!(&sig.output,ReturnType::Type(_,t) if matches!(t.as_ref(),Type::Tuple(v) if v.elems.is_empty()))
+    {
+        return Err(syn::Error::new(
+            sig.span(),
+            "command must be a synchronous, safe, non-generic unit-returning method",
+        ));
+    }
+    Ok(())
+}
+
+/// The Store update body plus the rewritten argument type: `&mut self`
+/// methods run against the updating state, static methods take the Store.
+fn command_action(
+    model: &syn::TypePath,
+    method: &syn::ImplItemFn,
+) -> syn::Result<(TokenStream, Type)> {
+    let sig = &method.sig;
+    let name = &sig.ident;
+    let args: Vec<_> = sig.inputs.iter().collect();
+    let receiver = matches!(args.first(), Some(FnArg::Receiver(_)));
+    let argument_type = match args.get(1) {
+        Some(FnArg::Typed(argument)) => argument_type(&argument.ty, model)?,
+        _ => syn::parse_quote!(::std::string::String),
+    };
+    let action = if receiver {
+        let FnArg::Receiver(r) = args[0] else {
+            unreachable!()
         };
-        let attrs: Vec<_> = method
-            .attrs
-            .iter()
-            .filter(|a| a.path().is_ident("command"))
-            .cloned()
-            .collect();
-        if attrs.is_empty() {
-            continue;
-        }
-        if attrs.len() != 1 {
-            return Err(syn::Error::new(
-                method.span(),
-                "duplicate command attribute",
-            ));
-        }
-        method.attrs.retain(|a| !a.path().is_ident("command"));
-        let attr = &attrs[0];
-        let mut helper: Option<syn::Ident> = None;
-        if !matches!(attr.meta, syn::Meta::Path(_)) {
-            attr.parse_nested_meta(|meta| {
-                if !meta.path.is_ident("can_execute") || helper.is_some() {
-                    return Err(meta.error("expected one can_execute=\"helper\""));
-                }
-                let value: LitStr = meta.value()?.parse()?;
-                helper =
-                    Some(syn::parse_str(&value.value()).map_err(|_| {
-                        syn::Error::new(value.span(), "expected helper identifier")
-                    })?);
-                Ok(())
-            })?;
-        }
-        let sig = &method.sig;
-        if sig.asyncness.is_some()
-            || !matches!(sig.safety, syn::Safety::Default)
-            || sig.constness.is_some()
-            || sig.abi.is_some()
-            || sig.variadic.is_some()
-            || !sig.generics.params.is_empty()
-            || sig.generics.where_clause.is_some()
-            || !matches!(sig.output, ReturnType::Default)
-                && !matches!(&sig.output,ReturnType::Type(_,t) if matches!(t.as_ref(),Type::Tuple(v) if v.elems.is_empty()))
-        {
+        let is_mut_ref = matches!(&r.kind, syn::ReceiverKind::Reference(_, _, Some(_)))
+            && r.mutability.is_none();
+        if !is_mut_ref || args.len() > 2 {
             return Err(syn::Error::new(
                 sig.span(),
-                "command must be a synchronous, safe, non-generic unit-returning method",
+                "expected &mut self with zero arguments or one typed argument",
             ));
         }
-        let name = &sig.ident;
-        let generated = format_ident!("command_{}", name.to_string().trim_start_matches("r#"));
-        let args: Vec<_> = sig.inputs.iter().collect();
-        let receiver = matches!(args.first(), Some(FnArg::Receiver(_)));
-        let argument_type = match args.get(1) {
-            Some(FnArg::Typed(argument)) => argument_type(&argument.ty, &model)?,
-            _ => syn::parse_quote!(::std::string::String),
-        };
-        let action = if receiver {
-            let FnArg::Receiver(r) = args[0] else {
-                unreachable!()
-            };
-            let is_mut_ref = matches!(&r.kind, syn::ReceiverKind::Reference(_, _, Some(_)))
-                && r.mutability.is_none();
-            if !is_mut_ref || args.len() > 2 {
-                return Err(syn::Error::new(
-                    sig.span(),
-                    "expected &mut self with zero arguments or one typed argument",
-                ));
-            }
-            let call = if args.len() == 2 {
-                quote!(__state.#name(__argument))
-            } else {
-                quote!(__state.#name())
-            };
-            quote!({ let _ = __store.update(move |__state| { #call; }); })
+        let call = if args.len() == 2 {
+            quote!(__state.#name(__argument))
         } else {
-            if args.len() != 2 {
-                return Err(syn::Error::new(
-                    sig.span(),
-                    "static command requires (model: Store<Self>, argument: A)",
-                ));
-            }
-            let FnArg::Typed(first) = args[0] else {
-                unreachable!()
-            };
-            let valid = if let Type::Path(p) = first.ty.as_ref() {
-                p.path.segments.last().is_some_and(|s| s.ident == "Store" && match &s.arguments {
-                    syn::PathArguments::AngleBracketed(a) if a.args.len() == 1 => matches!(a.args.first(),Some(syn::GenericArgument::Type(Type::Path(t))) if t.path.is_ident("Self") || t == &model),
-                    _ => false,
-                })
-            } else {
-                false
-            };
-            if !valid {
-                return Err(syn::Error::new(first.span(), "expected Store<Self>"));
-            }
-            quote!(<#model>::#name(__store.clone(),__argument))
+            quote!(__state.#name())
         };
-        let enabled = helper.map_or_else(
-            || quote!(|_| true),
-            |h| quote!(|__state| <#model>::#h(__state)),
-        );
-        // Preserve conditional compilation: never emit methods for a disabled source command.
-        let cfg: Vec<_> = method
-            .attrs
-            .iter()
-            .filter(|a| a.path().is_ident("cfg"))
-            .collect();
-        declarations.push(quote!(#(#cfg)* fn #generated(&self, argument: ::panechord_runtime::Binding<#argument_type>) -> ::panechord_runtime::Command;));
-        methods.push(quote!(#(#cfg)* fn #generated(&self, argument: ::panechord_runtime::Binding<#argument_type>) -> ::panechord_runtime::Command {
-            self.command(#enabled, |__store,__argument| { #action; }, argument)
-        }));
-    }
-    Ok(quote!(
-        #item
-        pub trait #trait_name { #(#declarations)* }
-        impl #trait_name for ::panechord_runtime::Store<#model> { #(#methods)* }
-    ))
+        quote!({ let _ = __store.update(move |__state| { #call; }); })
+    } else {
+        if args.len() != 2 {
+            return Err(syn::Error::new(
+                sig.span(),
+                "static command requires (model: Store<Self>, argument: A)",
+            ));
+        }
+        let FnArg::Typed(first) = args[0] else {
+            unreachable!()
+        };
+        let valid = if let Type::Path(p) = first.ty.as_ref() {
+            p.path.segments.last().is_some_and(|s| s.ident == "Store" && match &s.arguments {
+                syn::PathArguments::AngleBracketed(a) if a.args.len() == 1 => matches!(a.args.first(),Some(syn::GenericArgument::Type(Type::Path(t))) if t.path.is_ident("Self") || t == model),
+                _ => false,
+            })
+        } else {
+            false
+        };
+        if !valid {
+            return Err(syn::Error::new(first.span(), "expected Store<Self>"));
+        }
+        quote!(<#model>::#name(__store.clone(),__argument))
+    };
+    Ok((action, argument_type))
 }
 #[cfg(test)]
 mod tests {

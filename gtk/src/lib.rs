@@ -1371,6 +1371,18 @@ impl View {
         }
     }
 
+    /// Invisible leaves stay out entirely: no action, no shortcut, no row.
+    fn prefix_menu_items<A>(id: &str, items: Vec<MenuItem<A>>) -> Vec<MenuItem<A>> {
+        items
+            .into_iter()
+            .filter(|item| item.visible)
+            .map(|mut item| {
+                item.id = format!("{id}/{}", item.id);
+                item
+            })
+            .collect()
+    }
+
     fn apply_menu<A: Clone + 'static>(
         &self,
         id: &str,
@@ -1381,14 +1393,7 @@ impl View {
         // The subscription re-fires when visibility flips, so this is the
         // only membership gate needed. Triggers are parsed once per distinct
         // shortcut string: items recur with the same strings on every tick.
-        let items: Vec<_> = items
-            .into_iter()
-            .filter(|item| item.visible)
-            .map(|mut item| {
-                item.id = format!("{id}/{}", item.id);
-                item
-            })
-            .collect();
+        let items = Self::prefix_menu_items(id, items);
         // Validate the entire snapshot (including shortcuts) before touching the old menu.
         // No content-signature skip: native actions capture each item's
         // argument, and arguments are only `Clone`, so value-identical
@@ -1403,29 +1408,9 @@ impl View {
             return;
         };
         let old_ids: HashSet<_> = menu_state.actions.borrow().iter().cloned().collect();
-        let mut keys = HashSet::new();
-        let mut triggers = Vec::new();
-        for item in &items {
-            if !keys.insert(item.id.clone())
-                || (self.0.actions.borrow().contains_key(&item.id) && !old_ids.contains(&item.id))
-            {
-                self.0
-                    .error
-                    .replace(Some(format!("duplicate menu item id: {}", item.id)));
-                return;
-            }
-            let trigger = match item.shortcut.as_deref() {
-                None => None,
-                Some(raw) => parse_shortcut(raw),
-            };
-            if item.shortcut.is_some() && trigger.is_none() {
-                self.0
-                    .error
-                    .replace(Some(format!("invalid GTK shortcut for {}", item.id)));
-                return;
-            }
-            triggers.push(trigger);
-        }
+        let Some(triggers) = self.validate_menu_items(id, &items, &old_ids) else {
+            return;
+        };
         self.clear_menu(id);
         let Some(state) = self.0.menu_states.borrow().get(id).cloned() else {
             self.0
@@ -1447,57 +1432,114 @@ impl View {
                 section = gio::Menu::new();
                 continue;
             }
-            let serial = self.0.serial.get();
-            self.0.serial.set(serial + 1);
-            // Application actions need process-wide unique names (the shared
-            // menubar outlives any single view); window-group actions keep
-            // the per-view serial and its existing snapshots.
-            let name = match &app {
-                Some(_) => {
-                    let n = APP_ACTION_SERIAL.fetch_add(1, Ordering::Relaxed);
-                    format!("m{n}")
-                }
-                None => format!("action{serial}"),
-            };
-            let detailed = format!("{prefix}.{name}");
-            let action = gio::SimpleAction::new(&name, None);
-            action.set_enabled(item.enabled);
-            let weak = Rc::downgrade(&self.0);
-            let dispatch = dispatch.clone();
-            let role = item.role.clone();
-            let argument = item.argument.clone();
-            let signal = action.connect_activate(move |_, _| {
-                if let Some(inner) = weak.upgrade().filter(|inner| !inner.lifecycle.is_closed()) {
-                    let view = View(inner);
-                    if role == MenuRole::Normal {
-                        dispatch(argument.clone());
-                    } else {
-                        view.native_role(&role);
-                    }
-                }
-            });
-            self.signal(&format!("{id}/@actions"), &action, signal);
-            match &app {
-                Some(app) => app.add_action(&action),
-                None => self.0.group.add_action(&action),
-            }
-            self.0
-                .actions
-                .borrow_mut()
-                .insert(item.id.clone(), Action { action, name });
-            state.actions.borrow_mut().push(item.id);
-            section.append(Some(&item.label), Some(&detailed));
-            if let Some(trigger) = trigger {
-                let shortcut =
-                    gtk4::Shortcut::new(Some(trigger), Some(gtk4::NamedAction::new(&detailed)));
-                self.0.shortcuts.add_shortcut(shortcut.clone());
-                state.shortcuts.borrow_mut().push(shortcut);
-            }
+            self.register_menu_item(
+                id,
+                &state,
+                &mut section,
+                &app,
+                &prefix,
+                item,
+                trigger,
+                &dispatch,
+            );
         }
         if section.n_items() > 0 {
             state.menu.append_section(None, &section);
         }
         self.sync_menu_membership(id);
+    }
+
+    /// Duplicate ids (against the snapshot and live actions) and unparsable
+    /// shortcuts fail the whole rebuild before the old menu is touched.
+    fn validate_menu_items<A: Clone + 'static>(
+        &self,
+        id: &str,
+        items: &[MenuItem<A>],
+        old_ids: &HashSet<String>,
+    ) -> Option<Vec<Option<gtk4::ShortcutTrigger>>> {
+        let mut keys = HashSet::new();
+        let mut triggers = Vec::new();
+        for item in items {
+            if !keys.insert(item.id.clone())
+                || (self.0.actions.borrow().contains_key(&item.id) && !old_ids.contains(&item.id))
+            {
+                self.0
+                    .error
+                    .replace(Some(format!("duplicate menu item id: {}", item.id)));
+                return None;
+            }
+            let trigger = match item.shortcut.as_deref() {
+                None => None,
+                Some(raw) => parse_shortcut(raw),
+            };
+            if item.shortcut.is_some() && trigger.is_none() {
+                self.0
+                    .error
+                    .replace(Some(format!("invalid GTK shortcut for {}", item.id)));
+                return None;
+            }
+            triggers.push(trigger);
+        }
+        Some(triggers)
+    }
+
+    /// One native action plus its shortcut: application actions need
+    /// process-wide unique names (the shared menubar outlives any single
+    /// view); window-group actions keep the per-view serial.
+    fn register_menu_item<A: Clone + 'static>(
+        &self,
+        id: &str,
+        state: &MenuState,
+        section: &mut gio::Menu,
+        app: &Option<gtk4::Application>,
+        prefix: &str,
+        item: MenuItem<A>,
+        trigger: Option<gtk4::ShortcutTrigger>,
+        dispatch: &Rc<dyn Fn(A) -> bool>,
+    ) {
+        let serial = self.0.serial.get();
+        self.0.serial.set(serial + 1);
+        let name = match app {
+            Some(_) => {
+                let n = APP_ACTION_SERIAL.fetch_add(1, Ordering::Relaxed);
+                format!("m{n}")
+            }
+            None => format!("action{serial}"),
+        };
+        let detailed = format!("{prefix}.{name}");
+        let action = gio::SimpleAction::new(&name, None);
+        action.set_enabled(item.enabled);
+        let weak = Rc::downgrade(&self.0);
+        let dispatch = dispatch.clone();
+        let role = item.role.clone();
+        let argument = item.argument.clone();
+        let signal = action.connect_activate(move |_, _| {
+            if let Some(inner) = weak.upgrade().filter(|inner| !inner.lifecycle.is_closed()) {
+                let view = View(inner);
+                if role == MenuRole::Normal {
+                    dispatch(argument.clone());
+                } else {
+                    view.native_role(&role);
+                }
+            }
+        });
+        self.signal(&format!("{id}/@actions"), &action, signal);
+        match app {
+            Some(app) => app.add_action(&action),
+            None => self.0.group.add_action(&action),
+        }
+        self.0
+            .actions
+            .borrow_mut()
+            .insert(item.id.clone(), Action { action, name });
+        state.actions.borrow_mut().push(item.id);
+        section.append(Some(&item.label), Some(&detailed));
+        if let Some(trigger) = trigger {
+            let shortcut =
+                gtk4::Shortcut::new(Some(trigger), Some(gtk4::NamedAction::new(&detailed)));
+            self.0.shortcuts.add_shortcut(shortcut.clone());
+            state.shortcuts.borrow_mut().push(shortcut);
+        }
     }
 
     fn native_role(&self, role: &MenuRole) {

@@ -267,12 +267,13 @@ impl View {
                     let entry = muda::MenuItem::new(&item.label, item.enabled, accelerator);
                     ids.push((entry.id().clone(), key.clone()));
                     // Predefined Quit directly terminates the native loop/app on
-                    // Windows/macOS (not vetoable). Always use an ordinary item.
+                    // Windows/macOS (not vetoable). Always use an ordinary item
+                    // that routes through the vetoable close request like GTK.
                     let close = if vetoed_quit(&item.role) {
                         let owner = weak.clone();
                         Some(Rc::new(move || {
                             if let Some(inner) = owner.upgrade() {
-                                View(inner).request_quit();
+                                View(inner).request_close();
                             }
                         }) as Rc<dyn Fn()>)
                     } else {

@@ -287,15 +287,24 @@ jobs:
           # or concurrent windows steal each other's input.
           xvfb-run cargo llvm-cov nextest --no-report --archive-file artifacts/linux-gtk.tar.zst \
             --test-threads 1 -E 'package(panechord-gtk)' --run-ignored only
-          # HiDPI geometry variant of the grid contract (verify.sh parity).
-          GDK_SCALE=2 xvfb-run cargo llvm-cov nextest --no-report --archive-file artifacts/linux-gtk.tar.zst \
-            -E 'test(tests::native_grid_equal_columns_geometry_and_spans)'
           cargo llvm-cov report \
             --nextest-archive-file artifacts/linux-gtk.tar.zst \
             -p panechord-gtk \
             --lcov --output-path coverage/raw-gtk-ignored.info
           rm -rf target/llvm-cov-target
-          for raw in coverage/raw-gtk.info coverage/raw-gtk-ignored.info; do
+          mkdir -p target/llvm-cov-target
+          # HiDPI geometry variant of the grid contract (verify.sh parity).
+          # Its own extract/report cycle: reusing the ignored run's directory
+          # would collide on extraction, and its profraws must not leak into
+          # other reports. SonarCloud merges the per-leg fragments.
+          GDK_SCALE=2 xvfb-run cargo llvm-cov nextest --no-report --archive-file artifacts/linux-gtk.tar.zst \
+            -E 'test(tests::native_grid_equal_columns_geometry_and_spans)'
+          cargo llvm-cov report \
+            --nextest-archive-file artifacts/linux-gtk.tar.zst \
+            -p panechord-gtk \
+            --lcov --output-path coverage/raw-gtk-hidpi.info
+          rm -rf target/llvm-cov-target
+          for raw in coverage/raw-gtk.info coverage/raw-gtk-ignored.info coverage/raw-gtk-hidpi.info; do
             out="coverage/lcov-linux-$(basename "$raw" .info | sed 's/^raw-//').info"
             sh scripts/lcov-workspace.sh "$raw" "$out"
             rm "$raw"

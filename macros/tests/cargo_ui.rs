@@ -147,9 +147,12 @@ impl Fixture {
             })
             .filter(|span| {
                 span["is_primary"] == true
-                    && span["file_name"]
-                        .as_str()
-                        .is_some_and(|path| path.ends_with(&format!("/{source_file}")))
+                    && span["file_name"].as_str().is_some_and(|path| {
+                        // rustc file names carry the platform separator (and a
+                        // verbatim prefix on Windows); match separator-blind.
+                        path.replace('\\', "/")
+                            .ends_with(&format!("/{source_file}"))
+                    })
             })
             .collect();
         assert!(

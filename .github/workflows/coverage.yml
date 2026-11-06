@@ -258,8 +258,11 @@ jobs:
             --lcov --output-path coverage/raw-gtk.info
           rm -rf target/llvm-cov-target
           mkdir -p target/llvm-cov-target
+          # Display tests need exclusive desktop access (focus, clipboard,
+          # XTest delivery): serialize like verify.sh's --test-threads=1,
+          # or concurrent windows steal each other's input.
           xvfb-run cargo llvm-cov nextest --no-report --archive-file artifacts/linux-gtk.tar.zst \
-            -E 'package(panechord-gtk)' --run-ignored only
+            --test-threads 1 -E 'package(panechord-gtk)' --run-ignored only
           cargo llvm-cov report \
             --nextest-archive-file artifacts/linux-gtk.tar.zst \
             --no-default-ignore-filename-regex \
@@ -322,8 +325,11 @@ jobs:
             --lcov --output-path coverage/raw-tao.info
           rm -rf target/llvm-cov-target
           mkdir -p target/llvm-cov-target
+          # Display tests need exclusive desktop access (focus, clipboard,
+          # XTest delivery): serialize like verify.sh's --test-threads=1,
+          # or concurrent windows steal each other's input.
           xvfb-run cargo llvm-cov nextest --no-report --archive-file artifacts/linux-tao.tar.zst \
-            --run-ignored only
+            --test-threads 1 --run-ignored only
           cargo llvm-cov report \
             --nextest-archive-file artifacts/linux-tao.tar.zst \
             --no-default-ignore-filename-regex \

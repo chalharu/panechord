@@ -289,6 +289,16 @@ pub(crate) struct Panel {
     styles: Vec<Style>,
     children: Vec<Element>,
 }
+/// Measured frame for one stack pass: bounded width, direction, gap and
+/// bounded height travel together through the horizontal/vertical passes.
+#[derive(Clone, Copy)]
+struct StackPass {
+    available: f32,
+    horizontal: bool,
+    gap: f32,
+    max_height: f32,
+}
+
 impl Panel {
     pub fn element(policy: Policy, children: Vec<(String, Style, Element)>) -> Element {
         let mut panel = Self {
@@ -306,6 +316,273 @@ impl Panel {
             panel.children.push(element);
         }
         Element::new(panel)
+    }
+    fn layout_hidden_or_padded(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> Option<layout::Node> {
+        if !self.visible {
+            let child = self.children[0].as_widget_mut().layout(
+                &mut tree.children[0],
+                renderer,
+                &layout::Limits::new(Size::ZERO, Size::ZERO),
+            );
+            return Some(layout::Node::with_children(Size::ZERO, vec![child]));
+        }
+        if let Some(padding) = self.padding {
+            let child = self.children[0].as_widget_mut().layout(
+                &mut tree.children[0],
+                renderer,
+                &limits.shrink(padding),
+            );
+            let size = child.size();
+            return Some(layout::Node::with_children(
+                limits.resolve(
+                    Length::Shrink,
+                    Length::Shrink,
+                    Size::new(
+                        size.width + padding.left + padding.right,
+                        size.height + padding.top + padding.bottom,
+                    ),
+                ),
+                vec![child.move_to(Point::new(padding.left, padding.top))],
+            ));
+        }
+        None
+    }
+
+    /// First pass: each child resolves against bounded width (grid tracks
+    /// share equally, explicit sizes clamp).
+    fn measure_children(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+        available: f32,
+    ) -> Vec<layout::Node> {
+        let siblings = self.children.len().max(1) as f32;
+        let mut nodes = Vec::new();
+        for (index, ((child, state), style)) in self
+            .children
+            .iter_mut()
+            .zip(&mut tree.children)
+            .zip(&self.styles)
+            .enumerate()
+        {
+            let mut width = available;
+            if matches!(
+                self.policy,
+                Policy::Stack {
+                    horizontal: true,
+                    ..
+                }
+            ) && style.placement.width.is_none()
+                && matches!(
+                    child.as_widget().size().width,
+                    Length::Fill | Length::FillPortion(_)
+                )
+            {
+                width /= siblings;
+            }
+            if let Policy::Grid { columns, gap } = self.policy {
+                let cols = columns.clamp(1, 4096) as usize;
+                let (_, _, _, span) = grid_cell(style, cols, index);
+                width = ((available - finite(gap) * (cols - 1) as f32) / cols as f32).max(0.0)
+                    * span as f32
+                    + finite(gap) * (span - 1) as f32;
+            }
+            width = (width - finite(style.margin.left) - finite(style.margin.right)).max(0.0);
+            let max = Size::new(
+                width,
+                (limits.max().height - finite(style.margin.top) - finite(style.margin.bottom))
+                    .max(0.0),
+            );
+            // Grid cells consume equal tracks, not merely a maximum width for
+            // otherwise shrink-sized children. Explicit width remains bounded.
+            let min = if matches!(self.policy, Policy::Grid { .. })
+                && style.placement.width.is_none()
+                && matches!(style.horizontal_alignment, None | Some(Alignment::Stretch))
+            {
+                Size::new(width, 0.0)
+            } else {
+                Size::ZERO
+            };
+            let mut child_limits = layout::Limits::new(min, max);
+            if let Some(w) = style.placement.width {
+                child_limits = child_limits.width(Length::Fixed(finite(w)));
+            }
+            if let Some(h) = style.placement.height {
+                child_limits = child_limits.height(Length::Fixed(finite(h)));
+            }
+            nodes.push(child.as_widget_mut().layout(state, renderer, &child_limits));
+        }
+        nodes
+    }
+
+    /// Horizontal pass: stretch children absorb the surplus and shrinkers
+    /// compress proportionally; vertical stacks take full width instead.
+    fn relayout_horizontal(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &Renderer,
+        pass: StackPass,
+        nodes: &mut Vec<layout::Node>,
+    ) {
+        let StackPass {
+            available,
+            horizontal,
+            gap,
+            max_height,
+        } = pass;
+        let occupied: f32 = nodes
+            .iter()
+            .zip(&self.styles)
+            .filter(|(node, _)| node.size() != Size::ZERO)
+            .map(|(node, style)| {
+                node.size().width + finite(style.margin.left) + finite(style.margin.right)
+            })
+            .sum::<f32>()
+            + finite(gap)
+                * nodes
+                    .iter()
+                    .filter(|node| node.size() != Size::ZERO)
+                    .count()
+                    .saturating_sub(1) as f32;
+        let flexible = self
+            .styles
+            .iter()
+            .zip(&*nodes)
+            .filter(|(style, node)| {
+                style.placement.width.is_none()
+                    && node.size() != Size::ZERO
+                    && matches!(style.horizontal_alignment, None | Some(Alignment::Stretch))
+            })
+            .count();
+        let surplus = (available - occupied).max(0.0) / flexible.max(1) as f32;
+        let natural: f32 = nodes
+            .iter()
+            .zip(&self.styles)
+            .filter(|(_, style)| {
+                style.placement.width.is_none()
+                    && matches!(style.horizontal_alignment, None | Some(Alignment::Stretch))
+            })
+            .map(|(node, _)| node.size().width)
+            .sum();
+        let compression = if occupied > available && natural > 0.0 {
+            ((natural - (occupied - available)) / natural).max(0.0)
+        } else {
+            1.0
+        };
+        for (((child, state), style), node) in self
+            .children
+            .iter_mut()
+            .zip(&mut tree.children)
+            .zip(&self.styles)
+            .zip(&mut *nodes)
+        {
+            if style.placement.width.is_some()
+                || node.size() == Size::ZERO
+                || matches!(
+                    style.horizontal_alignment,
+                    Some(Alignment::Start | Alignment::Center | Alignment::End)
+                )
+            {
+                continue;
+            }
+            let width = if horizontal {
+                node.size().width * compression + surplus
+            } else {
+                (available - finite(style.margin.left) - finite(style.margin.right)).max(0.0)
+            };
+            let mut child_limits = layout::Limits::new(
+                Size::new(width, 0.0),
+                Size::new(
+                    width,
+                    (max_height - finite(style.margin.top) - finite(style.margin.bottom)).max(0.0),
+                ),
+            );
+            if let Some(height) = style.placement.height {
+                child_limits = child_limits.height(Length::Fixed(finite(height)));
+            }
+            *node = child.as_widget_mut().layout(state, renderer, &child_limits);
+        }
+    }
+
+    /// Vertical pass: Stretch-styled children split the leftover space, and
+    /// so do Fill-height children (a Fill tab body would otherwise claim
+    /// the whole viewport and push footers out). Both relayout at the exact
+    /// share.
+    fn relayout_vertical(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &Renderer,
+        pass: StackPass,
+        nodes: &mut Vec<layout::Node>,
+    ) {
+        let StackPass {
+            gap, max_height, ..
+        } = pass;
+        // Fixed space counts only non-claimants; Fill children are
+        // resized to the remainder, so including their full-max
+        // height would zero the share.
+        let stretches = |child: &Element, style: &Style| {
+            style.placement.height.is_none()
+                && (style.vertical_alignment == Some(Alignment::Stretch)
+                    || matches!(
+                        child.as_widget().size().height,
+                        Length::Fill | Length::FillPortion(_)
+                    ))
+        };
+        let fixed = nodes
+            .iter()
+            .zip(&self.children)
+            .zip(&self.styles)
+            .filter(|((node, child), style)| node.size() != Size::ZERO && !stretches(child, style))
+            .map(|((node, _), style)| {
+                node.size().height + finite(style.margin.top) + finite(style.margin.bottom)
+            })
+            .sum::<f32>();
+        let visible = nodes
+            .iter()
+            .filter(|node| node.size() != Size::ZERO)
+            .count();
+        let count = nodes
+            .iter()
+            .zip(&self.children)
+            .zip(&self.styles)
+            .filter(|((node, child), style)| node.size() != Size::ZERO && stretches(child, style))
+            .count();
+        let gaps = finite(gap) * visible.saturating_sub(1) as f32;
+        let share = (max_height - fixed - gaps).max(0.0) / count.max(1) as f32;
+        for (((child, state), style), node) in self
+            .children
+            .iter_mut()
+            .zip(&mut tree.children)
+            .zip(&self.styles)
+            .zip(&mut *nodes)
+        {
+            if node.size() == Size::ZERO || !stretches(child, style) {
+                continue;
+            }
+            // Bounded windows split strictly: every claimant takes
+            // exactly its share. Honoring an inflated natural height
+            // instead (a Fill scrollable reports the full viewport
+            // as its "natural" size) starves trailing siblings out
+            // of the window entirely; the share keeps every pane
+            // visible, with taller content scrolling inside its own
+            // Scroll. Unbounded layouts skip this block, so
+            // content-sized measuring still observes natural
+            // heights.
+            let height = share;
+            let size = Size::new(node.size().width, height);
+            *node = child.as_widget_mut().layout(
+                state,
+                renderer,
+                &layout::Limits::new(size, size).height(Length::Fixed(height)),
+            );
+        }
     }
     #[cfg(test)]
     pub fn frame(child: Element, padding: iced::Padding) -> Element {
@@ -381,234 +658,21 @@ impl Widget<Message, iced::Theme, Renderer> for Panel {
         renderer: &Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
-        if !self.visible {
-            let child = self.children[0].as_widget_mut().layout(
-                &mut tree.children[0],
-                renderer,
-                &layout::Limits::new(Size::ZERO, Size::ZERO),
-            );
-            return layout::Node::with_children(Size::ZERO, vec![child]);
-        }
-        if let Some(padding) = self.padding {
-            let child = self.children[0].as_widget_mut().layout(
-                &mut tree.children[0],
-                renderer,
-                &limits.shrink(padding),
-            );
-            let size = child.size();
-            return layout::Node::with_children(
-                limits.resolve(
-                    Length::Shrink,
-                    Length::Shrink,
-                    Size::new(
-                        size.width + padding.left + padding.right,
-                        size.height + padding.top + padding.bottom,
-                    ),
-                ),
-                vec![child.move_to(Point::new(padding.left, padding.top))],
-            );
+        if let Some(node) = self.layout_hidden_or_padded(tree, renderer, limits) {
+            return node;
         }
         let available = limits.max().width;
-        let siblings = self.children.len().max(1) as f32;
-        let mut nodes = Vec::new();
-        for (index, ((child, state), style)) in self
-            .children
-            .iter_mut()
-            .zip(&mut tree.children)
-            .zip(&self.styles)
-            .enumerate()
-        {
-            let mut width = available;
-            if matches!(
-                self.policy,
-                Policy::Stack {
-                    horizontal: true,
-                    ..
-                }
-            ) && style.placement.width.is_none()
-                && matches!(
-                    child.as_widget().size().width,
-                    Length::Fill | Length::FillPortion(_)
-                )
-            {
-                width /= siblings;
-            }
-            if let Policy::Grid { columns, gap } = self.policy {
-                let cols = columns.clamp(1, 4096) as usize;
-                let (_, _, _, span) = grid_cell(style, cols, index);
-                width = ((available - finite(gap) * (cols - 1) as f32) / cols as f32).max(0.0)
-                    * span as f32
-                    + finite(gap) * (span - 1) as f32;
-            }
-            width = (width - finite(style.margin.left) - finite(style.margin.right)).max(0.0);
-            let max = Size::new(
-                width,
-                (limits.max().height - finite(style.margin.top) - finite(style.margin.bottom))
-                    .max(0.0),
-            );
-            // Grid cells consume equal tracks, not merely a maximum width for
-            // otherwise shrink-sized children. Explicit width remains bounded.
-            let min = if matches!(self.policy, Policy::Grid { .. })
-                && style.placement.width.is_none()
-                && matches!(style.horizontal_alignment, None | Some(Alignment::Stretch))
-            {
-                Size::new(width, 0.0)
-            } else {
-                Size::ZERO
-            };
-            let mut child_limits = layout::Limits::new(min, max);
-            if let Some(w) = style.placement.width {
-                child_limits = child_limits.width(Length::Fixed(finite(w)));
-            }
-            if let Some(h) = style.placement.height {
-                child_limits = child_limits.height(Length::Fixed(finite(h)));
-            }
-            nodes.push(child.as_widget_mut().layout(state, renderer, &child_limits));
-        }
+        let mut nodes = self.measure_children(tree, renderer, limits, available);
         if let Policy::Stack { horizontal, gap } = self.policy {
-            let occupied: f32 = nodes
-                .iter()
-                .zip(&self.styles)
-                .filter(|(node, _)| node.size() != Size::ZERO)
-                .map(|(node, style)| {
-                    node.size().width + finite(style.margin.left) + finite(style.margin.right)
-                })
-                .sum::<f32>()
-                + finite(gap)
-                    * nodes
-                        .iter()
-                        .filter(|node| node.size() != Size::ZERO)
-                        .count()
-                        .saturating_sub(1) as f32;
-            let flexible = self
-                .styles
-                .iter()
-                .zip(&nodes)
-                .filter(|(style, node)| {
-                    style.placement.width.is_none()
-                        && node.size() != Size::ZERO
-                        && matches!(style.horizontal_alignment, None | Some(Alignment::Stretch))
-                })
-                .count();
-            let surplus = (available - occupied).max(0.0) / flexible.max(1) as f32;
-            let natural: f32 = nodes
-                .iter()
-                .zip(&self.styles)
-                .filter(|(_, style)| {
-                    style.placement.width.is_none()
-                        && matches!(style.horizontal_alignment, None | Some(Alignment::Stretch))
-                })
-                .map(|(node, _)| node.size().width)
-                .sum();
-            let compression = if occupied > available && natural > 0.0 {
-                ((natural - (occupied - available)) / natural).max(0.0)
-            } else {
-                1.0
+            let pass = StackPass {
+                available,
+                horizontal,
+                gap,
+                max_height: limits.max().height,
             };
-            for (((child, state), style), node) in self
-                .children
-                .iter_mut()
-                .zip(&mut tree.children)
-                .zip(&self.styles)
-                .zip(&mut nodes)
-            {
-                if style.placement.width.is_some()
-                    || node.size() == Size::ZERO
-                    || matches!(
-                        style.horizontal_alignment,
-                        Some(Alignment::Start | Alignment::Center | Alignment::End)
-                    )
-                {
-                    continue;
-                }
-                let width = if horizontal {
-                    node.size().width * compression + surplus
-                } else {
-                    (available - finite(style.margin.left) - finite(style.margin.right)).max(0.0)
-                };
-                let mut child_limits = layout::Limits::new(
-                    Size::new(width, 0.0),
-                    Size::new(
-                        width,
-                        (limits.max().height
-                            - finite(style.margin.top)
-                            - finite(style.margin.bottom))
-                        .max(0.0),
-                    ),
-                );
-                if let Some(height) = style.placement.height {
-                    child_limits = child_limits.height(Length::Fixed(finite(height)));
-                }
-                *node = child.as_widget_mut().layout(state, renderer, &child_limits);
-            }
+            self.relayout_horizontal(tree, renderer, pass, &mut nodes);
             if !horizontal && limits.max().height.is_finite() {
-                // Remainder distribution: Stretch-styled children split the
-                // leftover space, and so do Fill-height children (a Fill tab
-                // body would otherwise claim the whole viewport and push
-                // footers out). Both relayout at the exact share.
-                let stretches = |child: &Element, style: &Style| {
-                    style.placement.height.is_none()
-                        && (style.vertical_alignment == Some(Alignment::Stretch)
-                            || matches!(
-                                child.as_widget().size().height,
-                                Length::Fill | Length::FillPortion(_)
-                            ))
-                };
-                // Fixed space counts only non-claimants; Fill children are
-                // resized to the remainder, so including their full-max
-                // height would zero the share.
-                let fixed = nodes
-                    .iter()
-                    .zip(&self.children)
-                    .zip(&self.styles)
-                    .filter(|((node, child), style)| {
-                        node.size() != Size::ZERO && !stretches(child, style)
-                    })
-                    .map(|((node, _), style)| {
-                        node.size().height + finite(style.margin.top) + finite(style.margin.bottom)
-                    })
-                    .sum::<f32>();
-                let visible = nodes
-                    .iter()
-                    .filter(|node| node.size() != Size::ZERO)
-                    .count();
-                let count = nodes
-                    .iter()
-                    .zip(&self.children)
-                    .zip(&self.styles)
-                    .filter(|((node, child), style)| {
-                        node.size() != Size::ZERO && stretches(child, style)
-                    })
-                    .count();
-                let gaps = finite(gap) * visible.saturating_sub(1) as f32;
-                let share = (limits.max().height - fixed - gaps).max(0.0) / count.max(1) as f32;
-                for (((child, state), style), node) in self
-                    .children
-                    .iter_mut()
-                    .zip(&mut tree.children)
-                    .zip(&self.styles)
-                    .zip(&mut nodes)
-                {
-                    if node.size() == Size::ZERO || !stretches(child, style) {
-                        continue;
-                    }
-                    // Bounded windows split strictly: every claimant takes
-                    // exactly its share. Honoring an inflated natural height
-                    // instead (a Fill scrollable reports the full viewport
-                    // as its "natural" size) starves trailing siblings out
-                    // of the window entirely; the share keeps every pane
-                    // visible, with taller content scrolling inside its own
-                    // Scroll. Unbounded layouts skip this block, so
-                    // content-sized measuring still observes natural
-                    // heights.
-                    let height = share;
-                    let size = Size::new(node.size().width, height);
-                    *node = child.as_widget_mut().layout(
-                        state,
-                        renderer,
-                        &layout::Limits::new(size, size).height(Length::Fixed(height)),
-                    );
-                }
+                self.relayout_vertical(tree, renderer, pass, &mut nodes);
             }
         }
         let measured: Vec<_> = nodes
@@ -636,6 +700,8 @@ impl Widget<Message, iced::Theme, Renderer> for Panel {
             .collect();
         layout::Node::with_children(limits.resolve(Length::Shrink, Length::Shrink, size), nodes)
     }
+
+    /// Collapsed subtrees and padded wrappers resolve without measuring.
     fn draw(
         &self,
         tree: &Tree,

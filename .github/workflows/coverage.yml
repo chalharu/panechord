@@ -393,6 +393,10 @@ jobs:
       GTK_IM_MODULE: simple
       PANECHORD_REQUIRE_XTEST: 1
       PANECHORD_ALLOW_CLIPBOARD_PROBE: 1
+      # Cold caches compile inside the first run of each step (llvm-cov
+      # fingerprints make the rest incremental), so the bound covers a full
+      # instrumented build, not just the run. Warm steady state takes seconds.
+      PANECHORD_NATIVE_TIMEOUT_SECONDS: 900
       RUSTFLAGS: "-C link-arg=-fuse-ld=mold -C debuginfo=0"
     permissions:
       contents: read
@@ -412,27 +416,12 @@ jobs:
           workspaces: |
             . -> target
             . -> target/llvm-cov-target
-      # Example binaries are built once here, not per display leg, and every
-      # run below reuses them through llvm-cov fingerprints. Plain cargo
-      # builds cannot instrument: seed the instrumented flags from show-env
-      # so the timed runs below never compile inside their 45s bounds.
-      - name: Warm instrumented example builds
-        run: |
-          rm -rf target/llvm-cov-target
-          show_env="$(cargo llvm-cov show-env --sh 2>/dev/null | grep '^export ')"
-          [ -n "$show_env" ] || { echo 'llvm-cov show-env produced no exports' >&2; exit 1; }
-          eval "$show_env"
-          cargo build --locked -p panechord-runtime --example scaling
-          cargo build --locked -p panechord-demo --examples
-          cargo build --locked -p panechord-demo --bins
-          cargo build --locked -p panechord-tao --examples
-          cargo build --locked -p panechord-library --bins
-          cargo build --locked --no-default-features --features backend-tao -p panechord-demo --examples
-          cargo build --locked --no-default-features --features backend-tao -p panechord-demo --bins
-          cargo build --locked --no-default-features --features backend-tao -p panechord-library --bins
       - name: Run GTK examples with coverage
         run: |
-          mkdir -p coverage
+          # Profraws persist in the restored target cache: start clean so the
+          # report below only merges this step's runs.
+          rm -rf target/llvm-cov-target
+          mkdir -p coverage target/llvm-cov-target
           native_timeout="${PANECHORD_NATIVE_TIMEOUT_SECONDS:-45}s"
           output=$(timeout "$native_timeout" xvfb-run -a cargo llvm-cov run --no-report --locked \
             -p panechord-demo --example controls)
@@ -463,6 +452,7 @@ jobs:
           rm -rf target/llvm-cov-target
       - name: Run Tao examples with coverage
         run: |
+          rm -rf target/llvm-cov-target
           mkdir -p target/llvm-cov-target
           native_timeout="${PANECHORD_NATIVE_TIMEOUT_SECONDS:-45}s"
           output=$(timeout "$native_timeout" xvfb-run -a \

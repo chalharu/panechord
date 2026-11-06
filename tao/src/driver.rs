@@ -666,163 +666,8 @@ impl Desktop {
             area.set_hexpand(true);
             area.set_vexpand(true);
             vbox.pack_end(&area, true, true, 0);
-            let out = painter.clone();
-            let owner = view.clone();
-            let draw = area.connect_draw(move |area, context| {
-                if owner.0.lifecycle.is_closed() {
-                    return gtk::glib::Propagation::Stop;
-                }
-                let result = catch_unwind(AssertUnwindSafe(|| -> Result<(), String> {
-                    let scale = f64::from(area.scale_factor());
-                    let (width, height) = (area.allocated_width(), area.allocated_height());
-                    if width <= 0 || height <= 0 {
-                        return Ok(());
-                    }
-                    let viewport = Viewport::with_physical_size(
-                        Size::new(
-                            (f64::from(width) * scale) as u32,
-                            (f64::from(height) * scale) as u32,
-                        ),
-                        scale as f32,
-                    );
-                    let outcome = {
-                        let mut painter = out.borrow_mut();
-                        let bounds = viewport.logical_size();
-                        // One frame carries the whole coalesced scroll in a
-                        // single update: the bridge and the tao wheel branch
-                        // only accumulate, so N ticks cost one update, not N.
-                        // Atomicity matters — iced reports movement inside the
-                        // same update that requests its paint; a split flush
-                        // would look quiescent to the paint decision.
-                        let mut events = Vec::with_capacity(2);
-                        if let Some(delta) = painter.pending_wheel.take() {
-                            events.push(input::wheel_event(delta));
-                        }
-                        events.push(redraw());
-                        let redrawn = painter.pump(&owner, bounds, &events, Paint::IfDirty);
-                        let messages = redrawn.messages;
-                        if !redrawn.painted {
-                            (None, messages)
-                        } else {
-                            let pixels = iced_tiny_skia::window::compositor::screenshot(
-                                &mut painter.renderer,
-                                &viewport,
-                                iced::Color::WHITE,
-                            );
-                            (Some(pixels), messages)
-                        }
-                    };
-                    let (pixels, messages) = outcome;
-                    let Some(mut pixels) = pixels else {
-                        dispatch(&owner, messages);
-                        return Ok(());
-                    };
-                    for pixel in pixels.as_chunks_mut::<4>().0 {
-                        let native =
-                            u32::from_be_bytes([0, pixel[0], pixel[1], pixel[2]]).to_ne_bytes();
-                        pixel.copy_from_slice(&native);
-                    }
-                    let size = viewport.physical_size();
-                    let image = gtk::cairo::ImageSurface::create_for_data(
-                        pixels,
-                        gtk::cairo::Format::Rgb24,
-                        size.width as i32,
-                        size.height as i32,
-                        (size.width * 4) as i32,
-                    )
-                    .map_err(|e| e.to_string())?;
-                    image.set_device_scale(scale, scale);
-                    context
-                        .set_source_surface(&image, 0.0, 0.0)
-                        .map_err(|e| e.to_string())?;
-                    context.paint().map_err(|e| e.to_string())?;
-                    if std::env::var_os("PANECHORD_CONTROLS_REVIEW").is_some() {
-                        eprintln!("CONTROLS3 DRAW {width}x{height}");
-                    }
-                    dispatch(&owner, messages);
-                    Ok(())
-                }));
-                match result {
-                    Ok(Ok(())) => {}
-                    Ok(Err(e)) => fail(&owner, e),
-                    Err(p) => fail(&owner, panic_error(p)),
-                }
-                proxy.send(Native::Turn);
-                gtk::glib::Propagation::Stop
-            });
-            let out = Rc::downgrade(&painter);
-            let owner = view.downgrade();
-            let surface = area.downgrade();
-            let scroll = window
-                .gtk_window()
-                .connect_scroll_event(move |window, event| {
-                    // Discrete wheel clicks and smooth (touchpad and
-                    // high-resolution wheel) deltas share the iced mapping
-                    // through `input::scroll_delta`. Anything else (e.g. an
-                    // unknown direction) is not ours: let GTK have it.
-                    // Smooth must be handled: dropping it silently kills
-                    // touchpad scrolling, the dominant scroll source on
-                    // modern Linux (settings Input tab feels dead).
-                    let kind = match event.direction() {
-                        gtk::gdk::ScrollDirection::Up => input::NativeScroll::Up,
-                        gtk::gdk::ScrollDirection::Down => input::NativeScroll::Down,
-                        gtk::gdk::ScrollDirection::Left => input::NativeScroll::Left,
-                        gtk::gdk::ScrollDirection::Right => input::NativeScroll::Right,
-                        gtk::gdk::ScrollDirection::Smooth => {
-                            let (x, y) = event.delta();
-                            input::NativeScroll::Smooth(x, y)
-                        }
-                        _ => return gtk::glib::Propagation::Proceed,
-                    };
-                    let delta = input::scroll_delta(kind);
-                    if let (Some(painter), Some(view), Some(area)) =
-                        (out.upgrade(), owner.upgrade(), surface.upgrade())
-                    {
-                        let offset = area.translate_coordinates(window, 0, 0).unwrap_or_default();
-                        let position = event.position();
-                        let cursor = iced::Point::new(
-                            position.0 as f32 - offset.0 as f32,
-                            position.1 as f32 - offset.1 as f32,
-                        );
-                        if cursor.x >= 0.0 && cursor.y >= 0.0 {
-                            {
-                                let mut painter = painter.borrow_mut();
-                                painter.cursor = mouse::Cursor::Available(cursor);
-                                // The bridge owns Linux scroll: merge into the
-                                // coalesced pending total instead of pumping
-                                // per tick. Mixed units flush first so order
-                                // — and unit semantics — never corrupt.
-                                if input::merge_wheel(painter.pending_wheel.get(), delta).is_none()
-                                {
-                                    if let Some(previous) = painter.pending_wheel.take() {
-                                        let wheel = input::wheel_event(previous);
-                                        let flushed = painter.pump(
-                                            &view,
-                                            Size::new(
-                                                area.allocated_width() as f32,
-                                                area.allocated_height() as f32,
-                                            ),
-                                            std::slice::from_ref(&wheel),
-                                            Paint::Never,
-                                        );
-                                        dispatch(&view, flushed.messages);
-                                    }
-                                    painter.pending_wheel.set(Some(delta));
-                                } else {
-                                    painter.pending_wheel.set(input::merge_wheel(
-                                        painter.pending_wheel.get(),
-                                        delta,
-                                    ));
-                                }
-                            }
-                            // The frame decision moves to draw: it flushes the
-                            // pending total and paints only when dirty, so a
-                            // no-op tick costs no screenshot.
-                            area.queue_draw();
-                        }
-                    }
-                    gtk::glib::Propagation::Proceed
-                });
+            let draw = Self::connect_draw_bridge(&area, &painter, view, proxy);
+            let scroll = Self::connect_smooth_scroll(window.gtk_window(), &painter, view, &area);
             area.show();
             let signals = vec![
                 (area.clone().upcast(), draw),
@@ -871,6 +716,177 @@ impl Desktop {
             })
         }
     }
+    /// Present each painted frame on the GTK drawing area: pump the retained
+    /// tree with the coalesced wheel plus a redraw, screenshot on paint and
+    /// blit the Cairo surface. Closed views veto the draw.
+    fn connect_draw_bridge(
+        area: &gtk::DrawingArea,
+        painter: &Rc<RefCell<Painter>>,
+        view: &View,
+        proxy: Proxy,
+    ) -> gtk::glib::SignalHandlerId {
+        let out = painter.clone();
+        let owner = view.clone();
+        area.connect_draw(move |area, context| {
+            if owner.0.lifecycle.is_closed() {
+                return gtk::glib::Propagation::Stop;
+            }
+            let result = catch_unwind(AssertUnwindSafe(|| -> Result<(), String> {
+                let scale = f64::from(area.scale_factor());
+                let (width, height) = (area.allocated_width(), area.allocated_height());
+                if width <= 0 || height <= 0 {
+                    return Ok(());
+                }
+                let viewport = Viewport::with_physical_size(
+                    Size::new(
+                        (f64::from(width) * scale) as u32,
+                        (f64::from(height) * scale) as u32,
+                    ),
+                    scale as f32,
+                );
+                let outcome = {
+                    let mut painter = out.borrow_mut();
+                    let bounds = viewport.logical_size();
+                    // One frame carries the whole coalesced scroll in a
+                    // single update: the bridge and the tao wheel branch
+                    // only accumulate, so N ticks cost one update, not N.
+                    // Atomicity matters — iced reports movement inside the
+                    // same update that requests its paint; a split flush
+                    // would look quiescent to the paint decision.
+                    let mut events = Vec::with_capacity(2);
+                    if let Some(delta) = painter.pending_wheel.take() {
+                        events.push(input::wheel_event(delta));
+                    }
+                    events.push(redraw());
+                    let redrawn = painter.pump(&owner, bounds, &events, Paint::IfDirty);
+                    let messages = redrawn.messages;
+                    if !redrawn.painted {
+                        (None, messages)
+                    } else {
+                        let pixels = iced_tiny_skia::window::compositor::screenshot(
+                            &mut painter.renderer,
+                            &viewport,
+                            iced::Color::WHITE,
+                        );
+                        (Some(pixels), messages)
+                    }
+                };
+                let (pixels, messages) = outcome;
+                let Some(mut pixels) = pixels else {
+                    dispatch(&owner, messages);
+                    return Ok(());
+                };
+                for pixel in pixels.as_chunks_mut::<4>().0 {
+                    let native =
+                        u32::from_be_bytes([0, pixel[0], pixel[1], pixel[2]]).to_ne_bytes();
+                    pixel.copy_from_slice(&native);
+                }
+                let size = viewport.physical_size();
+                let image = gtk::cairo::ImageSurface::create_for_data(
+                    pixels,
+                    gtk::cairo::Format::Rgb24,
+                    size.width as i32,
+                    size.height as i32,
+                    (size.width * 4) as i32,
+                )
+                .map_err(|e| e.to_string())?;
+                image.set_device_scale(scale, scale);
+                context
+                    .set_source_surface(&image, 0.0, 0.0)
+                    .map_err(|e| e.to_string())?;
+                context.paint().map_err(|e| e.to_string())?;
+                if std::env::var_os("PANECHORD_CONTROLS_REVIEW").is_some() {
+                    eprintln!("CONTROLS3 DRAW {width}x{height}");
+                }
+                dispatch(&owner, messages);
+                Ok(())
+            }));
+            match result {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => fail(&owner, e),
+                Err(p) => fail(&owner, panic_error(p)),
+            }
+            proxy.send(Native::Turn);
+            gtk::glib::Propagation::Stop
+        })
+    }
+
+    /// The bridge owns Linux scroll: merge ticks into the coalesced pending
+    /// total instead of pumping per tick. Mixed units flush first so order —
+    /// and unit semantics — never corrupt. The frame decision moves to draw.
+    fn connect_smooth_scroll(
+        gtk_window: &gtk::ApplicationWindow,
+        painter: &Rc<RefCell<Painter>>,
+        view: &View,
+        area: &gtk::DrawingArea,
+    ) -> gtk::glib::SignalHandlerId {
+        let out = Rc::downgrade(painter);
+        let owner = view.downgrade();
+        let surface = area.downgrade();
+        gtk_window.connect_scroll_event(move |window, event| {
+            // Discrete wheel clicks and smooth (touchpad and
+            // high-resolution wheel) deltas share the iced mapping
+            // through `input::scroll_delta`. Anything else (e.g. an
+            // unknown direction) is not ours: let GTK have it.
+            // Smooth must be handled: dropping it silently kills
+            // touchpad scrolling, the dominant scroll source on
+            // modern Linux (settings Input tab feels dead).
+            let kind = match event.direction() {
+                gtk::gdk::ScrollDirection::Up => input::NativeScroll::Up,
+                gtk::gdk::ScrollDirection::Down => input::NativeScroll::Down,
+                gtk::gdk::ScrollDirection::Left => input::NativeScroll::Left,
+                gtk::gdk::ScrollDirection::Right => input::NativeScroll::Right,
+                gtk::gdk::ScrollDirection::Smooth => {
+                    let (x, y) = event.delta();
+                    input::NativeScroll::Smooth(x, y)
+                }
+                _ => return gtk::glib::Propagation::Proceed,
+            };
+            let delta = input::scroll_delta(kind);
+            if let (Some(painter), Some(view), Some(area)) =
+                (out.upgrade(), owner.upgrade(), surface.upgrade())
+            {
+                let offset = area.translate_coordinates(window, 0, 0).unwrap_or_default();
+                let position = event.position();
+                let cursor = iced::Point::new(
+                    position.0 as f32 - offset.0 as f32,
+                    position.1 as f32 - offset.1 as f32,
+                );
+                if cursor.x >= 0.0 && cursor.y >= 0.0 {
+                    {
+                        let mut painter = painter.borrow_mut();
+                        painter.cursor = mouse::Cursor::Available(cursor);
+                        if input::merge_wheel(painter.pending_wheel.get(), delta).is_none() {
+                            if let Some(previous) = painter.pending_wheel.take() {
+                                let wheel = input::wheel_event(previous);
+                                let flushed = painter.pump(
+                                    &view,
+                                    Size::new(
+                                        area.allocated_width() as f32,
+                                        area.allocated_height() as f32,
+                                    ),
+                                    std::slice::from_ref(&wheel),
+                                    Paint::Never,
+                                );
+                                dispatch(&view, flushed.messages);
+                            }
+                            painter.pending_wheel.set(Some(delta));
+                        } else {
+                            painter
+                                .pending_wheel
+                                .set(input::merge_wheel(painter.pending_wheel.get(), delta));
+                        }
+                    }
+                    // The frame decision moves to draw: it flushes the
+                    // pending total and paints only when dirty, so a
+                    // no-op tick costs no screenshot.
+                    area.queue_draw();
+                }
+            }
+            gtk::glib::Propagation::Proceed
+        })
+    }
+
     fn bounds(&self) -> Size {
         #[cfg(any(
             target_os = "linux",
@@ -1202,6 +1218,158 @@ impl Drop for Desktop {
 fn redraw() -> iced::Event {
     iced::Event::Window(iced::window::Event::RedrawRequested(Instant::now()))
 }
+
+/// Open views the loop has not adopted yet; adoption failures close the
+/// view and record the loop error.
+fn open_pending_views(
+    host: &TaoHost,
+    target: &tao::event_loop::EventLoopWindowTarget<Native>,
+    proxy: &Proxy,
+    desktops: &mut std::collections::BTreeMap<usize, Desktop>,
+    error: &mut Option<String>,
+) {
+    let pending = host.views.borrow().clone();
+    for (id, view) in pending {
+        if view.0.lifecycle.is_closed() || desktops.contains_key(&id) {
+            continue;
+        }
+        match Desktop::open(target, &view, proxy.clone()) {
+            Ok(desktop) => {
+                view.0.native_published.set(true);
+                let ready = view.0.native_ready.take();
+                if let Some(ready) = ready
+                    && let Err(message) = ready(desktop.window.clone())
+                {
+                    *error = Some(message.clone());
+                    fail(&view, message);
+                    continue;
+                }
+                desktop.refresh();
+                desktops.insert(id, desktop);
+            }
+            Err(message) => {
+                *error = Some(message.clone());
+                fail(&view, message);
+            }
+        }
+    }
+}
+
+/// Route one native window event: vetoable close requests, unconditional
+/// teardown on destroy, activation bookkeeping on focus.
+#[cfg_attr(not(target_os = "windows"), allow(unused_variables))]
+fn route_window_event(
+    desktops: &mut std::collections::BTreeMap<usize, Desktop>,
+    active: &mut Option<usize>,
+    menu_owner: &Rc<RefCell<Weak<super::Inner>>>,
+    window_id: tao::window::WindowId,
+    event: &WindowEvent,
+) {
+    if let Some((&id, desktop)) = desktops
+        .iter()
+        .find(|(_, desktop)| desktop.window.id() == window_id)
+    {
+        let callback = desktop.view.0.native_event.borrow().clone();
+        if let Some(callback) = callback {
+            callback(event);
+        }
+        match event {
+            WindowEvent::CloseRequested => desktop.view.request_close(),
+            WindowEvent::Destroyed => desktop.view.close(),
+            WindowEvent::Focused(true) => {
+                for other in desktops.values() {
+                    other.active.set(false);
+                }
+                desktop.activate();
+                *active = Some(id);
+                #[cfg(target_os = "windows")]
+                menu_owner.replace(Rc::downgrade(&desktop.view.0));
+                desktop.event(event);
+            }
+            _ => desktop.event(event),
+        }
+    }
+}
+
+/// Draw one retained tree outside the Linux bridge path.
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "dragonfly"
+)))]
+fn redraw_desktop(
+    desktops: &mut std::collections::BTreeMap<usize, Desktop>,
+    id: tao::window::WindowId,
+) {
+    if let Some(desktop) = desktops
+        .values_mut()
+        .find(|desktop| desktop.window.id() == id)
+        && let Err(e) = desktop.draw()
+    {
+        fail(&desktop.view, e);
+    }
+}
+
+/// Drop closed desktops (harvesting the first fatal report) and forget
+/// closed views at the host.
+fn sweep_closed_views(
+    desktops: &mut std::collections::BTreeMap<usize, Desktop>,
+    host: &TaoHost,
+    error: &mut Option<String>,
+) {
+    desktops.retain(|_, desktop| {
+        if desktop.view.0.lifecycle.is_closed() {
+            if error.is_none() {
+                *error = desktop.view.0.fatal_error.borrow().clone();
+            }
+            false
+        } else {
+            true
+        }
+    });
+    host.views
+        .borrow_mut()
+        .retain(|(_, view)| !view.0.lifecycle.is_closed());
+}
+
+/// Keep one live desktop activated, preferring the previous one.
+#[cfg_attr(not(target_os = "windows"), allow(unused_variables))]
+fn ensure_active(
+    desktops: &std::collections::BTreeMap<usize, Desktop>,
+    active: &mut Option<usize>,
+    menu_owner: &Rc<RefCell<Weak<super::Inner>>>,
+) {
+    if active.is_none_or(|id| !desktops.contains_key(&id)) {
+        *active = desktops.keys().next().copied();
+        if let Some(desktop) = active.and_then(|id| desktops.get(&id)) {
+            desktop.activate();
+            #[cfg(target_os = "windows")]
+            menu_owner.replace(Rc::downgrade(&desktop.view.0));
+        }
+    }
+}
+
+/// The next painter deadline across desktops, refreshing the ones due.
+fn next_deadline(desktops: &std::collections::BTreeMap<usize, Desktop>) -> Option<Instant> {
+    let mut deadline = None;
+    for desktop in desktops.values() {
+        let mut painter = desktop.painter.borrow_mut();
+        let due = painter.deadline.is_some_and(|at| at <= Instant::now());
+        if due {
+            painter.deadline = None;
+        }
+        if let Some(at) = painter.deadline {
+            deadline = Some(deadline.map_or(at, |old: Instant| old.min(at)));
+        }
+        drop(painter);
+        if due {
+            desktop.refresh();
+        }
+    }
+    deadline
+}
 pub(super) fn run(
     make: impl FnOnce(Rc<TaoHost>) -> Result<(), String> + 'static,
 ) -> Result<(), String> {
@@ -1232,6 +1400,10 @@ pub(super) fn run(
             });
             owner
         };
+        // Non-Windows loops never repoint the menu owner; the helpers still
+        // take it so every platform shares one routing shape.
+        #[cfg(not(target_os = "windows"))]
+        let menu_owner: Rc<RefCell<Weak<super::Inner>>> = Rc::new(RefCell::new(Weak::new()));
         let mut event_loop = builder.build();
         let proxy = Proxy(event_loop.create_proxy());
         let wake = proxy.clone();
@@ -1262,31 +1434,7 @@ pub(super) fn run(
             }))
         });
         let status = event_loop.run_return(|event, target, flow| {
-            let pending = host.views.borrow().clone();
-            for (id, view) in pending {
-                if view.0.lifecycle.is_closed() || desktops.contains_key(&id) {
-                    continue;
-                }
-                match Desktop::open(target, &view, proxy.clone()) {
-                    Ok(desktop) => {
-                        view.0.native_published.set(true);
-                        let ready = view.0.native_ready.take();
-                        if let Some(ready) = ready
-                            && let Err(message) = ready(desktop.window.clone())
-                        {
-                            error = Some(message.clone());
-                            fail(&view, message);
-                            continue;
-                        }
-                        desktop.refresh();
-                        desktops.insert(id, desktop);
-                    }
-                    Err(message) => {
-                        error = Some(message.clone());
-                        fail(&view, message);
-                    }
-                }
-            }
+            open_pending_views(&host, target, &proxy, &mut desktops, &mut error);
             let result = catch_unwind(AssertUnwindSafe(|| match event {
                 Event::UserEvent(Native::Wake(id)) => executor.ready(id),
                 Event::UserEvent(Native::Refresh(id)) => {
@@ -1306,30 +1454,7 @@ pub(super) fn run(
                 Event::WindowEvent {
                     window_id, event, ..
                 } => {
-                    if let Some((&id, desktop)) = desktops
-                        .iter()
-                        .find(|(_, desktop)| desktop.window.id() == window_id)
-                    {
-                        let callback = desktop.view.0.native_event.borrow().clone();
-                        if let Some(callback) = callback {
-                            callback(&event);
-                        }
-                        match event {
-                            WindowEvent::CloseRequested => desktop.view.request_close(),
-                            WindowEvent::Destroyed => desktop.view.close(),
-                            WindowEvent::Focused(true) => {
-                                for other in desktops.values() {
-                                    other.active.set(false);
-                                }
-                                desktop.activate();
-                                active = Some(id);
-                                #[cfg(target_os = "windows")]
-                                menu_owner.replace(Rc::downgrade(&desktop.view.0));
-                                desktop.event(&event);
-                            }
-                            _ => desktop.event(&event),
-                        }
-                    }
+                    route_window_event(&mut desktops, &mut active, &menu_owner, window_id, &event);
                 }
                 #[cfg(not(any(
                     target_os = "linux",
@@ -1339,13 +1464,7 @@ pub(super) fn run(
                     target_os = "dragonfly"
                 )))]
                 Event::RedrawRequested(id) => {
-                    if let Some(desktop) = desktops
-                        .values_mut()
-                        .find(|desktop| desktop.window.id() == id)
-                        && let Err(e) = desktop.draw()
-                    {
-                        fail(&desktop.view, e);
-                    }
+                    redraw_desktop(&mut desktops, id);
                 }
                 Event::MainEventsCleared if executor.turn() => proxy.send(Native::Turn),
                 _ => {}
@@ -1356,47 +1475,13 @@ pub(super) fn run(
                     desktop.view.close();
                 }
             }
-            desktops.retain(|_, desktop| {
-                if desktop.view.0.lifecycle.is_closed() {
-                    if error.is_none() {
-                        error = desktop.view.0.fatal_error.borrow().clone();
-                    }
-                    false
-                } else {
-                    true
-                }
-            });
-            host.views
-                .borrow_mut()
-                .retain(|(_, view)| !view.0.lifecycle.is_closed());
-            if active.is_none_or(|id| !desktops.contains_key(&id)) {
-                active = desktops.keys().next().copied();
-                if let Some(desktop) = active.and_then(|id| desktops.get(&id)) {
-                    desktop.activate();
-                    #[cfg(target_os = "windows")]
-                    menu_owner.replace(Rc::downgrade(&desktop.view.0));
-                }
-            }
+            sweep_closed_views(&mut desktops, &host, &mut error);
+            ensure_active(&desktops, &mut active, &menu_owner);
             if host.views.borrow().is_empty() || error.is_some() {
                 executor.close();
                 *flow = ControlFlow::Exit;
             } else {
-                let mut deadline = None;
-                for desktop in desktops.values() {
-                    let mut painter = desktop.painter.borrow_mut();
-                    let due = painter.deadline.is_some_and(|at| at <= Instant::now());
-                    if due {
-                        painter.deadline = None;
-                    }
-                    if let Some(at) = painter.deadline {
-                        deadline = Some(deadline.map_or(at, |old: Instant| old.min(at)));
-                    }
-                    drop(painter);
-                    if due {
-                        desktop.refresh();
-                    }
-                }
-                *flow = deadline.map_or(ControlFlow::Wait, ControlFlow::WaitUntil);
+                *flow = next_deadline(&desktops).map_or(ControlFlow::Wait, ControlFlow::WaitUntil);
             }
         });
         if let Some(error) = error {

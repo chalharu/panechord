@@ -505,7 +505,7 @@ pub async fn pick_file() -> Option<std::path::PathBuf> {
 
 /// The refresh closure's captured state, named: clamp the viewport to the
 /// source, mount the visible window, then commit the native order.
-struct ItemsRefresh<T> {
+struct ItemsRefresh<T: Clone> {
     key: String,
     list: Rc<List>,
     source: Rc<RefCell<Vec<Keyed<T>>>>,
@@ -1347,7 +1347,7 @@ impl View {
             }
             accepted.replace(snapshot);
             output.error.take();
-            update(view);
+            update.refresh(view);
         });
         let update = refresh.clone();
         let output = list.clone();
@@ -1356,7 +1356,7 @@ impl View {
                 Ok(viewport) => {
                     output.current.set(Some(viewport));
                     output.viewport_error.take();
-                    update(view);
+                    update.refresh(view);
                 }
                 Err(error) => {
                     output.viewport_error.replace(Some(error.into()));
@@ -1373,7 +1373,7 @@ impl View {
                 {
                     next.start = start;
                     list.current.set(Some(next));
-                    refresh(&view);
+                    refresh.refresh(&view);
                     if viewport.is_writable() {
                         let _ = viewport.set(next);
                     }

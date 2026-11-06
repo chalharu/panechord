@@ -373,11 +373,19 @@ fn main() -> Result<(), String> {
                     .expect("actual native Linux Quit shim");
                 assert!(quit.is_sensitive());
                 quit.emit_by_name::<()>("activate", &[]);
-                let (send, receive) = futures::channel::oneshot::channel();
-                gtk::glib::idle_add_local_once(move || {
-                    let _ = send.send(());
-                });
-                receive.await.unwrap();
+                // Quit delivery crosses the GTK signal, the muda channel and
+                // the Tao proxy: a single idle turn is not enough on loaded
+                // hosts, so poll the close count with the same bound.
+                for _ in 0..100 {
+                    if close_state.snapshot() == (2, false) {
+                        break;
+                    }
+                    let (send, receive) = futures::channel::oneshot::channel();
+                    gtk::glib::idle_add_local_once(move || {
+                        let _ = send.send(());
+                    });
+                    receive.await.unwrap();
+                }
                 assert_eq!(close_state.snapshot(), (2, false));
                 let title = out.title();
                 let window = gtk::Window::list_toplevels()

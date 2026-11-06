@@ -7,10 +7,10 @@
 # Versions follow the 3-day minimum-age rule; keep in sync with
 # .github/workflows/coverage.yml.
 FROM rust:1.99.1-slim-bookworm@sha256:f2c004e3d2d8b547e8cf7ffbc29205385f4e71d23e53e4e383065db5e9f822cd AS builder
-# Prebuilt tool versions (single source; renovate tracks the ARGs).
+# Prebuilt tool versions (single source; renovate tracks the annotated ARGs).
 # New releases apply only after the 3-day minimum release age.
-ARG NEXTEST_VERSION=0.9.150
-ARG LLVM_COV_VERSION=0.9.1
+ARG NEXTEST_VERSION=0.9.150 # renovate: datasource=crate depName=cargo-nextest
+ARG LLVM_COV_VERSION=0.9.1 # renovate: datasource=crate depName=cargo-llvm-cov
 RUN apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /tools \

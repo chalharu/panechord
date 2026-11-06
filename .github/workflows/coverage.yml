@@ -52,11 +52,12 @@ env:
   CARGO_INCREMENTAL: "0"
   CARGO_PROFILE_TEST_DEBUG: "0"
   CARGO_TERM_COLOR: always
-  # Single source for prebuilt CI tool versions (renovate tracks these).
-  # New releases apply only after the 3-day minimum release age.
-  NEXTEST_VERSION: "0.9.150"
-  LLVM_COV_VERSION: "0.9.1"
-  RUST_TOOLCHAIN: "1.99.1"
+  # Single source for prebuilt CI tool versions. Renovate tracks the
+  # annotated lines below; new releases apply only after the 3-day
+  # minimum release age.
+  NEXTEST_VERSION: "0.9.150" # renovate: datasource=crate depName=cargo-nextest
+  LLVM_COV_VERSION: "0.9.1" # renovate: datasource=crate depName=cargo-llvm-cov
+  RUST_TOOLCHAIN: "1.99.1" # renovate: datasource=github-releases depName=rust-lang/rust
 
 jobs:
   prepare-image:
@@ -376,9 +377,6 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
-    env:
-      NEXTEST_URL: https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-${{ env.NEXTEST_VERSION }}/cargo-nextest-${{ env.NEXTEST_VERSION }}-x86_64-pc-windows-msvc.zip # yamllint disable-line rule:line-length
-      LLVM_COV_URL: https://github.com/taiki-e/cargo-llvm-cov/releases/download/v${{ env.LLVM_COV_VERSION }}/cargo-llvm-cov-${{ env.LLVM_COV_VERSION }}-x86_64-pc-windows-msvc.zip # yamllint disable-line rule:line-length
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -402,8 +400,12 @@ jobs:
         run: |
           $tools = "$env:RUNNER_TEMP\ci-tools"
           New-Item -ItemType Directory -Force -Path $tools | Out-Null
-          curl.exe -fsSL -o "$tools\nextest.zip" $env:NEXTEST_URL
-          curl.exe -fsSL -o "$tools\llvm-cov.zip" $env:LLVM_COV_URL
+          $ntBase = "https://github.com/nextest-rs/nextest/releases/download"
+          $ntFile = "cargo-nextest-$env:NEXTEST_VERSION-x86_64-pc-windows-msvc.zip"
+          $lcBase = "https://github.com/taiki-e/cargo-llvm-cov/releases/download"
+          $lcFile = "cargo-llvm-cov-$env:LLVM_COV_VERSION-x86_64-pc-windows-msvc.zip"
+          curl.exe -fsSL -o "$tools\nextest.zip" "$ntBase/cargo-nextest-$env:NEXTEST_VERSION/$ntFile"
+          curl.exe -fsSL -o "$tools\llvm-cov.zip" "$lcBase/v$env:LLVM_COV_VERSION/$lcFile"
           Expand-Archive -Path "$tools\nextest.zip" -DestinationPath $tools -Force
           Expand-Archive -Path "$tools\llvm-cov.zip" -DestinationPath $tools -Force
           & "$tools\cargo-nextest.exe" --version
@@ -451,9 +453,6 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
-    env:
-      NEXTEST_URL: https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-${{ env.NEXTEST_VERSION }}/cargo-nextest-${{ env.NEXTEST_VERSION }}-x86_64-pc-windows-msvc.zip # yamllint disable-line rule:line-length
-      LLVM_COV_URL: https://github.com/taiki-e/cargo-llvm-cov/releases/download/v${{ env.LLVM_COV_VERSION }}/cargo-llvm-cov-${{ env.LLVM_COV_VERSION }}-x86_64-pc-windows-msvc.zip # yamllint disable-line rule:line-length
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -477,8 +476,12 @@ jobs:
         run: |
           $tools = "$env:RUNNER_TEMP\ci-tools"
           New-Item -ItemType Directory -Force -Path $tools | Out-Null
-          curl.exe -fsSL -o "$tools\nextest.zip" $env:NEXTEST_URL
-          curl.exe -fsSL -o "$tools\llvm-cov.zip" $env:LLVM_COV_URL
+          $ntBase = "https://github.com/nextest-rs/nextest/releases/download"
+          $ntFile = "cargo-nextest-$env:NEXTEST_VERSION-x86_64-pc-windows-msvc.zip"
+          $lcBase = "https://github.com/taiki-e/cargo-llvm-cov/releases/download"
+          $lcFile = "cargo-llvm-cov-$env:LLVM_COV_VERSION-x86_64-pc-windows-msvc.zip"
+          curl.exe -fsSL -o "$tools\nextest.zip" "$ntBase/cargo-nextest-$env:NEXTEST_VERSION/$ntFile"
+          curl.exe -fsSL -o "$tools\llvm-cov.zip" "$lcBase/v$env:LLVM_COV_VERSION/$lcFile"
           Expand-Archive -Path "$tools\nextest.zip" -DestinationPath $tools -Force
           Expand-Archive -Path "$tools\llvm-cov.zip" -DestinationPath $tools -Force
           & "$tools\cargo-nextest.exe" --version
@@ -526,9 +529,6 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
-    env:
-      NEXTEST_URL: https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-${{ env.NEXTEST_VERSION }}/cargo-nextest-${{ env.NEXTEST_VERSION }}-universal-apple-darwin.tar.gz # yamllint disable-line rule:line-length
-      LLVM_COV_URL: https://github.com/taiki-e/cargo-llvm-cov/releases/download/v${{ env.LLVM_COV_VERSION }}/cargo-llvm-cov-${{ env.LLVM_COV_VERSION }}-aarch64-apple-darwin.tar.gz # yamllint disable-line rule:line-length
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -551,8 +551,12 @@ jobs:
         if: steps.tools-cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p "${RUNNER_TEMP}/ci-tools"
-          curl -fsSL -o "${RUNNER_TEMP}/ci-tools/nextest.tar.gz" "$NEXTEST_URL"
-          curl -fsSL -o "${RUNNER_TEMP}/ci-tools/llvm-cov.tar.gz" "$LLVM_COV_URL"
+          ntBase=https://github.com/nextest-rs/nextest/releases/download
+          ntFile=cargo-nextest-${NEXTEST_VERSION}-universal-apple-darwin.tar.gz
+          lcBase=https://github.com/taiki-e/cargo-llvm-cov/releases/download
+          lcFile=cargo-llvm-cov-${LLVM_COV_VERSION}-aarch64-apple-darwin.tar.gz
+          curl -fsSL -o "${RUNNER_TEMP}/ci-tools/nextest.tar.gz" "$ntBase/cargo-nextest-$NEXTEST_VERSION/$ntFile"
+          curl -fsSL -o "${RUNNER_TEMP}/ci-tools/llvm-cov.tar.gz" "$lcBase/v$LLVM_COV_VERSION/$lcFile"
           tar -xzf "${RUNNER_TEMP}/ci-tools/nextest.tar.gz" -C "${RUNNER_TEMP}/ci-tools"
           tar -xzf "${RUNNER_TEMP}/ci-tools/llvm-cov.tar.gz" -C "${RUNNER_TEMP}/ci-tools"
           "${RUNNER_TEMP}/ci-tools/cargo-nextest" --version
@@ -599,9 +603,6 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
-    env:
-      NEXTEST_URL: https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-${{ env.NEXTEST_VERSION }}/cargo-nextest-${{ env.NEXTEST_VERSION }}-universal-apple-darwin.tar.gz # yamllint disable-line rule:line-length
-      LLVM_COV_URL: https://github.com/taiki-e/cargo-llvm-cov/releases/download/v${{ env.LLVM_COV_VERSION }}/cargo-llvm-cov-${{ env.LLVM_COV_VERSION }}-aarch64-apple-darwin.tar.gz # yamllint disable-line rule:line-length
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -624,8 +625,12 @@ jobs:
         if: steps.tools-cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p "${RUNNER_TEMP}/ci-tools"
-          curl -fsSL -o "${RUNNER_TEMP}/ci-tools/nextest.tar.gz" "$NEXTEST_URL"
-          curl -fsSL -o "${RUNNER_TEMP}/ci-tools/llvm-cov.tar.gz" "$LLVM_COV_URL"
+          ntBase=https://github.com/nextest-rs/nextest/releases/download
+          ntFile=cargo-nextest-${NEXTEST_VERSION}-universal-apple-darwin.tar.gz
+          lcBase=https://github.com/taiki-e/cargo-llvm-cov/releases/download
+          lcFile=cargo-llvm-cov-${LLVM_COV_VERSION}-aarch64-apple-darwin.tar.gz
+          curl -fsSL -o "${RUNNER_TEMP}/ci-tools/nextest.tar.gz" "$ntBase/cargo-nextest-$NEXTEST_VERSION/$ntFile"
+          curl -fsSL -o "${RUNNER_TEMP}/ci-tools/llvm-cov.tar.gz" "$lcBase/v$LLVM_COV_VERSION/$lcFile"
           tar -xzf "${RUNNER_TEMP}/ci-tools/nextest.tar.gz" -C "${RUNNER_TEMP}/ci-tools"
           tar -xzf "${RUNNER_TEMP}/ci-tools/llvm-cov.tar.gz" -C "${RUNNER_TEMP}/ci-tools"
           "${RUNNER_TEMP}/ci-tools/cargo-nextest" --version

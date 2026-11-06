@@ -426,8 +426,9 @@ jobs:
           output=$(timeout "$native_timeout" xvfb-run -a cargo llvm-cov run --no-report --locked \
             -p panechord-demo --example controls)
           printf '%s\n' "$output"
-          printf '%s\n' "$output" | grep -q '^CONTRACT3 PASS slider closed capacity conversion readonly ' \
-            'hidden disabled normalized-display$'
+          marker='^CONTRACT3 PASS slider closed capacity conversion readonly '
+          marker="${marker}hidden disabled normalized-display$"
+          printf '%s\n' "$output" | grep -q "$marker"
           printf '%s\n' "$output" | grep -q '^MENUS3 PASS nested typed-argument parent-enablement$'
           printf '%s\n' "$output" | grep -q '^DIALOG3 PASS readonly hidden-parent close-reopen$'
           printf '%s\n' "$output" | grep -q '^TABS3 PASS top bottom left right selection retained$'
@@ -439,13 +440,15 @@ jobs:
           output=$(timeout "$native_timeout" xvfb-run -a cargo llvm-cov run --no-report --locked \
             -p panechord-demo -- --smoke)
           printf '%s\n' "$output"
-          printf '%s\n' "$output" | grep -q '^PROTOTYPE2 PASS templates=item+content virtualization=1000 ' \
-            'conversions=checked validation=async menu=dynamic saves=2 closed=true$'
+          marker='^PROTOTYPE2 PASS templates=item+content virtualization=1000 '
+          marker="${marker}conversions=checked validation=async menu=dynamic saves=2 closed=true$"
+          printf '%s\n' "$output" | grep -q "$marker"
           output=$(timeout "$native_timeout" xvfb-run -a cargo llvm-cov run --no-report --locked \
             -p panechord-library -- --smoke)
           printf '%s\n' "$output"
-          printf '%s\n' "$output" | grep -q '^LIBRARY3 gtk PASS native-events scan filter selection ' \
-            'invalid-folder recovery rescan$'
+          marker='^LIBRARY3 gtk PASS native-events scan filter selection '
+          marker="${marker}invalid-folder recovery rescan$"
+          printf '%s\n' "$output" | grep -q "$marker"
           printf '%s\n' "$output" | grep -q '^LIBRARY3 gtk PASS native-close model-closed$'
           cargo llvm-cov report -p panechord-runtime -p panechord-demo -p panechord-gtk -p panechord-library \
             --lcov --output-path coverage/raw-examples-gtk.info
@@ -459,8 +462,9 @@ jobs:
             cargo llvm-cov run --no-report --locked -p panechord-demo --example controls \
             --no-default-features --features backend-tao)
           printf '%s\n' "$output"
-          printf '%s\n' "$output" | grep -q '^CONTRACT3 PASS slider closed capacity conversion readonly ' \
-            'hidden disabled normalized-display$'
+          marker='^CONTRACT3 PASS slider closed capacity conversion readonly '
+          marker="${marker}hidden disabled normalized-display$"
+          printf '%s\n' "$output" | grep -q "$marker"
           printf '%s\n' "$output" | grep -q '^MENUS3 PASS nested typed-argument parent-enablement$'
           printf '%s\n' "$output" | grep -q '^DIALOG3 PASS readonly hidden-parent close-reopen$'
           printf '%s\n' "$output" | grep -q '^TABS3 PASS top bottom left right selection retained$'
@@ -469,14 +473,16 @@ jobs:
             -p panechord-demo --no-default-features --features backend-tao \
             -- --smoke)
           printf '%s\n' "$output"
-          printf '%s\n' "$output" | grep -q '^PROTOTYPE2 PASS templates=item+content virtualization=1000 ' \
-            'conversions=checked validation=async menu=dynamic saves=2 closed=true$'
+          marker='^PROTOTYPE2 PASS templates=item+content virtualization=1000 '
+          marker="${marker}conversions=checked validation=async menu=dynamic saves=2 closed=true$"
+          printf '%s\n' "$output" | grep -q "$marker"
           output=$(timeout "$native_timeout" xvfb-run -a cargo llvm-cov run --no-report --locked \
             -p panechord-library --no-default-features --features backend-tao \
             -- --smoke)
           printf '%s\n' "$output"
-          printf '%s\n' "$output" | grep -q '^LIBRARY3 tao PASS native-events scan filter selection ' \
-            'invalid-folder recovery rescan$'
+          marker='^LIBRARY3 tao PASS native-events scan filter selection '
+          marker="${marker}invalid-folder recovery rescan$"
+          printf '%s\n' "$output" | grep -q "$marker"
           printf '%s\n' "$output" | grep -q '^LIBRARY3 tao PASS native-close model-closed$'
           output=$(timeout "$native_timeout" xvfb-run -a cargo llvm-cov run --no-report --locked \
             -p panechord-tao --example native_smoke)
@@ -485,8 +491,9 @@ jobs:
           output=$(timeout "$native_timeout" xvfb-run -a cargo llvm-cov run --no-report --locked \
             -p panechord-tao --example multiwindow)
           printf '%s\n' "$output"
-          printf '%s\n' "$output" | grep -q '^TAO3 PASS multiwindow drawn shared-store primary-close reopen ' \
-            'foreign-and-closed-rejected veto-drain-close recoverable-auxiliary-error-isolated$'
+          marker='^TAO3 PASS multiwindow drawn shared-store primary-close reopen '
+          marker="${marker}foreign-and-closed-rejected veto-drain-close recoverable-auxiliary-error-isolated$"
+          printf '%s\n' "$output" | grep -q "$marker"
           cargo llvm-cov report -p panechord-tao -p panechord-demo -p panechord-library \
             --lcov --output-path coverage/raw-examples-tao.info
           rm -rf target/llvm-cov-target

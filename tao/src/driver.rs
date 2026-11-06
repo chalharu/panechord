@@ -716,6 +716,13 @@ impl Desktop {
             })
         }
     }
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "dragonfly"
+    ))]
     /// Present each painted frame on the GTK drawing area: pump the retained
     /// tree with the coalesced wheel plus a redraw, screenshot on paint and
     /// blit the Cairo surface. Closed views veto the draw.
@@ -810,7 +817,13 @@ impl Desktop {
             gtk::glib::Propagation::Stop
         })
     }
-
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "dragonfly"
+    ))]
     /// The bridge owns Linux scroll: merge ticks into the coalesced pending
     /// total instead of pumping per tick. Mixed units flush first so order —
     /// and unit semantics — never corrupt. The frame decision moves to draw.

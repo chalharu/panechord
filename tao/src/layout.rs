@@ -133,6 +133,144 @@ fn coordinate(v: f32) -> f32 {
 }
 
 /// Geometry is in logical pixels; child sizes include padding, not margins.
+/// Stack/Flex flow: wrap lines against the bound, then align the cross axis
+/// for non-wrapping stacks.
+fn place_sequential(
+    policy: Policy,
+    gap: f32,
+    available: f32,
+    children: &[(Size, Style)],
+    positions: &mut [Point],
+    extent: &mut Size,
+) {
+    let horizontal = matches!(policy, Policy::Flex { .. }) || horizontal_policy(policy);
+    let wrap = matches!(policy, Policy::Flex { .. });
+    let (mut x, mut y, mut line) = (0.0f32, 0.0f32, 0.0f32);
+    for (index, (size, style)) in children.iter().enumerate() {
+        let m = style.margin;
+        let width = finite(size.width) + finite(m.left) + finite(m.right);
+        let height = finite(size.height) + finite(m.top) + finite(m.bottom);
+        if wrap && x > 0.0 && x + width > available {
+            x = 0.0;
+            y += line + gap;
+            line = 0.0;
+        }
+        positions[index] = Point::new(x + finite(m.left), y + finite(m.top));
+        extent.width = extent.width.max(x + width);
+        extent.height = extent.height.max(y + height);
+        if horizontal {
+            x += width + gap;
+            line = line.max(height);
+        } else {
+            y += height + gap;
+        }
+    }
+    if !wrap {
+        align_sequential(horizontal, available, children, positions, extent);
+    }
+}
+
+/// Cross-axis alignment for placed non-wrapping stacks: stretch rows to the
+/// measured extent, or center each child in the bound.
+fn align_sequential(
+    horizontal: bool,
+    available: f32,
+    children: &[(Size, Style)],
+    positions: &mut [Point],
+    extent: &mut Size,
+) {
+    for (position, (size, style)) in positions.iter_mut().zip(children) {
+        if horizontal {
+            let height =
+                (extent.height - finite(style.margin.top) - finite(style.margin.bottom)).max(0.0);
+            position.y += style
+                .vertical_alignment
+                .unwrap_or(Alignment::Start)
+                .offset(height, finite(size.height));
+        } else if let Some(alignment) = style.horizontal_alignment {
+            let width =
+                (available - finite(style.margin.left) - finite(style.margin.right)).max(0.0);
+            position.x += alignment.offset(width, finite(size.width));
+            extent.width = extent.width.max(available);
+        }
+    }
+}
+
+/// Absolute placement: explicit coordinates plus margins.
+fn place_absolute(children: &[(Size, Style)], positions: &mut [Point], extent: &mut Size) {
+    for (index, (size, style)) in children.iter().enumerate() {
+        let p = style.placement;
+        let m = style.margin;
+        let x = coordinate(p.x) + finite(m.left);
+        let y = coordinate(p.y) + finite(m.top);
+        positions[index] = Point::new(x, y);
+        extent.width = extent.width.max(x + size.width + finite(m.right));
+        extent.height = extent.height.max(y + size.height + finite(m.bottom));
+    }
+}
+
+/// Grid tracks share the width equally; row heights grow to fit the tallest
+/// spanned content, then every cell resolves against the measured tracks.
+fn place_grid(
+    columns: u32,
+    gap: f32,
+    available: f32,
+    children: &[(Size, Style)],
+    positions: &mut [Point],
+) -> Size {
+    let cols = columns.clamp(1, 4096) as usize;
+    let cell = ((available - gap * (cols - 1) as f32) / cols as f32).max(0.0);
+    let rows = children
+        .iter()
+        .enumerate()
+        .map(|(index, (_, style))| {
+            grid_cell(style, cols, index).0 + grid_cell(style, cols, index).2
+        })
+        .max()
+        .unwrap_or(0);
+    let mut heights = vec![0.0f32; rows];
+    for (index, (size, style)) in children.iter().enumerate() {
+        let (r, _, span, _) = grid_cell(style, cols, index);
+        let need = finite(size.height) + finite(style.margin.top) + finite(style.margin.bottom);
+        let occupied: f32 = heights[r..r + span].iter().sum::<f32>() + gap * (span - 1) as f32;
+        if need > occupied {
+            for h in &mut heights[r..r + span] {
+                *h += (need - occupied) / span as f32;
+            }
+        }
+    }
+    for (index, (size, style)) in children.iter().enumerate() {
+        let (r, c, row_span, column_span) = grid_cell(style, cols, index);
+        let width = (cell * column_span as f32 + gap * (column_span - 1) as f32
+            - finite(style.margin.left)
+            - finite(style.margin.right))
+        .max(0.0);
+        let height = (heights[r..r + row_span].iter().sum::<f32>() + gap * (row_span - 1) as f32
+            - finite(style.margin.top)
+            - finite(style.margin.bottom))
+        .max(0.0);
+        positions[index] = Point::new(
+            c as f32 * (cell + gap)
+                + finite(style.margin.left)
+                + style
+                    .horizontal_alignment
+                    .unwrap_or(Alignment::Start)
+                    .offset(width, finite(size.width)),
+            heights[..r].iter().sum::<f32>()
+                + r as f32 * gap
+                + finite(style.margin.top)
+                + style
+                    .vertical_alignment
+                    .unwrap_or(Alignment::Start)
+                    .offset(height, finite(size.height)),
+        );
+    }
+    Size::new(
+        available,
+        heights.iter().sum::<f32>() + gap * rows.saturating_sub(1) as f32,
+    )
+}
+
 pub fn geometry(policy: Policy, available: f32, children: &[(Size, Style)]) -> (Size, Vec<Point>) {
     let available = if available.is_finite() {
         available.max(0.0)
@@ -143,117 +281,20 @@ pub fn geometry(policy: Policy, available: f32, children: &[(Size, Style)]) -> (
     let mut extent = Size::ZERO;
     match policy {
         Policy::Stack { gap, .. } | Policy::Flex { gap } => {
-            let horizontal = matches!(policy, Policy::Flex { .. }) || horizontal_policy(policy);
-            let wrap = matches!(policy, Policy::Flex { .. });
-            let gap = finite(gap);
-            let (mut x, mut y, mut line) = (0.0f32, 0.0f32, 0.0f32);
-            for (index, (size, style)) in children.iter().enumerate() {
-                let m = style.margin;
-                let width = finite(size.width) + finite(m.left) + finite(m.right);
-                let height = finite(size.height) + finite(m.top) + finite(m.bottom);
-                if wrap && x > 0.0 && x + width > available {
-                    x = 0.0;
-                    y += line + gap;
-                    line = 0.0;
-                }
-                positions[index] = Point::new(x + finite(m.left), y + finite(m.top));
-                extent.width = extent.width.max(x + width);
-                extent.height = extent.height.max(y + height);
-                if horizontal {
-                    x += width + gap;
-                    line = line.max(height);
-                } else {
-                    y += height + gap;
-                }
-            }
-            if !wrap {
-                for (position, (size, style)) in positions.iter_mut().zip(children) {
-                    if horizontal {
-                        let height = (extent.height
-                            - finite(style.margin.top)
-                            - finite(style.margin.bottom))
-                        .max(0.0);
-                        position.y += style
-                            .vertical_alignment
-                            .unwrap_or(Alignment::Start)
-                            .offset(height, finite(size.height));
-                    } else if let Some(alignment) = style.horizontal_alignment {
-                        let width =
-                            (available - finite(style.margin.left) - finite(style.margin.right))
-                                .max(0.0);
-                        position.x += alignment.offset(width, finite(size.width));
-                        extent.width = extent.width.max(available);
-                    }
-                }
-            }
+            place_sequential(
+                policy,
+                finite(gap),
+                available,
+                children,
+                &mut positions,
+                &mut extent,
+            );
         }
         Policy::Absolute => {
-            for (index, (size, style)) in children.iter().enumerate() {
-                let p = style.placement;
-                let m = style.margin;
-                let x = coordinate(p.x) + finite(m.left);
-                let y = coordinate(p.y) + finite(m.top);
-                positions[index] = Point::new(x, y);
-                extent.width = extent.width.max(x + size.width + finite(m.right));
-                extent.height = extent.height.max(y + size.height + finite(m.bottom));
-            }
+            place_absolute(children, &mut positions, &mut extent);
         }
         Policy::Grid { columns, gap } => {
-            let cols = columns.clamp(1, 4096) as usize;
-            let gap = finite(gap);
-            let cell = ((available - gap * (cols - 1) as f32) / cols as f32).max(0.0);
-            let rows = children
-                .iter()
-                .enumerate()
-                .map(|(index, (_, style))| {
-                    grid_cell(style, cols, index).0 + grid_cell(style, cols, index).2
-                })
-                .max()
-                .unwrap_or(0);
-            let mut heights = vec![0.0f32; rows];
-            for (index, (size, style)) in children.iter().enumerate() {
-                let (r, _, span, _) = grid_cell(style, cols, index);
-                let need =
-                    finite(size.height) + finite(style.margin.top) + finite(style.margin.bottom);
-                let occupied: f32 =
-                    heights[r..r + span].iter().sum::<f32>() + gap * (span - 1) as f32;
-                if need > occupied {
-                    for h in &mut heights[r..r + span] {
-                        *h += (need - occupied) / span as f32;
-                    }
-                }
-            }
-            for (index, (size, style)) in children.iter().enumerate() {
-                let (r, c, row_span, column_span) = grid_cell(style, cols, index);
-                let width = (cell * column_span as f32 + gap * (column_span - 1) as f32
-                    - finite(style.margin.left)
-                    - finite(style.margin.right))
-                .max(0.0);
-                let height = (heights[r..r + row_span].iter().sum::<f32>()
-                    + gap * (row_span - 1) as f32
-                    - finite(style.margin.top)
-                    - finite(style.margin.bottom))
-                .max(0.0);
-                positions[index] = Point::new(
-                    c as f32 * (cell + gap)
-                        + finite(style.margin.left)
-                        + style
-                            .horizontal_alignment
-                            .unwrap_or(Alignment::Start)
-                            .offset(width, finite(size.width)),
-                    heights[..r].iter().sum::<f32>()
-                        + r as f32 * gap
-                        + finite(style.margin.top)
-                        + style
-                            .vertical_alignment
-                            .unwrap_or(Alignment::Start)
-                            .offset(height, finite(size.height)),
-                );
-            }
-            extent = Size::new(
-                available,
-                heights.iter().sum::<f32>() + gap * rows.saturating_sub(1) as f32,
-            );
+            extent = place_grid(columns, finite(gap), available, children, &mut positions);
         }
     }
     (extent, positions)

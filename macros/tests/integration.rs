@@ -532,7 +532,7 @@ mod fake {
     impl panechord_runtime::Backend for Backend {
         type View = View;
         type Host = Host;
-        const NAME: &'static str = "fake";
+        const NAME: &str = "fake";
         fn run_host(
             _: impl FnOnce(Rc<Host>) -> Result<(), String> + 'static,
         ) -> Result<(), String> {

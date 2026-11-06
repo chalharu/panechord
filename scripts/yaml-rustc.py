@@ -81,7 +81,7 @@ def main():
     # Transparent RUSTC_WRAPPER passthrough by design: cargo supplies the real
     # compiler argv and this wrapper only decorates YAML diagnostics on stderr.
     # No arguments are interpreted or reshaped here.
-    process = subprocess.Popen(sys.argv[1:], stderr=subprocess.PIPE, close_fds=False)  # NOSONAR: argv passthrough is the wrapper contract, not injection.
+    process = subprocess.Popen(sys.argv[1:], stderr=subprocess.PIPE, close_fds=False)  # NOSONAR
     for raw in process.stderr:
         try:
             diagnostic = json.loads(raw)

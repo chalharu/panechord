@@ -29,7 +29,7 @@ pub trait Backend {
     /// Short backend identifier for logs and review evidence (`"gtk"`,
     /// `"tao"`, `"macos"`). Screens read this instead of branching on
     /// backend features to name the backend they run on.
-    const NAME: &'static str;
+    const NAME: &str;
 
     /// Drive the single native loop for this backend.
     fn run_host(

@@ -696,7 +696,7 @@ macro_rules! backend_view_impls {
         impl $crate::Backend for $Backend {
             type View = $View;
             type Host = $Host;
-            const NAME: &'static str = $name;
+            const NAME: &str = $name;
             fn run_host(
                 make: impl FnOnce(::std::rc::Rc<$Host>) -> Result<(), String> + 'static,
             ) -> Result<(), String> {

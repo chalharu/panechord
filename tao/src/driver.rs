@@ -1228,6 +1228,132 @@ impl Drop for Desktop {
         }
     }
 }
+/// Windows accelerator pump: TranslateAcceleratorW runs native menu
+/// shortcuts before Tao sees the key. The table is queried per message
+/// because dynamic snapshots may replace the HACCEL.
+#[cfg(target_os = "windows")]
+fn install_windows_accelerator_hook(
+    builder: &mut EventLoopBuilder<Native>,
+) -> Rc<RefCell<Weak<super::Inner>>> {
+    use tao::platform::windows::EventLoopBuilderExtWindows;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{MSG, TranslateAcceleratorW};
+    let owner = Rc::new(RefCell::new(std::rc::Weak::<super::Inner>::new()));
+    let hook = owner.clone();
+    builder.with_msg_hook(move |message| {
+        let inner = hook.borrow().upgrade();
+        let Some(inner) = inner.filter(|i| !i.lifecycle.is_closed()) else {
+            return false;
+        };
+        // Query each time: dynamic menu snapshots may replace the HACCEL.
+        let accelerator = inner.menus().haccel();
+        if message.is_null() || accelerator == 0 {
+            return false;
+        }
+        // SAFETY: Tao provides a valid MSG for this synchronous hook; the
+        // live View owns the menu table throughout TranslateAcceleratorW.
+        unsafe {
+            let message = message.cast::<MSG>();
+            TranslateAcceleratorW((*message).hwnd, accelerator as _, message) != 0
+        }
+    });
+    owner
+}
+
+/// Executor plus host pair: the scheduler wakes the loop, the host owns the
+/// views/session and refreshes through the same proxy.
+fn make_host(proxy: &Proxy) -> (Rc<TaoHost>, Rc<Scheduler>) {
+    let wake = proxy.clone();
+    let executor = Rc::new(Scheduler::new(Arc::new(move |id| {
+        wake.send(Native::Wake(id))
+    })));
+    let invalidate = proxy.clone();
+    let host = Rc::new(TaoHost {
+        executor: executor.clone(),
+        views: RefCell::default(),
+        session: RefCell::default(),
+        next: std::cell::Cell::new(0),
+        notify: Rc::new(move |id| invalidate.send(Native::Refresh(id))),
+    });
+    (host, executor)
+}
+
+/// The loop's mutable state: adopted desktops, the focused id, the menu
+/// owner and the first fatal report travel together through every turn.
+struct Loop {
+    desktops: std::collections::BTreeMap<usize, Desktop>,
+    active: Option<usize>,
+    menu_owner: Rc<RefCell<Weak<super::Inner>>>,
+    error: Option<String>,
+}
+
+/// One loop turn: adopt pending views, dispatch the event, sweep closed
+/// views and schedule the next deadline or exit.
+fn drive_event(
+    host: &TaoHost,
+    target: &tao::event_loop::EventLoopWindowTarget<Native>,
+    proxy: &Proxy,
+    executor: &Scheduler,
+    state: &mut Loop,
+    event: Event<'_, Native>,
+    flow: &mut ControlFlow,
+) {
+    let Loop {
+        desktops,
+        active,
+        menu_owner,
+        error,
+    } = state;
+    open_pending_views(host, target, proxy, desktops, error);
+    let result = catch_unwind(AssertUnwindSafe(|| match event {
+        Event::UserEvent(Native::Wake(id)) => executor.ready(id),
+        Event::UserEvent(Native::Refresh(id)) => {
+            if let Some(desktop) = desktops.get(&id) {
+                desktop.refresh();
+            }
+        }
+        Event::UserEvent(Native::Menu(id)) => {
+            for desktop in desktops.values() {
+                let key = desktop.view.0.menu_ids.borrow().get(&id).cloned();
+                if let Some(key) = key {
+                    let _ = desktop.view.dispatch(Message::Menu(key));
+                    break;
+                }
+            }
+        }
+        Event::WindowEvent {
+            window_id, event, ..
+        } => {
+            route_window_event(desktops, active, menu_owner, window_id, &event);
+        }
+        #[cfg(not(any(
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "openbsd",
+            target_os = "dragonfly"
+        )))]
+        Event::RedrawRequested(id) => {
+            redraw_desktop(desktops, id);
+        }
+        Event::MainEventsCleared if executor.turn() => proxy.send(Native::Turn),
+        _ => {}
+    }));
+    if let Err(panic) = result {
+        *error = Some(panic_error(panic));
+        for desktop in desktops.values() {
+            desktop.view.close();
+        }
+    }
+    sweep_closed_views(desktops, host, error);
+    ensure_active(desktops, active, menu_owner);
+    if host.views.borrow().is_empty() || error.is_some() {
+        executor.close();
+        *flow = ControlFlow::Exit;
+    } else {
+        *flow = next_deadline(desktops).map_or(ControlFlow::Wait, ControlFlow::WaitUntil);
+    }
+}
+
 fn redraw() -> iced::Event {
     iced::Event::Window(iced::window::Event::RedrawRequested(Instant::now()))
 }
@@ -1389,53 +1515,22 @@ pub(super) fn run(
     catch_unwind(AssertUnwindSafe(|| -> Result<(), String> {
         let mut builder = EventLoopBuilder::<Native>::with_user_event();
         #[cfg(target_os = "windows")]
-        let menu_owner = {
-            use tao::platform::windows::EventLoopBuilderExtWindows;
-            use windows_sys::Win32::UI::WindowsAndMessaging::{MSG, TranslateAcceleratorW};
-            let owner = Rc::new(RefCell::new(std::rc::Weak::<super::Inner>::new()));
-            let hook = owner.clone();
-            builder.with_msg_hook(move |message| {
-                let inner = hook.borrow().upgrade();
-                let Some(inner) = inner.filter(|i| !i.lifecycle.is_closed()) else {
-                    return false;
-                };
-                // Query each time: dynamic menu snapshots may replace the HACCEL.
-                let accelerator = inner.menus().haccel();
-                if message.is_null() || accelerator == 0 {
-                    return false;
-                }
-                // SAFETY: Tao provides a valid MSG for this synchronous hook; the
-                // live View owns the menu table throughout TranslateAcceleratorW.
-                unsafe {
-                    let message = message.cast::<MSG>();
-                    TranslateAcceleratorW((*message).hwnd, accelerator as _, message) != 0
-                }
-            });
-            owner
-        };
+        let menu_owner = install_windows_accelerator_hook(&mut builder);
         // Non-Windows loops never repoint the menu owner; the helpers still
         // take it so every platform shares one routing shape.
         #[cfg(not(target_os = "windows"))]
         let menu_owner: Rc<RefCell<Weak<super::Inner>>> = Rc::new(RefCell::new(Weak::new()));
         let mut event_loop = builder.build();
         let proxy = Proxy(event_loop.create_proxy());
-        let wake = proxy.clone();
-        let executor = Rc::new(Scheduler::new(Arc::new(move |id| {
-            wake.send(Native::Wake(id))
-        })));
+        let (host, executor) = make_host(&proxy);
         let _executor_guard = ExecutorGuard(executor.clone());
-        let invalidate = proxy.clone();
-        let host = Rc::new(TaoHost {
-            executor: executor.clone(),
-            views: RefCell::default(),
-            session: RefCell::default(),
-            next: std::cell::Cell::new(0),
-            notify: Rc::new(move |id| invalidate.send(Native::Refresh(id))),
-        });
         make(host.clone())?;
-        let mut desktops = std::collections::BTreeMap::<usize, Desktop>::new();
-        let mut active = None;
-        let mut error = None;
+        let mut state = Loop {
+            desktops: std::collections::BTreeMap::new(),
+            active: None,
+            menu_owner,
+            error: None,
+        };
         MENU_PROXY.lock().unwrap().replace(proxy.clone());
         let _bridge = MenuBridge;
         MENU_INIT.call_once(|| {
@@ -1447,57 +1542,9 @@ pub(super) fn run(
             }))
         });
         let status = event_loop.run_return(|event, target, flow| {
-            open_pending_views(&host, target, &proxy, &mut desktops, &mut error);
-            let result = catch_unwind(AssertUnwindSafe(|| match event {
-                Event::UserEvent(Native::Wake(id)) => executor.ready(id),
-                Event::UserEvent(Native::Refresh(id)) => {
-                    if let Some(desktop) = desktops.get(&id) {
-                        desktop.refresh();
-                    }
-                }
-                Event::UserEvent(Native::Menu(id)) => {
-                    for desktop in desktops.values() {
-                        let key = desktop.view.0.menu_ids.borrow().get(&id).cloned();
-                        if let Some(key) = key {
-                            let _ = desktop.view.dispatch(Message::Menu(key));
-                            break;
-                        }
-                    }
-                }
-                Event::WindowEvent {
-                    window_id, event, ..
-                } => {
-                    route_window_event(&mut desktops, &mut active, &menu_owner, window_id, &event);
-                }
-                #[cfg(not(any(
-                    target_os = "linux",
-                    target_os = "freebsd",
-                    target_os = "netbsd",
-                    target_os = "openbsd",
-                    target_os = "dragonfly"
-                )))]
-                Event::RedrawRequested(id) => {
-                    redraw_desktop(&mut desktops, id);
-                }
-                Event::MainEventsCleared if executor.turn() => proxy.send(Native::Turn),
-                _ => {}
-            }));
-            if let Err(panic) = result {
-                error = Some(panic_error(panic));
-                for desktop in desktops.values() {
-                    desktop.view.close();
-                }
-            }
-            sweep_closed_views(&mut desktops, &host, &mut error);
-            ensure_active(&desktops, &mut active, &menu_owner);
-            if host.views.borrow().is_empty() || error.is_some() {
-                executor.close();
-                *flow = ControlFlow::Exit;
-            } else {
-                *flow = next_deadline(&desktops).map_or(ControlFlow::Wait, ControlFlow::WaitUntil);
-            }
+            drive_event(&host, target, &proxy, &executor, &mut state, event, flow);
         });
-        if let Some(error) = error {
+        if let Some(error) = state.error {
             return Err(error);
         }
         if status != 0 {

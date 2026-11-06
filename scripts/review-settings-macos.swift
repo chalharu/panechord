@@ -6,7 +6,6 @@ import Vision
 
 enum Failure: Error { case message(String) }
 /// System screen-capture tool used by the review harness (macOS only).
-let screenCaptureTool = "/usr/sbin/screencapture"
 func require(_ condition: Bool, _ message: String) throws {
     if !condition { throw Failure.message(message) }
 }
@@ -52,6 +51,11 @@ struct Capture {
 
 func review() throws {
     try require(CommandLine.arguments.count == 4, "usage: swift review-settings-macos.swift BINARY OUTPUT BACKEND")
+    guard let screenCaptureTool = ProcessInfo.processInfo.environment["PANECHORD_SCREENCAPTURE"],
+          !screenCaptureTool.isEmpty
+    else {
+        throw Failure.message("set PANECHORD_SCREENCAPTURE to the screen-capture tool path")
+    }
     try require(AXIsProcessTrusted() && CGPreflightScreenCaptureAccess() && CGPreflightPostEventAccess(),
                 "Accessibility, Screen Recording and event-post permission required")
     let output = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)

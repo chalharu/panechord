@@ -242,27 +242,6 @@ pub struct Command {
     invoke: Rc<dyn Fn() -> bool>,
 }
 
-#[cfg(test)]
-mod external_tests {
-    use super::*;
-
-    #[test]
-    fn external_binding_closed_guard_never_calls_writer() {
-        let called = Rc::new(Cell::new(false));
-        let out = called.clone();
-        let binding = Binding::external(
-            || 1,
-            Some(Rc::new(move |_| {
-                out.set(true);
-                Ok(())
-            })),
-            |_| Subscription::empty(),
-        );
-        assert!(!binding.set_guarded(9, Rc::new(|| false)));
-        assert!(!called.get());
-    }
-}
-
 impl Command {
     /// Argument is read now; enabled is checked now and on dequeue.
     #[must_use = "check acceptance or explicitly discard it"]
@@ -1263,4 +1242,25 @@ pub fn validation<S: Clone + 'static>(
                 .push(Rc::new(move || pending.set(false)));
         }
     })
+}
+
+#[cfg(test)]
+mod external_tests {
+    use super::*;
+
+    #[test]
+    fn external_binding_closed_guard_never_calls_writer() {
+        let called = Rc::new(Cell::new(false));
+        let out = called.clone();
+        let binding = Binding::external(
+            || 1,
+            Some(Rc::new(move |_| {
+                out.set(true);
+                Ok(())
+            })),
+            |_| Subscription::empty(),
+        );
+        assert!(!binding.set_guarded(9, Rc::new(|| false)));
+        assert!(!called.get());
+    }
 }

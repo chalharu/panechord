@@ -20,6 +20,7 @@ fn main() -> Result<(), String> {
     }
     let workers = Rc::new(RefCell::new(BlockingPool::new(2, 8)));
     let pool = workers.clone();
+    let smoke = args.iter().any(|arg| arg == "--smoke");
     let result = backend::run_host(move |host| {
         let session = Session::new();
         host.attach(session.clone())?;
@@ -35,12 +36,18 @@ fn main() -> Result<(), String> {
         let model = owner.store().clone();
         let view = panechord_macros::owned_view!("ui/gallery.yaml", owner, backend);
         host.register_view(&session, "main", &view)?;
-        if args.iter().any(|arg| arg == "--smoke") {
-            executor.spawn(Box::pin(smoke::verify(view.clone(), model, path)));
+        if smoke {
+            executor.spawn(Box::pin(smoke::verify(view.clone(), model, path.clone())));
         }
         Ok(())
     });
     // Blocking joins never happen inside the live native loop.
     workers.borrow_mut().shutdown();
+    // Smoke temp cleanup runs here on the synchronous boundary, never as a
+    // blocking file operation inside the async verification above.
+    if smoke {
+        let path = std::env::temp_dir().join(format!("panechord-demo-{}.txt", std::process::id()));
+        let _ = std::fs::remove_file(path);
+    }
     result
 }

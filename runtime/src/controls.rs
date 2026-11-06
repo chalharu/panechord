@@ -134,121 +134,6 @@ impl Table {
     }
 }
 
-#[cfg(test)]
-mod table_tests {
-    use super::*;
-
-    fn fixture() -> Table {
-        Table {
-            columns: vec![TableColumn {
-                title: "Text".into(),
-                width: None,
-                text: Default::default(),
-                overflow: TextOverflow::Wrap,
-                stretch: true,
-                hide_empty: false,
-            }]
-            .into(),
-            rows: vec![Arc::new(TableRow {
-                key: "one".into(),
-                cells: vec![TableCell {
-                    text: "value".into(),
-                    foreground: Some([70, 70, 70]),
-                }],
-            })]
-            .into(),
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn validates_shape_keys_geometry_and_text_budgets() {
-        let table = fixture();
-        assert_eq!(table.validate(), Ok(()));
-        let mut invalid = table.clone();
-        invalid.rows = vec![table.rows[0].clone(), table.rows[0].clone()].into();
-        assert_eq!(
-            invalid.validate(),
-            Err("invalid or duplicate table row key")
-        );
-        invalid = table.clone();
-        invalid.rows = vec![Arc::new(TableRow {
-            key: "one".into(),
-            cells: vec![],
-        })]
-        .into();
-        assert_eq!(invalid.validate(), Err("table row has wrong cell count"));
-        for gap in [f32::NAN, f32::INFINITY, -1.0, 4097.0] {
-            invalid = table.clone();
-            invalid.column_gap = gap;
-            assert_eq!(invalid.validate(), Err("invalid table gap"));
-            invalid = table.clone();
-            invalid.row_inset = gap;
-            assert_eq!(invalid.validate(), Err("invalid table gap"));
-        }
-        for width in [f32::NAN, 0.0, 16385.0] {
-            invalid = table.clone();
-            Arc::make_mut(&mut invalid.columns)[0].width = Some(width);
-            assert_eq!(invalid.validate(), Err("invalid table column width"));
-        }
-        invalid = table.clone();
-        invalid.empty_text = "x".repeat(8 * 1024 * 1024 + 1);
-        assert_eq!(invalid.validate(), Err("table text exceeds limits"));
-        invalid = table.clone();
-        invalid.rows = Arc::from([]);
-        assert_eq!(invalid.validate(), Ok(()));
-        invalid.columns = Arc::from([]);
-        assert_eq!(invalid.validate(), Err("table dimensions exceed limits"));
-    }
-
-    #[test]
-    fn selection_requires_a_current_row_and_column() {
-        let table = fixture();
-        assert_eq!(
-            TableSelection {
-                row_key: "one".into(),
-                column: 0
-            }
-            .validate(&table),
-            Ok(())
-        );
-        for selection in [
-            TableSelection {
-                row_key: "removed".into(),
-                column: 0,
-            },
-            TableSelection {
-                row_key: "one".into(),
-                column: 1,
-            },
-        ] {
-            assert_eq!(selection.validate(&table), Err("unknown table selection"));
-        }
-        let mut hidden = table.clone();
-        Arc::make_mut(&mut hidden.columns)[0].hide_empty = true;
-        Arc::make_mut(&mut Arc::make_mut(&mut hidden.rows)[0]).cells[0]
-            .text
-            .clear();
-        assert_eq!(
-            TableSelection {
-                row_key: "one".into(),
-                column: 0
-            }
-            .validate(&hidden),
-            Err("unknown table selection")
-        );
-        Arc::make_mut(&mut hidden.columns)[0].hide_empty = false;
-        assert_eq!(
-            TableSelection {
-                row_key: "one".into(),
-                column: 0
-            }
-            .validate(&hidden),
-            Ok(())
-        );
-    }
-}
-
 impl fmt::Display for Choice {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&self.label)
@@ -378,5 +263,120 @@ impl ImageFrame {
     }
     pub fn pixels(&self) -> &Arc<[u8]> {
         &self.pixels
+    }
+}
+
+#[cfg(test)]
+mod table_tests {
+    use super::*;
+
+    fn fixture() -> Table {
+        Table {
+            columns: vec![TableColumn {
+                title: "Text".into(),
+                width: None,
+                text: Default::default(),
+                overflow: TextOverflow::Wrap,
+                stretch: true,
+                hide_empty: false,
+            }]
+            .into(),
+            rows: vec![Arc::new(TableRow {
+                key: "one".into(),
+                cells: vec![TableCell {
+                    text: "value".into(),
+                    foreground: Some([70, 70, 70]),
+                }],
+            })]
+            .into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn validates_shape_keys_geometry_and_text_budgets() {
+        let table = fixture();
+        assert_eq!(table.validate(), Ok(()));
+        let mut invalid = table.clone();
+        invalid.rows = vec![table.rows[0].clone(), table.rows[0].clone()].into();
+        assert_eq!(
+            invalid.validate(),
+            Err("invalid or duplicate table row key")
+        );
+        invalid = table.clone();
+        invalid.rows = vec![Arc::new(TableRow {
+            key: "one".into(),
+            cells: vec![],
+        })]
+        .into();
+        assert_eq!(invalid.validate(), Err("table row has wrong cell count"));
+        for gap in [f32::NAN, f32::INFINITY, -1.0, 4097.0] {
+            invalid = table.clone();
+            invalid.column_gap = gap;
+            assert_eq!(invalid.validate(), Err("invalid table gap"));
+            invalid = table.clone();
+            invalid.row_inset = gap;
+            assert_eq!(invalid.validate(), Err("invalid table gap"));
+        }
+        for width in [f32::NAN, 0.0, 16385.0] {
+            invalid = table.clone();
+            Arc::make_mut(&mut invalid.columns)[0].width = Some(width);
+            assert_eq!(invalid.validate(), Err("invalid table column width"));
+        }
+        invalid = table.clone();
+        invalid.empty_text = "x".repeat(8 * 1024 * 1024 + 1);
+        assert_eq!(invalid.validate(), Err("table text exceeds limits"));
+        invalid = table.clone();
+        invalid.rows = Arc::from([]);
+        assert_eq!(invalid.validate(), Ok(()));
+        invalid.columns = Arc::from([]);
+        assert_eq!(invalid.validate(), Err("table dimensions exceed limits"));
+    }
+
+    #[test]
+    fn selection_requires_a_current_row_and_column() {
+        let table = fixture();
+        assert_eq!(
+            TableSelection {
+                row_key: "one".into(),
+                column: 0
+            }
+            .validate(&table),
+            Ok(())
+        );
+        for selection in [
+            TableSelection {
+                row_key: "removed".into(),
+                column: 0,
+            },
+            TableSelection {
+                row_key: "one".into(),
+                column: 1,
+            },
+        ] {
+            assert_eq!(selection.validate(&table), Err("unknown table selection"));
+        }
+        let mut hidden = table.clone();
+        Arc::make_mut(&mut hidden.columns)[0].hide_empty = true;
+        Arc::make_mut(&mut Arc::make_mut(&mut hidden.rows)[0]).cells[0]
+            .text
+            .clear();
+        assert_eq!(
+            TableSelection {
+                row_key: "one".into(),
+                column: 0
+            }
+            .validate(&hidden),
+            Err("unknown table selection")
+        );
+        Arc::make_mut(&mut hidden.columns)[0].hide_empty = false;
+        assert_eq!(
+            TableSelection {
+                row_key: "one".into(),
+                column: 0
+            }
+            .validate(&hidden),
+            Ok(())
+        );
     }
 }

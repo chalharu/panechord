@@ -1155,7 +1155,7 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
             emit(id, button.state == .on ? "1" : "0")
         } else { emit(id) }
     }
-    func tabView(_ tabView: NSTabView, shouldSelect tabViewItem: NSTabViewItem?) -> Bool {
+    func tabView(_ tabView: NSTabView, shouldSelect _: NSTabViewItem?) -> Bool {
         applying || !readonlyTabs.contains(tabView.identifier?.rawValue ?? "")
     }
     /// Collapse hidden views: NSStackView keeps hidden arranged subviews in

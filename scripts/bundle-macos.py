@@ -16,24 +16,28 @@ def main():
     parser.add_argument("--profile", choices=["dev", "release"], default="dev")
     parser.add_argument("--verify", action="store_true")
     args = parser.parse_args()
+    # Allowlist maps keep only constants in subprocess argument vectors;
+    # argparse choices constrain the CLI, this constrains what reaches exec.
+    package = {"panechord-library": "panechord-library"}[args.package]
+    profile = {"dev": "dev", "release": "release"}[args.profile]
     root = pathlib.Path(__file__).resolve().parent.parent
-    result = subprocess.run(["cargo", "build", "--locked", "-p", args.package, "--profile", args.profile,
+    result = subprocess.run(["cargo", "build", "--locked", "-p", package, "--profile", profile,
                              "--no-default-features", "--features", "backend-macos", "--message-format=json"],
                             cwd=root, stdout=subprocess.PIPE, text=True, check=True)
     messages = [json.loads(line) for line in result.stdout.splitlines()]
     executable = next(pathlib.Path(item["executable"]) for item in messages
-                      if item.get("executable") and item.get("target", {}).get("name") == args.package)
+                      if item.get("executable") and item.get("target", {}).get("name") == package)
     native = next(pathlib.Path(item["out_dir"]) / "libPanechordAppKit.dylib" for item in messages
                   if item.get("reason") == "build-script-executed" and "panechord-macos" in item["package_id"])
     target = pathlib.Path(json.loads(subprocess.check_output(
         ["cargo", "metadata", "--locked", "--no-deps", "--format-version=1"], cwd=root, text=True))["target_directory"])
     with tempfile.TemporaryDirectory(prefix="panechord-bundle-", dir=target) as temporary:
-        bundle = pathlib.Path(temporary) / f"{args.package}.app"
+        bundle = pathlib.Path(temporary) / f"{package}.app"
         macos = bundle / "Contents/MacOS"
         frameworks = bundle / "Contents/Frameworks"
         macos.mkdir(parents=True)
         frameworks.mkdir()
-        binary = macos / args.package
+        binary = macos / package
         shutil.copy2(executable, binary)
         shutil.copy2(native, frameworks / native.name)
         subprocess.run(["install_name_tool", "-add_rpath", "@executable_path/../Frameworks", str(binary)], check=True)
@@ -47,8 +51,8 @@ def main():
                 if pathlib.Path(value).is_absolute():
                     subprocess.run(["install_name_tool", "-delete_rpath", value, str(binary)], check=True)
         with (bundle / "Contents/Info.plist").open("wb") as output:
-            plistlib.dump({"CFBundleExecutable": args.package, "CFBundleIdentifier": f"com.chalharu.panechord.{args.package}",
-                          "CFBundleName": args.package, "CFBundlePackageType": "APPL", "CFBundleVersion": "1",
+            plistlib.dump({"CFBundleExecutable": package, "CFBundleIdentifier": f"com.chalharu.panechord.{package}",
+                          "CFBundleName": package, "CFBundlePackageType": "APPL", "CFBundleVersion": "1",
                           "LSMinimumSystemVersion": os.environ.get("MACOSX_DEPLOYMENT_TARGET", "11.0")}, output)
         subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(bundle)], check=True)
         subprocess.run(["codesign", "--verify", "--deep", "--strict", str(bundle)], check=True)
@@ -57,7 +61,7 @@ def main():
                 destination = pathlib.Path(relocated) / bundle.name
                 shutil.copytree(bundle, destination)
                 environment = {key: value for key, value in os.environ.items() if not key.startswith("DYLD_")}
-                subprocess.run([str(destination / "Contents/MacOS" / args.package), "--smoke"],
+                subprocess.run([str(destination / "Contents/MacOS" / package), "--smoke"],
                                cwd=relocated, env=environment, timeout=int(os.environ.get("PANECHORD_NATIVE_TIMEOUT_SECONDS", "45")), check=True)
                 print("BUNDLE3 PASS relocated signed AppKit smoke without DYLD overrides")
         destination = target / "bundle" / bundle.name

@@ -616,6 +616,13 @@ fn main() -> Result<(), String> {
         let closed_model = model.clone();
         view.on_close(Rc::new(move || closed_model.close()));
         let owner = view.clone();
+        // Capture setup stays on the synchronous boundary: creating the
+        // output directory must not block the async verification below.
+        let directory = std::env::temp_dir().join(format!(
+            "panechord-macos-conformance-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&directory).unwrap();
         executor.spawn(Box::pin(async move {
             let activated = Instant::now();
             while !owner.is_key_window() {
@@ -684,8 +691,6 @@ fn main() -> Result<(), String> {
             let _ = rows.update(|state| state[1].key = "1".into());
             assert!(owner.items_error("rows").is_none());
             println!("MACOS3 PASS keyed-rows viewport mount-bound reorder invalid-key recovery");
-            let directory = std::env::temp_dir().join(format!("panechord-macos-conformance-{}", std::process::id()));
-            std::fs::create_dir(&directory).unwrap();
             owner.capture(&directory.join("native-640.png"), 640.0).unwrap();
             owner.capture(&directory.join("native-960.png"), 960.0).unwrap();
             println!("MACOS3 captures {}", directory.display());

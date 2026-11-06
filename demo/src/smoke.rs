@@ -103,7 +103,6 @@ pub async fn verify(view: backend::View, model: Store<Settings>, path: PathBuf) 
     view.close();
     view.close();
     assert!(model.is_closed());
-    let _ = std::fs::remove_file(path);
     println!(
         "PROTOTYPE2 PASS templates=item+content virtualization=1000 conversions=checked validation=async menu=dynamic saves=2 closed=true"
     );

@@ -76,7 +76,7 @@ jobs:
   linux-lint:
     name: Linux lint
     needs: prepare-image
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     container:
       image: ghcr.io/${{ github.repository }}/ci-image-panechord:${{ needs.prepare-image.outputs.image_tag }}
@@ -99,7 +99,7 @@ jobs:
   linux-headless:
     name: Linux headless tests
     needs: prepare-image
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     container:
       image: ghcr.io/${{ github.repository }}/ci-image-panechord:${{ needs.prepare-image.outputs.image_tag }}
@@ -122,7 +122,7 @@ jobs:
   linux-gtk:
     name: Linux GTK gates
     needs: prepare-image
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     container:
       image: ghcr.io/${{ github.repository }}/ci-image-panechord:${{ needs.prepare-image.outputs.image_tag }}
@@ -145,7 +145,7 @@ jobs:
   linux-tao:
     name: Linux Tao gates
     needs: prepare-image
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     container:
       image: ghcr.io/${{ github.repository }}/ci-image-panechord:${{ needs.prepare-image.outputs.image_tag }}
@@ -168,7 +168,7 @@ jobs:
   linux-measure:
     name: Linux release CPU budgets
     needs: prepare-image
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     container:
       image: ghcr.io/${{ github.repository }}/ci-image-panechord:${{ needs.prepare-image.outputs.image_tag }}

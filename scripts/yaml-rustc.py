@@ -1,12 +1,32 @@
 #!/usr/bin/env python3
 """Preserve rustc diagnostics, adding primary YAML spans from node expansions."""
 import json
+import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 
 MARKER = re.compile(r"__panechord_yaml_line_(\d+)_column_(\d+)_file_([0-9a-f]+)")
+
+#: RUSTC_WRAPPER contract, narrowed by design: only execute the real Rust
+#: compiler driver that cargo supplies as the first argument. Anything else
+#: fails closed instead of being passed through.
+_COMPILERS = ("rustc", "rustc.exe", "clippy-driver", "clippy-driver.exe")
+
+
+def resolve_command(argv):
+    """Build the compiler command from wrapper argv, refusing non-compilers."""
+    if len(argv) < 2:
+        raise SystemExit("usage: yaml-rustc.py <compiler> [args ...]")
+    executable = argv[1]
+    if os.path.basename(executable) not in _COMPILERS:
+        raise SystemExit(f"refusing to wrap non-compiler executable: {executable}")
+    resolved = shutil.which(executable) or executable
+    if not os.path.isfile(resolved) or not os.access(resolved, os.X_OK):
+        raise SystemExit(f"compiler not executable: {executable}")
+    return [resolved, *argv[2:]]
 
 
 def resolve_marker(diagnostic):
@@ -78,10 +98,9 @@ def decorate(diagnostic):
 
 
 def main():
-    # Transparent RUSTC_WRAPPER passthrough by design: cargo supplies the real
-    # compiler argv and this wrapper only decorates YAML diagnostics on stderr.
-    # No arguments are interpreted or reshaped here.
-    process = subprocess.Popen(sys.argv[1:], stderr=subprocess.PIPE, close_fds=False)  # NOSONAR
+    # List form, no shell: each argv element stays a separate exec argument.
+    command = resolve_command(sys.argv)
+    process = subprocess.Popen(command, stderr=subprocess.PIPE, close_fds=False)
     for raw in process.stderr:
         try:
             diagnostic = json.loads(raw)

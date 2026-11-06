@@ -62,5 +62,13 @@ class Diagnostics(unittest.TestCase):
         self.assertEqual(WRAPPER.decorate(copy.deepcopy(diagnostic)), diagnostic)
 
 
+class WrapperContract(unittest.TestCase):
+    def test_resolve_command_refuses_non_compilers(self):
+        with self.assertRaises(SystemExit):
+            WRAPPER.resolve_command(["yaml-rustc.py"])
+        with self.assertRaises(SystemExit):
+            WRAPPER.resolve_command(["yaml-rustc.py", "/bin/true"])
+
+
 if __name__ == "__main__":
     unittest.main()

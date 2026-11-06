@@ -92,6 +92,11 @@ jobs:
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
+          # Unique target cache per job: heterogeneous jobs sharing one key
+          # poison each other (e.g. a clippy-only or failed partial target).
+          # The registry stays shared via shared-key (immutable content).
+          key: panechord-lint
+          shared-key: ${{ runner.os }}-cargo-shared-${{ hashFiles('**/Cargo.lock') }}
           cache-all-crates: "true"
           workspaces: |
             . -> target
@@ -115,6 +120,11 @@ jobs:
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
+          # Unique target cache per job: heterogeneous jobs sharing one key
+          # poison each other (e.g. a clippy-only or failed partial target).
+          # The registry stays shared via shared-key (immutable content).
+          key: panechord-headless
+          shared-key: ${{ runner.os }}-cargo-shared-${{ hashFiles('**/Cargo.lock') }}
           cache-all-crates: "true"
           workspaces: |
             . -> target
@@ -138,6 +148,11 @@ jobs:
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
+          # Unique target cache per job: heterogeneous jobs sharing one key
+          # poison each other (e.g. a clippy-only or failed partial target).
+          # The registry stays shared via shared-key (immutable content).
+          key: panechord-gtk
+          shared-key: ${{ runner.os }}-cargo-shared-${{ hashFiles('**/Cargo.lock') }}
           cache-all-crates: "true"
           workspaces: |
             . -> target
@@ -161,6 +176,11 @@ jobs:
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
+          # Unique target cache per job: heterogeneous jobs sharing one key
+          # poison each other (e.g. a clippy-only or failed partial target).
+          # The registry stays shared via shared-key (immutable content).
+          key: panechord-tao
+          shared-key: ${{ runner.os }}-cargo-shared-${{ hashFiles('**/Cargo.lock') }}
           cache-all-crates: "true"
           workspaces: |
             . -> target
@@ -184,6 +204,11 @@ jobs:
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
+          # Unique target cache per job: heterogeneous jobs sharing one key
+          # poison each other (e.g. a clippy-only or failed partial target).
+          # The registry stays shared via shared-key (immutable content).
+          key: panechord-measure
+          shared-key: ${{ runner.os }}-cargo-shared-${{ hashFiles('**/Cargo.lock') }}
           cache-all-crates: "true"
           workspaces: |
             . -> target

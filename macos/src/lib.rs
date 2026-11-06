@@ -505,7 +505,7 @@ pub async fn pick_file() -> Option<std::path::PathBuf> {
 
 /// The refresh closure's captured state, named: clamp the viewport to the
 /// source, mount the visible window, then commit the native order.
-struct ItemsRefresh<T: Clone> {
+struct ItemsRefresh<T: Clone + 'static> {
     key: String,
     list: Rc<List>,
     source: Rc<RefCell<Vec<Keyed<T>>>>,

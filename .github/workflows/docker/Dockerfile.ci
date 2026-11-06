@@ -3,8 +3,8 @@
 # flakiness and the per-run build cost). Content-hash tagged from CI; local
 # development keeps using scripts/Dockerfile.linux directly.
 FROM rust:1.99.1-slim@sha256:1a939748a7cbab172de91a014e3804a97af1394a8c844faa67fce9401c4e40fb AS builder
-RUN cargo install cargo-llvm-cov --locked --version=0.8.7 \
-    && cargo install cargo-nextest --locked --version=0.9.143 \
+RUN cargo install cargo-llvm-cov --locked --version=0.9.1 \
+    && cargo install cargo-nextest --locked --version=0.9.150 \
     --no-default-features --features=default-no-update
 
 FROM rust:1.99.1-slim@sha256:1a939748a7cbab172de91a014e3804a97af1394a8c844faa67fce9401c4e40fb

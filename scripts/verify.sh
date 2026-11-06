@@ -65,6 +65,11 @@ library_smoke() {
 }
 
 section_gtk() {
+    # Warm the build cache first: the timed gates below assume compilation
+    # is done (each CI section starts from a cold shared target dir).
+    cargo test --locked -p panechord-gtk --lib --no-run
+    cargo build --locked -p panechord-demo --example controls
+    cargo build --locked -p panechord-library
     native_test -p panechord-gtk --lib tests::native_style_late_close_contract -- --exact --ignored --test-threads=1
     for name in native_contract native_executor_completion native_invalid_keyed_snapshots \
         native_root_style native_menu_namespaces native_coordinated_multiwindow_close \
@@ -91,6 +96,11 @@ section_gtk() {
 }
 
 section_tao() {
+    # Warm the build cache first: the timed gates below assume compilation
+    # is done (each CI section starts from a cold shared target dir).
+    cargo test --locked -p panechord-tao --lib --no-run
+    cargo build --locked -p panechord-demo --example controls --no-default-features --features backend-tao
+    cargo build --locked -p panechord-library --no-default-features --features backend-tao
     native_test -p panechord-tao --lib \
         tests::native_menu_append_failure_restores_accelerators_registry_and_quit -- --exact --ignored --test-threads=1
     # Isolated X11 physical input tests must not silently skip missing XTest support.

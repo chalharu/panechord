@@ -69,7 +69,7 @@ jobs:
         id: set-tag
         run: echo "tag=${{ hashFiles('.github/workflows/docker/Dockerfile.ci') }}" >> "$GITHUB_OUTPUT"
       - name: Log in to GHCR
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -197,7 +197,7 @@ jobs:
             -E 'package(panechord-runtime) or package(panechord-markup) or package(panechord-macros)'
           cargo llvm-cov report \
             --nextest-archive-file artifacts/linux-gtk.tar.zst \
-            --no-default-ignore-filename-regex \
+            -p panechord-runtime -p panechord-markup -p panechord-macros \
             --lcov --output-path coverage/raw.info
           workspace_root="${PWD%/}/"
           awk -v prefix="SF:${workspace_root}" '
@@ -254,7 +254,7 @@ jobs:
             -E 'package(panechord-gtk) or package(panechord-library)'
           cargo llvm-cov report \
             --nextest-archive-file artifacts/linux-gtk.tar.zst \
-            --no-default-ignore-filename-regex \
+            -p panechord-gtk -p panechord-library \
             --lcov --output-path coverage/raw-gtk.info
           rm -rf target/llvm-cov-target
           mkdir -p target/llvm-cov-target
@@ -265,7 +265,7 @@ jobs:
             --test-threads 1 -E 'package(panechord-gtk)' --run-ignored only
           cargo llvm-cov report \
             --nextest-archive-file artifacts/linux-gtk.tar.zst \
-            --no-default-ignore-filename-regex \
+            -p panechord-gtk \
             --lcov --output-path coverage/raw-gtk-ignored.info
           rm -rf target/llvm-cov-target
           workspace_root="${PWD%/}/"
@@ -321,7 +321,7 @@ jobs:
           xvfb-run cargo llvm-cov nextest --no-report --archive-file artifacts/linux-tao.tar.zst
           cargo llvm-cov report \
             --nextest-archive-file artifacts/linux-tao.tar.zst \
-            --no-default-ignore-filename-regex \
+            -p panechord-tao -p panechord-library \
             --lcov --output-path coverage/raw-tao.info
           rm -rf target/llvm-cov-target
           mkdir -p target/llvm-cov-target
@@ -332,7 +332,7 @@ jobs:
             --test-threads 1 --run-ignored only
           cargo llvm-cov report \
             --nextest-archive-file artifacts/linux-tao.tar.zst \
-            --no-default-ignore-filename-regex \
+            -p panechord-tao \
             --lcov --output-path coverage/raw-tao-ignored.info
           rm -rf target/llvm-cov-target
           workspace_root="${PWD%/}/"
@@ -373,12 +373,12 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cargo/bin
-          key: ${{ runner.os }}-nextest-0.9.143-llvm-cov-0.8.7
+          key: ${{ runner.os }}-nextest-0.9.150-llvm-cov-0.9.1
       - name: Install nextest and llvm-cov
         if: steps.tool-cache.outputs.cache-hit != 'true'
         run: |
-          cargo install cargo-llvm-cov --locked --version=0.8.7
-          cargo install cargo-nextest --locked --version=0.9.143 --no-default-features --features=default-no-update
+          cargo install cargo-llvm-cov --locked --version=0.9.1
+          cargo install cargo-nextest --locked --version=0.9.150 --no-default-features --features=default-no-update
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
@@ -422,12 +422,12 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cargo/bin
-          key: ${{ runner.os }}-nextest-0.9.143-llvm-cov-0.8.7
+          key: ${{ runner.os }}-nextest-0.9.150-llvm-cov-0.9.1
       - name: Install nextest and llvm-cov
         if: steps.tool-cache.outputs.cache-hit != 'true'
         run: |
-          cargo install cargo-llvm-cov --locked --version=0.8.7
-          cargo install cargo-nextest --locked --version=0.9.143 --no-default-features --features=default-no-update
+          cargo install cargo-llvm-cov --locked --version=0.9.1
+          cargo install cargo-nextest --locked --version=0.9.150 --no-default-features --features=default-no-update
       - name: Download test archive
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -440,7 +440,8 @@ jobs:
           cargo llvm-cov nextest --no-report --archive-file artifacts/windows.tar.zst
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo llvm-cov report --nextest-archive-file artifacts/windows.tar.zst `
-            --no-default-ignore-filename-regex --lcov --output-path coverage/raw.info
+            -p panechord-runtime -p panechord-markup -p panechord-macros -p panechord-tao -p panechord-library `
+            --lcov --output-path coverage/raw.info
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Get-Content coverage/raw.info |
             Where-Object { $_ -notmatch '^SF:' -or $_.Substring(3).StartsWith($root) } |
@@ -457,7 +458,7 @@ jobs:
 
   build-macos:
     name: Build macOS archive (M1)
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
     permissions:
       contents: read
@@ -475,12 +476,12 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cargo/bin
-          key: ${{ runner.os }}-nextest-0.9.143-llvm-cov-0.8.7
+          key: ${{ runner.os }}-nextest-0.9.150-llvm-cov-0.9.1
       - name: Install nextest and llvm-cov
         if: steps.tool-cache.outputs.cache-hit != 'true'
         run: |
-          cargo install cargo-llvm-cov --locked --version=0.8.7
-          cargo install cargo-nextest --locked --version=0.9.143 --no-default-features --features=default-no-update
+          cargo install cargo-llvm-cov --locked --version=0.9.1
+          cargo install cargo-nextest --locked --version=0.9.150 --no-default-features --features=default-no-update
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
@@ -506,7 +507,7 @@ jobs:
   run-macos:
     name: macOS tests (nextest, headless)
     needs: build-macos
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
     permissions:
       contents: read
@@ -524,12 +525,12 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cargo/bin
-          key: ${{ runner.os }}-nextest-0.9.143-llvm-cov-0.8.7
+          key: ${{ runner.os }}-nextest-0.9.150-llvm-cov-0.9.1
       - name: Install nextest and llvm-cov
         if: steps.tool-cache.outputs.cache-hit != 'true'
         run: |
-          cargo install cargo-llvm-cov --locked --version=0.8.7
-          cargo install cargo-nextest --locked --version=0.9.143 --no-default-features --features=default-no-update
+          cargo install cargo-llvm-cov --locked --version=0.9.1
+          cargo install cargo-nextest --locked --version=0.9.150 --no-default-features --features=default-no-update
       - name: Download test archive
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -541,7 +542,7 @@ jobs:
           cargo llvm-cov nextest --no-report --archive-file artifacts/macos.tar.zst
           cargo llvm-cov report \
             --nextest-archive-file artifacts/macos.tar.zst \
-            --no-default-ignore-filename-regex \
+            -p panechord-runtime -p panechord-markup -p panechord-macros -p panechord-macos -p panechord-library \
             --lcov --output-path coverage/raw.info
           workspace_root="${PWD%/}/"
           awk -v prefix="SF:${workspace_root}" '
@@ -583,7 +584,7 @@ jobs:
           path: coverage
           merge-multiple: true
       - name: Run SonarCloud scan
-        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        uses: SonarSource/sonarqube-scan-action@4d1dc0c91ee400dcf8a6dddf2f705ac36542e304 # v8.4.0
         env:
           SONAR_HOST_URL: https://sonarcloud.io
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

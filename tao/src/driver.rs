@@ -819,7 +819,7 @@ impl Desktop {
             #[cfg(target_os = "windows")]
             {
                 use tao::platform::windows::WindowExtWindows;
-                unsafe { view.0.menus().init_for_hwnd(window.hwnd() as isize) }
+                unsafe { view.0.menus().init_for_hwnd(window.hwnd()) }
                     .map_err(|e| e.to_string())?;
             }
             let mut compositor =
@@ -1158,11 +1158,7 @@ impl Drop for Desktop {
         {
             use tao::platform::windows::WindowExtWindows;
             unsafe {
-                let _ = self
-                    .view
-                    .0
-                    .menus()
-                    .remove_for_hwnd(self.window.hwnd() as isize);
+                let _ = self.view.0.menus().remove_for_hwnd(self.window.hwnd());
             }
         }
         #[cfg(target_os = "macos")]

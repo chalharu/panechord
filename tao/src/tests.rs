@@ -2385,3 +2385,95 @@ fn table_cell_clicks_update_selection_for_text_and_arrow_columns() {
     );
     view.close();
 }
+
+/// Pointer hover reaches the position binding through the real iced
+/// path: move the cursor over the image, dispatch what the widgets
+/// emit, and require the position write. Regression: the message
+/// carried the `id#identity` widget key, which never resolves in
+/// `find`, silently dropping every hover update (PPU tiles never
+/// reacted).
+#[test]
+fn pointer_hover_updates_position_through_plain_node_id() {
+    use iced_winit::runtime::user_interface::{Cache, UserInterface};
+    use panechord_runtime::{ImageFrame, PointerPosition};
+    use std::sync::Arc;
+    struct Clipboard;
+    impl iced::advanced::Clipboard for Clipboard {
+        fn read(&self, _: iced::advanced::clipboard::Kind) -> Option<String> {
+            None
+        }
+        fn write(&mut self, _: iced::advanced::clipboard::Kind, _: String) {}
+    }
+    let harness = Harness::new();
+    let view = View::new(Binding::constant("pointer hover".into()));
+    let frame = ImageFrame::new(16, 16, Arc::from(vec![0xFF; 16 * 16 * 4])).unwrap();
+    let source = harness.store(Some(frame));
+    let pointer = harness.store(None::<PointerPosition>);
+    let write_pointer: fn(&mut Option<PointerPosition>, Option<PointerPosition>) =
+        |state, value| *state = value;
+    view.image_with_pointer(
+        &view.root(),
+        "tile",
+        source.bind(Clone::clone, None),
+        pointer.bind(Clone::clone, Some(write_pointer)),
+    );
+    harness.pump();
+    let mut renderer = iced_tiny_skia::Renderer::new(iced::Font::default(), iced::Pixels(16.0));
+    let mut ui = UserInterface::build(
+        view.root().0.element(),
+        iced::Size::new(400.0, 200.0),
+        Cache::default(),
+        &mut renderer,
+    );
+    let mut messages = Vec::new();
+    let mut y = 0.0;
+    while y < 200.0 {
+        let mut x = 0.0;
+        while x < 400.0 {
+            let point = iced::Point::new(x, y);
+            ui.update(
+                &[iced::Event::Mouse(iced::mouse::Event::CursorMoved {
+                    position: point,
+                })],
+                iced::mouse::Cursor::Available(point),
+                &mut renderer,
+                &mut Clipboard,
+                &mut messages,
+            );
+            x += 10.0;
+        }
+        y += 10.0;
+    }
+    assert!(
+        messages.iter().any(|message| matches!(
+            message,
+            Message::Pointer(id, Some(_)) if id == "tile"
+        )),
+        "real hover did not emit a plain-id pointer message: {messages:?}"
+    );
+    assert!(
+        messages.iter().all(|message| !matches!(
+            message,
+            Message::Pointer(id, _) if id.contains('#')
+        )),
+        "pointer message carried a widget key that find cannot resolve: {messages:?}"
+    );
+    drop(ui);
+    for message in &messages {
+        view.dispatch(message.clone())
+            .expect("pointer message routes");
+    }
+    // The sweep ends off-image, so the last write is the exit (`None`):
+    // replay the first hover position and require it to stick.
+    let hovered = messages
+        .iter()
+        .find_map(|message| match message {
+            Message::Pointer(_, Some(position)) => Some(*position),
+            _ => None,
+        })
+        .expect("sweep emitted a hover position");
+    view.dispatch(Message::Pointer("tile".into(), Some(hovered)))
+        .expect("pointer message routes");
+    assert_eq!(pointer.snapshot(), Some(hovered));
+    view.close();
+}

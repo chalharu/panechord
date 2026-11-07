@@ -509,7 +509,11 @@ impl View {
             _ => unreachable!(),
         };
         node.handler.replace(Some(Handler::Pointer(pointer)));
-        let key = node.key();
+        // Message routing keys on the plain node id (like tables and
+        // buttons): the `id#identity` widget key only disambiguates the iced
+        // tree. A suffixed Pointer id never resolves in `find`, silently
+        // dropping every hover update.
+        let key = node.id.clone();
         node.kind.replace(Kind::Leaf(Rc::new(move || {
             let moved = key.clone();
             widget::mouse_area(factory())

@@ -59,8 +59,25 @@ struct TableCursor: Decodable {
 }
 
 @MainActor
+final class PickTable: NSTableView {
+    weak var control: TableControl?
+    override func mouseDown(with event: NSEvent) {
+        if control?.selectionPresent == true, let control {
+            let point = convert(event.locationInWindow, from: nil)
+            let row = row(at: point), column = column(at: point)
+            if row >= 0, column >= 0,
+               let cell = view(atColumn: column, row: row, makeIfNecessary: false) as? SelectableTableCell {
+                control.pick(cell)
+                return
+            }
+        }
+        super.mouseDown(with: event)
+    }
+}
+
+@MainActor
 final class TableControl: NSScrollView, NSTableViewDataSource, NSTableViewDelegate {
-    let table = NSTableView()
+    let table = PickTable()
     let empty = NSTextField(labelWithString: "")
     var definition: TableDefinition?
     weak var owner: Host?
@@ -93,6 +110,7 @@ final class TableControl: NSScrollView, NSTableViewDataSource, NSTableViewDelega
 
     init() {
         super.init(frame: NSRect(x: 0, y: 0, width: 480, height: 264))
+        table.control = self
         hasVerticalScroller = true
         scrollerStyle = .overlay
         autohidesScrollers = true
@@ -994,6 +1012,22 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
             let kind: Int32
             if pressed { kind = repeated ? 7 : 5 } else { kind = 6 }
             self.emit("", String(event.keyCode), kind: kind)
+            // An unhandled keyDown climbs to the window and beeps (game keys
+            // on the surface) or mis-activates an unrelated focused control.
+            // Swallow it when no control can use it: shortcuts
+            // (command/control), text editing, focused buttons, sliders and
+            // popups, and Return/Tab/Escape (default-button/cancel/focus
+            // loop) keep the event.
+            if event.type == .keyDown,
+               event.modifierFlags.intersection([.command, .control]).isEmpty,
+               ![36, 48, 53].contains(event.keyCode),
+               !(self.window.firstResponder is NSTextView),
+               !(self.window.firstResponder is NSTextField),
+               !(self.window.firstResponder is NSButton),
+               !(self.window.firstResponder is NSSlider),
+               !(self.window.firstResponder is NSPopUpButton) {
+                return nil
+            }
             return event
         }
     }

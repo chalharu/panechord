@@ -516,6 +516,11 @@ final class AbsoluteContainer: NSView {
 @MainActor
 final class Scrolling: NSScrollView {
     let body = DocumentStack()
+    /// Viewport-filling scroll (no explicit height): gravity sizes scroll
+    /// views by fitting (zero), so the floor pass pins these to the clip
+    /// like viewport-filling tables. Tracked in w3_style per TableControl.
+    var fillsViewport = false
+    var floorConstraint: NSLayoutConstraint?
 
     init(horizontal: Bool) {
         super.init(frame: .zero)
@@ -1097,6 +1102,10 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
             guard let table = view as? TableControl else { continue }
             changed = updateTableFloor(id: id, table: table) || changed
         }
+        for (id, view) in nodes {
+            guard let scroll = view as? Scrolling else { continue }
+            changed = updateScrollFloor(id: id, scroll: scroll) || changed
+        }
         // Measurements during build/focus can precede layout (zeros); one
         // deferred pass runs after layout with valid sizes. One-shot per
         // change batch: settled state schedules nothing further.
@@ -1156,6 +1165,53 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
             let floor = frame.heightAnchor.constraint(greaterThanOrEqualToConstant: want)
             floor.isActive = true
             table.floorConstraint = floor
+            return true
+        }
+        return false
+    }
+
+    /// Floor viewport-filling scrolls (no explicit height) to the visible
+    /// clip minus their stack siblings: without it gravity sizes the scroll
+    /// view by fitting (zero), collapsing its frame so scrolled content
+    /// (e.g. PPU images) never paints. Mirrors updateTableFloor.
+    @discardableResult
+    func updateScrollFloor(id: String, scroll: Scrolling) -> Bool {
+        window.layoutIfNeeded()
+        guard scroll.fillsViewport,
+              let frame = frames[id],
+              let parentId = parents[id],
+              let parent = nodes[parentId] as? NSStackView,
+              parent.orientation == .vertical,
+              let clip = frame.enclosingScrollView?.contentView ?? (window.contentView as? NSScrollView)?.contentView,
+              clip.bounds.height > 0 else {
+            if let floor = scroll.floorConstraint, floor.isActive {
+                floor.isActive = false
+                return true
+            }
+            return false
+        }
+        var siblings: CGFloat = 0
+        for sub in parent.arrangedSubviews where sub !== frame {
+            let h = max(sub.frame.height, max(0, sub.fittingSize.height))
+            siblings += h + parent.spacing
+        }
+        let insets = frames[parentId]?.edgeInsets ?? NSEdgeInsetsZero
+        siblings += insets.top + insets.bottom + 8
+        let want = max(0, clip.bounds.height - siblings)
+        if let floor = scroll.floorConstraint {
+            if floor.constant != want {
+                floor.constant = want
+                if !floor.isActive { floor.isActive = true }
+                return true
+            }
+            if !floor.isActive {
+                floor.isActive = true
+                return true
+            }
+        } else {
+            let floor = frame.heightAnchor.constraint(greaterThanOrEqualToConstant: want)
+            floor.isActive = true
+            scroll.floorConstraint = floor
             return true
         }
         return false
@@ -2091,10 +2147,13 @@ public func style(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<U
     let value = host(pointer)
     let id = string(idBytes, idCount)
     guard let frame = value.frames[id] else { return }
-    // Viewport-filling tables track this in updateTableFloor; explicit
-    // heights use the exact constraint path below instead.
+    // Viewport-filling tables and scrolls track this in updateFloors;
+    // explicit heights use the exact constraint path below instead.
     if let table = value.nodes[id] as? TableControl {
         table.fillsViewport = height < 0
+    }
+    if let scroll = value.nodes[id] as? Scrolling {
+        scroll.fillsViewport = height < 0
     }
     if let label = value.nodes[id] as? NSTextField, !label.isEditable {
         let size = NSFont.systemFontSize * textScale

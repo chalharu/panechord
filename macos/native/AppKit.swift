@@ -2065,78 +2065,83 @@ public func action(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<
 @_cdecl("w3_image") @MainActor
 public func image(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<UInt8>?, _ idCount: Int,
                   _ pixels: UnsafePointer<UInt8>?, _ length: Int, _ width: UInt32, _ height: UInt32) -> Int32 {
-    guard let imageView = host(pointer).nodes[string(idBytes, idCount)] as? NSImageView else { return 0 }
-    if width == 0, height == 0, length == 0 {
-        imageView.image = nil
-        if let picture = imageView as? PointerImage {
-            picture.updateSourceSize(0, 0)
+    // The host loop drives this outside `w3_pump`'s pool (every frame
+    // while running), so the replaced NSImage and its bitmap would
+    // accumulate undrained: one full-viewport CG image per frame.
+    return autoreleasepool {
+        guard let imageView = host(pointer).nodes[string(idBytes, idCount)] as? NSImageView else { return 0 }
+        if width == 0, height == 0, length == 0 {
+            imageView.image = nil
+            if let picture = imageView as? PointerImage {
+                picture.updateSourceSize(0, 0)
+                let value = host(pointer)
+                let id = string(idBytes, idCount)
+                for constraint in picture.naturalDims { constraint.isActive = false }
+                if var dims = value.dimensions[id] {
+                    dims.removeAll { old in picture.naturalDims.contains { $0 === old } }
+                    value.dimensions[id] = dims
+                }
+                picture.naturalDims = []
+            }
+            return 1
+        }
+        guard width > 0, height > 0, width <= 8192, height <= 8192,
+              length >= 0, UInt64(width) * UInt64(height) * 4 == UInt64(length), length <= 64 * 1024 * 1024,
+              let pixels = pixels,
+              let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(width), pixelsHigh: Int(height),
+                  bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                  bitmapFormat: .alphaNonpremultiplied, bytesPerRow: Int(width) * 4, bitsPerPixel: 32),
+              let destination = bitmap.bitmapData else { return 0 }
+        destination.update(from: pixels, count: length)
+        let image = NSImage(size: NSSize(width: Int(width), height: Int(height)))
+        image.addRepresentation(bitmap)
+        imageView.image = image
+        if let picture = imageView as? PointerImage, !picture.fill {
+            picture.updateSourceSize(Int(width), Int(height))
+            // Data arriving after styling fills the natural axes with the
+            // source size (explicit axes already hold exact style constraints).
+            // Points, not pixels: the frame carries physical pixels while layout
+            // runs in points, so an unscaled size feeds a window-size feedback
+            // loop (capture tracks the window). Breakable priority, so content
+            // never forces the window (no growth, no resize snap-back); small
+            // images still render at source size with no required opposition.
             let value = host(pointer)
             let id = string(idBytes, idCount)
+            let scale = max(1, value.window.backingScaleFactor)
             for constraint in picture.naturalDims { constraint.isActive = false }
             if var dims = value.dimensions[id] {
                 dims.removeAll { old in picture.naturalDims.contains { $0 === old } }
                 value.dimensions[id] = dims
             }
             picture.naturalDims = []
+            var added: [NSLayoutConstraint] = []
+            func natural(_ anchor: NSLayoutDimension, _ constant: CGFloat) {
+                let constraint = anchor.constraint(equalToConstant: constant)
+                constraint.priority = .defaultHigh
+                added.append(constraint)
+            }
+            if let frame = value.frames[id] {
+                let stretchWidth = picture.styleHorizontal == 0 || picture.styleHorizontal == 4
+                if picture.styleWidth < 0 {
+                    if stretchWidth, value.directVerticalParent(of: id) {
+                        natural(picture.widthAnchor, max(0, picture.sourceWidth / scale - CGFloat(picture.styleLeft + picture.styleRight)))
+                        value.contentWidths[id]?.isActive = false
+                    } else if stretchWidth {
+                        natural(frame.widthAnchor, picture.sourceWidth / scale)
+                    } else {
+                        natural(picture.widthAnchor, max(0, picture.sourceWidth / scale - CGFloat(picture.styleLeft + picture.styleRight)))
+                    }
+                }
+                if picture.styleHeight < 0 {
+                    natural(frame.heightAnchor, picture.sourceHeight / scale)
+                }
+            }
+            NSLayoutConstraint.activate(added)
+            value.dimensions[id] = (value.dimensions[id] ?? []) + added
+            picture.naturalDims = added
         }
         return 1
     }
-    guard width > 0, height > 0, width <= 8192, height <= 8192,
-          length >= 0, UInt64(width) * UInt64(height) * 4 == UInt64(length), length <= 64 * 1024 * 1024,
-          let pixels = pixels,
-          let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(width), pixelsHigh: Int(height),
-              bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
-              bitmapFormat: .alphaNonpremultiplied, bytesPerRow: Int(width) * 4, bitsPerPixel: 32),
-          let destination = bitmap.bitmapData else { return 0 }
-    destination.update(from: pixels, count: length)
-    let image = NSImage(size: NSSize(width: Int(width), height: Int(height)))
-    image.addRepresentation(bitmap)
-    imageView.image = image
-    if let picture = imageView as? PointerImage, !picture.fill {
-        picture.updateSourceSize(Int(width), Int(height))
-        // Data arriving after styling fills the natural axes with the
-        // source size (explicit axes already hold exact style constraints).
-        // Points, not pixels: the frame carries physical pixels while layout
-        // runs in points, so an unscaled size feeds a window-size feedback
-        // loop (capture tracks the window). Breakable priority, so content
-        // never forces the window (no growth, no resize snap-back); small
-        // images still render at source size with no required opposition.
-        let value = host(pointer)
-        let id = string(idBytes, idCount)
-        let scale = max(1, value.window.backingScaleFactor)
-        for constraint in picture.naturalDims { constraint.isActive = false }
-        if var dims = value.dimensions[id] {
-            dims.removeAll { old in picture.naturalDims.contains { $0 === old } }
-            value.dimensions[id] = dims
-        }
-        picture.naturalDims = []
-        var added: [NSLayoutConstraint] = []
-        func natural(_ anchor: NSLayoutDimension, _ constant: CGFloat) {
-            let constraint = anchor.constraint(equalToConstant: constant)
-            constraint.priority = .defaultHigh
-            added.append(constraint)
-        }
-        if let frame = value.frames[id] {
-            let stretchWidth = picture.styleHorizontal == 0 || picture.styleHorizontal == 4
-            if picture.styleWidth < 0 {
-                if stretchWidth, value.directVerticalParent(of: id) {
-                    natural(picture.widthAnchor, max(0, picture.sourceWidth / scale - CGFloat(picture.styleLeft + picture.styleRight)))
-                    value.contentWidths[id]?.isActive = false
-                } else if stretchWidth {
-                    natural(frame.widthAnchor, picture.sourceWidth / scale)
-                } else {
-                    natural(picture.widthAnchor, max(0, picture.sourceWidth / scale - CGFloat(picture.styleLeft + picture.styleRight)))
-                }
-            }
-            if picture.styleHeight < 0 {
-                natural(frame.heightAnchor, picture.sourceHeight / scale)
-            }
-        }
-        NSLayoutConstraint.activate(added)
-        value.dimensions[id] = (value.dimensions[id] ?? []) + added
-        picture.naturalDims = added
-    }
-    return 1
 }
 
 @_cdecl("w3_style") @MainActor

@@ -73,7 +73,7 @@ iced = { default-features = false, features = [
 iced_tiny_skia = { version = "=0.14.1" }
 iced_winit = { version = "=0.14.1" }
 muda = { version = "=0.21.2" }
-objc2 = { default-features = false, version = "=0.6.5" }
+objc2 = { version = "=0.6.5" }
 objc2-app-kit = { default-features = false, features = [
   "NSApplication",
   "NSEvent",

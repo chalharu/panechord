@@ -128,10 +128,31 @@ final class TableControl: NSScrollView, NSTableViewDataSource, NSTableViewDelega
     }
     required init?(coder _: NSCoder) { fatalError("init(coder:) is unavailable") }
 
+    /// Content-propagating width: NSScrollView reports no intrinsic size,
+    /// so horizontal stacks size table frames by fitting (near zero) and
+    /// wide columns clip with no horizontal scroller to save them. GTK
+    /// propagates natural width for the same tables; report the live
+    /// column span so macOS frames fit their content like the backends.
+    /// Height stays unmanaged (floors and explicit heights own it).
+    override var intrinsicContentSize: NSSize {
+        guard !table.tableColumns.isEmpty else {
+            return NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+        }
+        // +8 absorbs float rounding between the column span and the frame
+        // so the clip edge never eats the final glyph.
+        let columns = table.tableColumns.map(\.width).reduce(0, +)
+            + table.intercellSpacing.width * CGFloat(max(0, table.tableColumns.count - 1))
+            + 8
+        return NSSize(width: columns, height: NSView.noIntrinsicMetric)
+    }
+
     /// Column width from content: explicit width wins, otherwise fit
     /// the widest cell of that column. Stretch columns keep a 120pt
     /// floor so empty tables do not collapse (capped against runaway
-    /// user text); jagged rows measure their own cells only.
+    /// user text); jagged rows measure their own cells only. The +8
+    /// covers the 2pt leading/trailing cell insets with real slack:
+    /// +4 would leave the text field exactly text-wide, and float
+    /// rounding then nicks the final glyph.
     static func fittedWidth(
         _ value: TableDefinition.Column,
         column: Int,
@@ -149,7 +170,7 @@ final class TableControl: NSScrollView, NSTableViewDataSource, NSTableViewDelega
                     (row.cells[column].text as NSString).size(withAttributes: [.font: value.font]).width)
             }
         }
-        return value.stretch ? min(800, max(120, natural + 4)) : min(400, natural + 4)
+        return value.stretch ? min(800, max(120, natural + 8)) : min(400, natural + 8)
     }
 
     func update(_ text: String) {
@@ -180,7 +201,13 @@ final class TableControl: NSScrollView, NSTableViewDataSource, NSTableViewDelega
                     column: index,
                     rows: next.rows,
                     headerFont: column.headerCell.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize))
-                column.minWidth = value.width ?? 24
+                // Floor shrinking at the fitted span: scroll views report no
+                // intrinsic size, so a narrow first frame (empty payload,
+                // pre-layout zeros) makes autoresizing compress content
+                // columns below what they fit, clipping tails with no
+                // horizontal scroller to save them. Explicit widths keep
+                // their exact floor as before.
+                column.minWidth = column.width
                 column.resizingMask = value.stretch ? .autoresizingMask : []
                 table.addTableColumn(column)
             }
@@ -193,12 +220,16 @@ final class TableControl: NSScrollView, NSTableViewDataSource, NSTableViewDelega
                     column: Int(live.identifier.rawValue) ?? 0,
                     rows: next.rows,
                     headerFont: live.headerCell.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize))
+                live.minWidth = live.width
             }
         }
         table.intercellSpacing = NSSize(width: next.columnGap, height: next.rowGap)
         table.reloadData()
         contentView.scroll(to: origin)
         reflectScrolledClipView(contentView)
+        // Column widths just changed: re-resolve frames that size from this
+        // scroll view (the intrinsic width above tracks the live span).
+        invalidateIntrinsicContentSize()
     }
     func numberOfRows(in _: NSTableView) -> Int { definition?.rows.count ?? 0 }
     func tableView(_ _: NSTableView, shouldSelectRow _: Int) -> Bool { false }

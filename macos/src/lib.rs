@@ -441,7 +441,12 @@ fn handle_resize(inner: &Inner, text: &str) {
 /// synthesize resize events.
 fn pump_ready_turn(inner: &Inner) {
     if let Some(executor) = inner.executor.borrow().clone() {
-        executor.turn();
+        // Same pool discipline as the host loop below: turns run outside
+        // `w3_pump`'s pool, so every autoreleased AppKit/Foundation object
+        // a binding creates would otherwise accumulate until exit.
+        objc2::rc::autoreleasepool(|_| {
+            executor.turn();
+        });
     }
 }
 
@@ -1880,6 +1885,10 @@ pub fn run_host(make: impl FnOnce(Rc<MacHost>) -> Result<(), String>) -> Result<
         .and_then(|value| value.parse::<u64>().ok());
     let started = Instant::now();
     let mut previous = started;
+    // Gap telemetry only when asked: an entry per host-loop turn looks
+    // like a slow leak in Activity Monitor for the first ~30 minutes
+    // (100k cap), so production runs record nothing.
+    let collect_gaps = std::env::var_os("PANECHORD_MACOS_METRICS").is_some();
     let mut gaps = Vec::new();
     let result = catch_unwind(AssertUnwindSafe(|| {
         while host
@@ -1893,14 +1902,21 @@ pub fn run_host(make: impl FnOnce(Rc<MacHost>) -> Result<(), String>) -> Result<
                 return Err("macOS host deadline exceeded".to_owned());
             }
             let now = Instant::now();
-            if gaps.len() < 100_000 {
+            if collect_gaps && gaps.len() < 100_000 {
                 gaps.push(now.duration_since(previous));
             }
             previous = now;
             unsafe {
                 w3_pump(if executor.has_ready() { 0 } else { 8 });
             }
-            executor.turn();
+            // Every Rust->AppKit call in a turn runs outside `w3_pump`'s
+            // pool; drain per iteration so per-frame/per-update autoreleased
+            // objects (images, table cells, menu items, decoded JSON) cannot
+            // accumulate. `w3_image` keeps its own inner pool as well: nested
+            // pools are cheap and it stays safe on any future call path.
+            objc2::rc::autoreleasepool(|_| {
+                executor.turn();
+            });
             for view in host.views.borrow().iter() {
                 if let Some(error) = view.0.error.borrow().clone() {
                     return Err(error);

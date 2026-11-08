@@ -11,9 +11,11 @@ with Swift. From the repository root, pick exactly one backend:
 
 ```sh
 env -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH -u DYLD_INSERT_LIBRARIES \
-  cargo run --locked -p panechord-library --no-default-features --features backend-macos -- --folder /path/to/files
+  cargo run --locked -p panechord-library --no-default-features \
+    --features backend-macos -- --folder /path/to/files
 env -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH -u DYLD_INSERT_LIBRARIES \
-  cargo run --locked -p panechord-demo --no-default-features --features backend-macos -- --smoke
+  cargo run --locked -p panechord-demo --no-default-features \
+    --features backend-macos -- --smoke
 sh scripts/verify-macos.sh
 sh scripts/measure-macos.sh
 ```
@@ -126,21 +128,40 @@ delays OS event handling by exactly that long.
 
 | Area | Automated scope |
 | --- | --- |
-| Demo / list | Shared smoke: draft retention, readonly, save, close veto, save-wait, re-confirm, final JSON; sandbox edit bursts, Latest results, failure recovery, selection, close |
-| Input | Marked text and Japanese commit injection into the field editor; real-OS clipboard copy/cut/paste; Tab / Shift+Tab |
+| Demo / list | Shared smoke: draft retention and readonly. |
+|  | Save, close veto, save-wait, re-confirm. |
+|  | Final JSON; sandbox edit bursts; Latest results. |
+|  | Failure recovery, selection, close. |
+| Input | Marked text; Japanese commit injection. |
+|  | Real-OS clipboard copy/cut/paste; Tab / Shift+Tab. |
 | Menu | Native key equivalents for Primary/Cmd+S, enablement, dynamic rebuild |
 | Typed menu | `MenuItem<i32>` delivered without String conversion |
-| Three windows | Shared store, auxiliary reopen, menu handoff after active-window close, Quit confirm-hook reachability and denial without re-present, confirm/cancel/drain/close ordering |
-| Session limits | Clone reattach, foreign-Session and closed-view registration refusal, attaching a different Session after failure |
-| Validation scope | Evict/remount cycles, pending reset, no reaction to off-screen updates, no subscription growth |
+| Three windows | Shared store; auxiliary reopen. |
+|  | Menu handoff after active-window close. |
+|  | Quit hook reachable; denial needs no re-present. |
+|  | Confirm/cancel/drain/close ordering kept. |
+| Session limits | Clone reattach; foreign registration refusal. |
+|  | Closed-view refusal; reattach another Session after failure. |
+| Validation scope | Evict/remount cycles; pending reset. |
+|  | Ignores off-screen updates; subscriptions don't grow. |
 | Accessibility | Role and identifier readback — not screen-reader operation |
-| List mounting | 100-row model, 6 mounted rows, range moves, reorder, invalid-key refusal and recovery |
-| Viewport contract | Zero mounts on invalid initial state, out-of-range count/height refused with mounts kept, valid recovery, usize::MAX last page |
-| Readonly viewport | Local moves leave the model untouched while later model notifications still arrive; automation uses the same handler as native scroll |
-| Menu refusal | Bad IDs, duplicate IDs, bad trailing shortcuts keep old handlers and arguments, then recover on a valid candidate |
-| Nested cleanup | Repeated mount/evict of one key, registry clearing, stale-scroll invalidation, weak template-resource expiry |
-| Dynamic row height | `frame_height` readback of a real native frame change with no template rebuild |
-| Overload | Bulk updates and chained synthetic keys delivered before each chain completes; WeakView and close under load |
+| List mounting | 100-row model; 6 rows mounted. |
+|  | Range moves, reorder, invalid-key refusal, recovery. |
+| Viewport contract | No mounts on invalid initial state. |
+|  | Out-of-range count/height refused; mounts kept. |
+|  | Valid recovery; `usize::MAX` last page. |
+| Readonly viewport | Local moves never touch the model. |
+|  | Later notifications still arrive. |
+|  | Automation shares the native scroll handler. |
+| Menu refusal | Bad IDs, duplicates, bad shortcuts keep handlers. |
+|  | Old arguments kept; recover on a valid candidate. |
+| Nested cleanup | Repeated mount/evict of one key. |
+|  | Registry clearing; stale-scroll invalidation. |
+|  | Weak template-resource expiry. |
+| Dynamic row height | `frame_height` readback, real native change. |
+|  | No template rebuild needed. |
+| Overload | Bulk updates; chained keys in order. |
+|  | WeakView and close hold up under load. |
 | Drawing | 640/960px native bitmaps; AppKit draw CPU time inside a chain |
 
 Conformance runs on the main thread; never initialize AppKit from a libtest

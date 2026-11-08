@@ -40,8 +40,9 @@ produces `Binding<A>`; no-argument methods retain `Binding<String>` compatibilit
 (the String is ignored). All return the same argument-erased runtime `Command`
 with non-generic `invoke()`. `Store::command` likewise accepts `Binding<A>` and
 an action receiving `A`; the backend never needs to know its type.
-**Import that extension trait at the `view!` / `owned_view!` call site**, along with any item-model command traits such as
-`RowCommands`. Enabled checks and invocation-time argument reads use the runtime.
+**Import that extension trait at the `view!` / `owned_view!` call site**,
+along with any item-model command traits such as `RowCommands`. Enabled
+checks and invocation-time argument reads use the runtime.
 
 For `fn select(&mut self, value: Choice)`, use `command: select` with
 `argument: {bind: {path: selected_choice}}`, where `selected_choice: Choice`.
@@ -61,9 +62,9 @@ spell out the concrete model inside such macros.
 
 `Tab.position` is a static enum: `Top` (default), `Bottom`, `Left`, or `Right`.
 Left/Right display vertical headers. Selection still binds the stable page key;
-changing placement or selection retains page content and subscriptions on GTK,
-Tao, and AppKit. Overflowing vertical headers scroll. Omitting `position` preserves the
-existing horizontal Top layout.
+changing placement or selection retains page content and subscriptions on
+GTK, Tao, and AppKit. Overflowing vertical headers scroll. Omitting
+`position` preserves the existing horizontal Top layout.
 
 ```yaml
 type: Tab
@@ -126,7 +127,8 @@ root:
       - type: TextBox
         id: name
         text: {bind: {path: name, mode: TwoWay}}
-        validation: {validator: crate::validate_name, error: name_error, pending: validating}
+        validation: {validator: crate::validate_name, error: name_error,
+          pending: validating}
         style:
           placement: {row: 0, column: 0, column_span: 2}
       - type: TextBox
@@ -163,9 +165,10 @@ root:
   `{bind: {path: field, mode: OneWay|TwoWay, converter: crate::Converter}}`.
   Default mode is OneWay. Dotted field paths are allowed, not arbitrary Rust
   expressions. Generated closures clone the field; Rust checks names and types.
-  TextBox/Native and interactive state properties of the seven required controls
-  honor TwoWay. Display properties, choice collections, image sources and command
-  arguments reject TwoWay rather than silently discarding it. Numeric primitive literals are `f64`.
+  TextBox/Native and interactive state properties of the seven required
+  controls honor TwoWay. Display properties, choice collections, image
+  sources and command arguments reject TwoWay rather than silently
+  discarding it. Numeric primitive literals are `f64`.
 - Converter paths name a type or module with associated `forward(value)` and
   `backward(value) -> Result<_, String>` functions; expansion calls
   `Binding::convert`. E.g. `NumberText::forward(f64)->String` and
@@ -190,9 +193,10 @@ root:
   Grid placement fields are `row,column,row_span,column_span` (zero-based,
   spans default 1). Margin/padding accept a scalar or partial edge object.
   `style` also accepts margin/padding; top-level margin/padding override them.
-- Menus call `View::typed_menu(id,title,items,dispatch)`. The items binding contains
-  runtime `MenuItem<A>` values including labels, typed arguments, shortcut, enabled and
-  native role. Dispatch creates `command_choose(Binding::constant(argument))`.
+- Menus call `View::typed_menu(id,title,items,dispatch)`. The items binding
+  contains runtime `MenuItem<A>` values including labels, typed arguments,
+  shortcut, enabled and native role. Dispatch creates
+  `command_choose(Binding::constant(argument))`.
 - Native uses an explicit application function path, validated with `syn::Path`:
   `fn meter(&backend::View, &backend::Parent, &str, Binding<f64>)`.
   The application factory calls an actual backend mounting API. A general
@@ -239,8 +243,14 @@ Macro-boundary probes also reject oversized/deep/wide YAML and aliases/anchors.
 Existing markup tests cover schema and known fingerprint vectors; the rebuild
 probe additionally checks fingerprints of the actual before/after YAML bytes.
 
-Run `cargo test --offline -p panechord-runtime -p panechord-macros -- --nocapture` from the repository root
-with the platform's normal Rust flags. No new dependencies are needed. Nested
+Run the following from the repository root with the platform's normal Rust
+flags:
+
+```sh
+cargo test --offline -p panechord-runtime -p panechord-macros -- --nocapture
+```
+
+No new dependencies are needed. Nested
 Cargo uses `/tmp/panechord-ui-check/<pid>-<nonce>/target`, shared only within that
 test process, never the outer Cargo target (avoiding its lock). Fixture copies
 and Cargo sequences are serialized so the shared `probe` executable cannot be
@@ -249,8 +259,14 @@ are removed on success and retained on panic; compiled targets remain cached.
 
 ## YAML Diagnostics
 
-`sh scripts/check-yaml.sh check -p panechord-library --no-default-features --features backend-macos`
-enables the Python 3 rustc wrapper. `--message-format=json` also exposes YAML
+Run with the Python 3 rustc wrapper enabled:
+
+```sh
+sh scripts/check-yaml.sh check -p panechord-library --no-default-features \
+  --features backend-macos
+```
+
+`--message-format=json` also exposes YAML
 primary spans to diagnostic consumers. Each node expansion carries parser-derived
 file/line/column, including template-local IDs. The wrapper preserves original
 Rust diagnostics and nonzero exit status, while adding a YAML primary span.

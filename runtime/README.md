@@ -22,9 +22,11 @@ native toolkit dependency is required.
 - `async run_async(&dyn UiHost, impl FnOnce(Rc<dyn Executor>) -> Session)` returns
   `Result<Session, String>`. It constructs/attaches on its first poll, without
   running a native loop. Failed attachment forcibly closes the constructed session.
-- `Session` is Clone/Default and has `new`, `shutdown() -> ShutdownCoordinator`,
-  `ptr_eq(&other) -> bool` for shared coordinator identity, `window_count() -> usize`, and
-  `register_window(id: impl Into<String>, WindowHooks) -> Result<Subscription, String>`.
+- `Session` is Clone/Default and has `new`,
+  `shutdown() -> ShutdownCoordinator`,
+  `ptr_eq(&other) -> bool` for shared coordinator identity,
+  `window_count() -> usize`, and `register_window(id: impl Into<String>,
+  WindowHooks)` -> `Result<Subscription, String>`.
   Retain registration tokens on window/view scopes. Session registries hold weak
   hook slots; dropping a token unregisters and aborts its pending shutdown waits.
 - `WindowHooks` has public Rc callbacks: `confirm` produces
@@ -55,8 +57,10 @@ exclude derived outputs from the source, and use the callback's `target` rather
 than capturing a strong Store. For example, on a Store with a `query: String`:
 
 ```rust,ignore
-let token = store.watch(store.bind(|state| state.query.clone(), None), |target, query| {
-  let accepted = target.effect(Policy::Latest, "search", search(query), |state, rows| {
+let token = store.watch(store.bind(|state| state.query.clone(), None),
+  |target, query| {
+  let accepted = target.effect(Policy::Latest, "search", search(query),
+    |state, rows| {
     state.rows = rows;
   });
   if !accepted {
@@ -93,26 +97,30 @@ fields from sources to avoid feedback loops. Dropping the scope invalidates
 queued reactions, but does not cancel effects that already started. Store
 close/drop discards queued reactions; tokens themselves are not Store owners.
 
-Binding reads and initial subscriptions hold an `Rc<S>` snapshot while projecting
-outside internal borrows; they do not clone S. Legacy mutation clones S once, and the
-public `snapshot()` still returns an owned clone. Arbitrary updates invalidate all
-subscribed projections. `bind_scoped_explicit(field,read,write)` indexes a top-level field;
+Binding reads and initial subscriptions hold an `Rc<S>` snapshot while
+projecting outside internal borrows; they do not clone S. Legacy mutation
+clones S once, and the public `snapshot()` still returns an owned clone.
+Arbitrary updates invalidate all subscribed projections.
+`bind_scoped_explicit(field,read,write)` indexes a top-level field;
 its writer only invalidates that field and unscoped listeners, but still clones S.
-`update_scoped_explicit(fields, |previous| Some(next_state))` constructs an owned state
-without invoking S::clone; returning None skips publication entirely. Declare
-all changed top-level fields, and only use scoped projections that depend on the
-named field. Incorrect declarations may leave stale values. Use Rc/Arc to share
-large unchanged payloads. Application interior mutation is not tracked.
-Conservative `bind` invalidates every projection. Use the explicitly named
-`bind_scoped_explicit` / `update_scoped_explicit` optimization only when
-the dependency contract can be proved. Codegen generates its field dependency,
-read and write from one parsed field path. Arbitrary closures remain conservative.
+`update_scoped_explicit(fields, |previous| Some(next_state))` constructs an
+owned state without invoking S::clone; returning None skips publication
+entirely. Declare all changed top-level fields, and only use scoped
+projections that depend on the named field. Incorrect declarations may leave
+stale values. Use Rc/Arc to share large unchanged payloads. Application
+interior mutation is not tracked. Conservative `bind` invalidates every
+projection. Use the explicitly named `bind_scoped_explicit` /
+`update_scoped_explicit` optimization only when the dependency contract can
+be proved. Codegen generates its field dependency, read and write from one
+parsed field path. Arbitrary closures remain conservative.
 Registration-order callbacks, FIFO/reentry, frozen snapshots and cancellation
-remain unchanged. Tests count Clone calls and measure scalar reads with 0/16 MiB of
-unprojected state. These are not frame-time or machine-independent guarantees.
-`cargo run --locked -p panechord-runtime --example scaling` also observes 0/1/16 MiB
-states with 1/100/1000 subscribers. Every case asserts zero S clones during
-50,000 scalar reads, one S clone per update, and exact notification counts.
+remain unchanged. Tests count Clone calls and measure scalar reads with 0/16
+MiB of unprojected state. These are not frame-time or machine-independent
+guarantees.
+`cargo run --locked -p panechord-runtime --example scaling` also observes
+0/1/16 MiB states with 1/100/1000 subscribers. Every case asserts zero S
+clones during 50,000 scalar reads, one S clone per update, and exact
+notification counts.
 Twenty update samples produce informational p50/p95 values, without a timing
 threshold for the legacy baseline. The scoped comparison adds 200 update samples
 with 16 MiB shared payload and 1/100/1000/10000 unrelated subscribers, asserting

@@ -53,10 +53,12 @@ export RUSTFLAGS='-C target-feature=-crt-static -C prefer-dynamic=no'
 export CARGO_BUILD_JOBS=2
 cargo test -p panechord-library --no-default-features --features backend-gtk
 cargo build -p panechord-library --no-default-features --features backend-gtk
-GDK_BACKEND=x11 timeout 45s xvfb-run -a /tmp/panechord-library-target/debug/panechord-library --smoke
+GDK_BACKEND=x11 timeout 45s xvfb-run -a \
+  /tmp/panechord-library-target/debug/panechord-library --smoke
 cargo test -p panechord-library --no-default-features --features backend-tao
 cargo build -p panechord-library --no-default-features --features backend-tao
-GDK_BACKEND=x11 timeout 45s xvfb-run -a /tmp/panechord-library-target/debug/panechord-library --smoke
+GDK_BACKEND=x11 timeout 45s xvfb-run -a \
+  /tmp/panechord-library-target/debug/panechord-library --smoke
 ```
 
 There are 14 deterministic display-free tests using LocalPool/oneshots, including

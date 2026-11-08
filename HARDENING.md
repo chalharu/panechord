@@ -12,12 +12,14 @@ failure recovery.
 | Demo gallery | Supported | Supported | Supported |
 | Library screen | Supported | Supported | Supported |
 | Stack | Supported | Supported | Supported |
-| Grid/Flex/Absolute | Supported with documented geometry limits | Supported with documented geometry limits | Supported with documented geometry limits |
-| Items keyed retention | Supported | Supported | Supported, including editable reorder |
+| Grid/Flex/Absolute[^limits] | Supported | Supported | Supported |
+| Keyed retention | Supported | Supported | Supported, editable reorder |
 | Optional Content template | Supported | Supported | Supported |
-| Coordinated multiwindow/attach | GtkHost | TaoHost under one owned loop | MacHost |
+| Coordinated multiwindow/attach | GtkHost | TaoHost, owned loop | MacHost |
 | Native controls | GTK | Software iced controls | AppKit |
-| Full external IME/accessibility certification | Not certified | Preedit/accessibility limitations | Not certified |
+| External IME/a11y | Not certified | Preedit; a11y limited | Not certified |
+
+[^limits]: Supported within documented geometry limits.
 
 One document describes one window. Window creation, ownership, reopen and shutdown
 remain typed host/application composition, not a global YAML graph. TaoHost keeps
@@ -43,19 +45,47 @@ invalid geometry rejects on every backend instead of returning a dangling Parent
 
 | Review concern | Resolution |
 | --- | --- |
-| Dirty-field omissions | Conservative `bind` invalidates every projection. Explicit optimization APIs have separate names and documented proof obligations. Generated field readers, writers and dependency names share one parsed path. |
-| Owning/shared model confusion | `owned_view` consumes a non-Clone `StoreOwner`. Acquisition fails if a shared `Store` handle already exists; compile-fail and runtime tests cover both boundaries. Sharing from an existing owner explicitly delegates final closure to it. |
-| Write rejection ambiguity | `try_set` returns `ReadOnly`/`Closed`/`Capacity`/`Conversion`. Acceptance is not an application receipt. Acceptance bools are `must_use`; intentional discards are explicit. |
-| Dropped continuation | Store fails closed and exposes `dispatch_failed`, rather than silently retaining a stranded FIFO. Hosts must still poll retained futures and avoid blocking callbacks. |
-| Projection duplicates | `map` keeps its non-`PartialEq` contract; `distinct` is an explicit opt-in. |
-| Backend Style errors | `try_style` validates spacing, finite dimensions and parent placement before mutation. Missing IDs reject, never alias root. `style` records errors; invalid GTK placement no longer panics after partial mutation. |
-| Late cleanup | `on_close` invokes immediately after closure on GTK, Tao and AppKit. |
-| Viewport writeback | Writable models receive effective last-page start; readonly models scroll locally. Fractional Tao overscan remains bounded at count+1. |
-| Diagnostic locations | JSON also has source spans. YAML unknown fields use spanned keys. The wrapper selects primary expansion markers structurally, preserves CRLF byte positions and leaves ambiguous diagnostics unchanged. |
-| Editable rows (AppKit) | Native frames move without remounting retained key/Store pairs. Native regression preserves field-editor identity, marked text and selection through reorder. |
-| Distribution (AppKit) | `@rpath` bridge plus reproducible signed bundle script; verification relocates the bundle and runs smoke without DYLD overrides or absolute build rpaths. |
-| Clipboard interference | Mutable clipboard probes require explicit opt-in and an isolated desktop. Synthetic input is not external IME certification. |
-| Smoke readiness | Backends wait for the actual draw notification, not a fixed delay. Formal runners retain a configurable hang watchdog. |
+| Dirty-field omissions | Conservative `bind` invalidates all. |
+|  | Explicit optimization APIs are separately named. |
+|  | They carry documented proof obligations. |
+|  | Generated readers, writers, dependency names share one path. |
+| Owner/share confusion | `owned_view` takes non-Clone `StoreOwner`. |
+|  | Fails if a shared `Store` handle exists. |
+|  | Compile-fail and runtime tests cover both. |
+|  | Sharing from an owner explicitly delegates final closure. |
+| Write rejection ambiguity | `try_set` returns typed rejections. |
+|  | Variants: `ReadOnly`, `Closed`, `Capacity`, `Conversion`. |
+|  | Acceptance is not an application receipt. |
+|  | Acceptance bools are `must_use`; discards are explicit. |
+| Dropped continuation | Store fails closed (`dispatch_failed`). |
+|  | Never silently retains a stranded FIFO. |
+|  | Hosts still poll retained futures, never block callbacks. |
+| Projection duplicates | `map` keeps its non-`PartialEq` contract. |
+|  | `distinct` is an explicit opt-in. |
+| Backend Style errors | `try_style` validates before mutating. |
+|  | Checks spacing, finite size, parent placement. |
+|  | Missing IDs reject, never alias root. |
+|  | `style` records errors; invalid GTK placement never panics. |
+| Late cleanup | `on_close` runs right after closure. |
+|  | Same on GTK, Tao and AppKit. |
+| Viewport writeback | Writable models: effective start. |
+|  | Last-page start; readonly scrolls locally. |
+|  | Tao overscan stays within count+1. |
+| Diagnostic locations | JSON has source spans too. |
+|  | YAML unknown fields use spanned keys. |
+|  | Primary markers selected structurally; CRLF kept. |
+|  | Ambiguous diagnostics stay unchanged. |
+| Editable rows (AppKit) | Frames move; retained pairs stay mounted. |
+|  | Regression keeps editor identity, marked text, selection. |
+| Distribution (AppKit) | `@rpath` bridge, reproducible bundle. |
+|  | Verification relocates the bundle for smoke runs. |
+|  | No DYLD overrides or absolute build rpaths. |
+| Clipboard interference | Mutable probes need opt-in. |
+|  | Probes need an isolated desktop. |
+|  | Synthetic input isn't external IME certification. |
+| Smoke readiness | Backends wait for draw notification. |
+|  | Never a fixed delay. |
+|  | Formal runners keep a configurable hang watchdog. |
 
 ## Common Rejection Contract
 
@@ -64,16 +94,25 @@ diagnostics. Formal gates run the same probe with actual GTK, Tao and AppKit con
 
 | Case | Model | Display | Result |
 | --- | --- | --- | --- |
-| Slider step normalization | 42.4 before input | 42.0 | Valid writes normalize before acceptance |
-| Slider Closed/Capacity/Conversion | Unchanged 42.4 | Retained 42.0 | `slide` Err; `try_set` preserves typed `WriteError` |
-| readonly/disabled/hidden | Unchanged | Retained, without remount | Err; `enabled=true` does not add a writer |
-| unknown literal Tab page | Not constructed | Partial View closed | Parser error at selected property |
-| unknown bound initial Tab page | Shared Store unchanged; consumed owner closed | Partial View closed | `try_view`/`try_owned_view` Err |
-| empty Tab choice/readonly select | Empty remains empty; readonly unchanged | First page/last accepted page | readonly select Err |
-| unknown Combo/Tab operation choice | Unchanged | Retained | Err before mutation |
-| nested menu disabled parent | Unchanged | Retained tree | Leaf activation Err; typed argument preserved when enabled |
-| Dialog readonly/hidden parent | Open flag unchanged false | No modal opened | `set_open` Err |
-| Dialog open/child dismiss/reopen | Open flag true/false follows accepted operations | Native modal or Tao overlay | Commands and `set_open` accept; close then reopen verified |
+| Slider step normalization | 42.4 before input | 42.0 | Normalize first |
+| Slider Closed/Capacity | Unchanged 42.4 | Retained 42.0 | `slide` Err |
+| Slider Conversion | Unchanged 42.4 | Retained 42.0 | `try_set` keeps type |
+| readonly/disabled/hidden | Unchanged | Unremounted | Err; no writer added |
+| unknown literal Tab page | Not built | Partial close | Error at selected tab |
+| unknown bound initial Tab page | Shared Store kept. |  |  |
+|  | Consumed owner closed. |  |  |
+|  |  | Partial View closed. |  |
+|  |  |  | `try_view`/`try_owned_view` Err. |
+| empty Tab choice | Empty stays empty. | First page kept. |  |
+| readonly select | Unchanged. | Last accepted page. | Err. |
+| unknown Combo/Tab operation choice | Unchanged | Retained | pre-mutation Err |
+| nested menu disabled parent | Unchanged | Retained tree | Leaf Err. |
+|  |  |  | Typed argument kept when enabled. |
+| Dialog readonly/hidden parent | Stays closed | No modal | `set_open` Err |
+| Dialog open/dismiss/reopen | Open flag true/false. |  |  |
+|  | Follows accepted operations. |  |  |
+|  |  | Native modal or Tao overlay. |  |
+|  |  |  | Commands/`set_open` accept; close/reopen verified. |
 
 Dialog open/close is an explicit model operation; a hidden placeholder is not
 a user visibility request. Native modal appearance is not required to match the
@@ -130,7 +169,8 @@ Metadata-only scans preserve content and mtime.
 - Clipboard native probes require `PANECHORD_ALLOW_CLIPBOARD_PROBE=1`. Formal native
   scripts opt in; run them only on an isolated desktop with no concurrent copy/paste.
 - `PANECHORD_NATIVE_TIMEOUT_SECONDS` defaults to 45 for native runners; AppKit retains
-  `PANECHORD_MACOS_TIMEOUT_SECONDS`. A timeout is a failed/hung test, not a skipped success.
+  `PANECHORD_MACOS_TIMEOUT_SECONDS`. A timeout is a failed/hung test, not a
+skipped success.
 
 Report per-suite executed/failed/ignored counts. Do not equate plain `cargo test`
 with completion of native, RPA, release or distribution gates. Real external IME,

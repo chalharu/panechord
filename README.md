@@ -127,7 +127,7 @@ set `PANECHORD_CONTROLS_REVIEW=1` for the interactive review.
 ## Verification
 
 ```sh
-sh scripts/verify.sh            # fmt, Clippy, core/macro suites, native backend gates
+sh scripts/verify.sh  # fmt, Clippy, core/macro suites, native backend gates
 sh scripts/verify-docker.sh     # Linux formal gate on Debian/bookworm + Xvfb
 sh scripts/verify-macos.sh      # AppKit/Tao gates on an interactive macOS desktop
 sh scripts/measure.sh           # release CPU budgets (informational thresholds)

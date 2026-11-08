@@ -399,32 +399,34 @@ impl View {
     }
 
     pub fn surface(&self, parent: &Parent, id: &str, source: Binding<Option<ImageFrame>>) {
-        let viewport = gtk4::DrawingArea::new();
-        viewport.set_hexpand(true);
-        viewport.set_vexpand(true);
-        viewport.set_draw_func(|_, context, _, _| {
-            context.set_source_rgb(0.0, 0.0, 0.0);
-            let _ = context.paint();
-        });
-        let weak = Rc::downgrade(&self.0);
-        viewport.connect_resize(move |_, width, height| {
-            if let Some(inner) = weak.upgrade() {
-                let size = (width.max(0) as f32, height.max(0) as f32);
-                inner.surface_size.set(size);
-                let callback = inner.surface_viewport.borrow().clone();
-                if let Some(callback) = callback {
-                    callback(size.0, size.1);
-                }
-            }
-        });
+        // Master parity: a single fill Picture, no black DrawingArea under
+        // an Overlay. The overlay's black child painted every draw and the
+        // overlay-sized Picture could not reliably cover it (usually black
+        // with brief correct flashes); master sets a lone Picture as the
+        // window child and polls its allocation per tick.
         let picture = gtk4::Picture::new();
-        picture.set_can_shrink(true);
         picture.set_hexpand(true);
         picture.set_vexpand(true);
-        let overlay = gtk4::Overlay::new();
-        overlay.set_child(Some(&viewport));
-        overlay.add_overlay(&picture);
-        self.mount_native(parent, id, &overlay);
+        picture.set_can_shrink(true);
+        let weak = Rc::downgrade(&self.0);
+        picture.add_tick_callback(move |widget, _| {
+            if let Some(inner) = weak.upgrade() {
+                let allocation = widget.allocation();
+                let size = (
+                    allocation.width().max(0) as f32,
+                    allocation.height().max(0) as f32,
+                );
+                if inner.surface_size.get() != size {
+                    inner.surface_size.set(size);
+                    let callback = inner.surface_viewport.borrow().clone();
+                    if let Some(callback) = callback {
+                        callback(size.0, size.1);
+                    }
+                }
+            }
+            gtk4::glib::ControlFlow::Continue
+        });
+        self.mount_native(parent, id, &picture);
         self.bind_native(id, source, &picture, |picture, frame| {
             let texture = frame.map(|frame| {
                 gtk4::gdk::MemoryTexture::new(

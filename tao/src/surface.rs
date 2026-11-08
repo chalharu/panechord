@@ -7,31 +7,92 @@ use raw_window_handle::{
 };
 use std::{rc::Rc, sync::Arc};
 
-struct Surface(Arc<NativeWindow>);
+struct Surface {
+    window: Arc<NativeWindow>,
+    /// Private GL drawable host (macOS): same reason as the GTK backend —
+    /// binding an NSOpenGLContext to the toolkit-owned view hijacks its
+    /// layer while the readback path never presents, breaking window
+    /// composition. Master presented via swap, so it never hit this.
+    #[cfg(target_os = "macos")]
+    gl_host: std::cell::OnceCell<objc2::rc::Retained<objc2_app_kit::NSView>>,
+}
 
 impl HasDisplayHandle for Surface {
     fn display_handle(&self) -> Result<DisplayHandle<'_>, HandleError> {
-        self.0.display_handle()
+        self.window.display_handle()
     }
 }
 
 impl HasWindowHandle for Surface {
     fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
-        self.0.window_handle()
+        #[cfg(not(target_os = "macos"))]
+        {
+            self.window.window_handle()
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let borrowed = self
+                .window
+                .window_handle()
+                .map_err(|_| HandleError::Unavailable)?;
+            let raw_window_handle::RawWindowHandle::AppKit(appkit) = borrowed.as_raw() else {
+                return Err(HandleError::NotSupported);
+            };
+            let view = unsafe {
+                objc2::rc::Retained::<objc2_app_kit::NSView>::retain(
+                    appkit.ns_view.cast::<objc2_app_kit::NSView>().as_ptr(),
+                )
+            }
+            .ok_or(HandleError::Unavailable)?;
+            let ns_window = view.window().ok_or(HandleError::Unavailable)?;
+            let content = ns_window.contentView().ok_or(HandleError::Unavailable)?;
+            let mtm = objc2::MainThreadMarker::new().ok_or(HandleError::Unavailable)?;
+            let host = self.gl_host.get_or_init(|| {
+                let view = objc2_app_kit::NSView::new(mtm);
+                view.setHidden(true);
+                view
+            });
+            let reparent = unsafe { host.superview() }
+                .map(|parent| {
+                    !std::ptr::eq(
+                        objc2::rc::Retained::as_ptr(&parent).cast::<std::ffi::c_void>(),
+                        objc2::rc::Retained::as_ptr(&content).cast::<std::ffi::c_void>(),
+                    )
+                })
+                .unwrap_or(true);
+            if reparent {
+                host.removeFromSuperview();
+                host.setFrame(content.bounds());
+                host.setAutoresizingMask(
+                    objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable
+                        | objc2_app_kit::NSAutoresizingMaskOptions::ViewHeightSizable,
+                );
+                content.addSubview(host);
+            }
+            let pointer =
+                std::ptr::NonNull::new(objc2::rc::Retained::as_ptr(host).cast_mut().cast())
+                    .ok_or(HandleError::Unavailable)?;
+            Ok(unsafe {
+                WindowHandle::borrow_raw(raw_window_handle::RawWindowHandle::AppKit(
+                    raw_window_handle::AppKitWindowHandle::new(pointer),
+                ))
+            })
+        }
     }
 }
 
 impl WindowSurface for Surface {
     fn scale_factor(&self) -> f64 {
-        self.0.scale_factor()
+        self.window.scale_factor()
     }
 
     fn toggle_fullscreen(&self) {
-        self.0.set_fullscreen(if self.0.fullscreen().is_some() {
-            None
-        } else {
-            Some(crate::NativeFullscreen::Borderless(None))
-        });
+        self.window
+            .set_fullscreen(if self.window.fullscreen().is_some() {
+                None
+            } else {
+                Some(crate::NativeFullscreen::Borderless(None))
+            });
     }
 }
 
@@ -214,7 +275,13 @@ impl View {
         &self,
         callback: impl FnOnce(Rc<dyn WindowSurface>) -> Result<(), String> + 'static,
     ) -> Result<(), String> {
-        self.on_native_window(move |window| callback(Rc::new(Surface(window))))
+        self.on_native_window(move |window| {
+            callback(Rc::new(Surface {
+                window,
+                #[cfg(target_os = "macos")]
+                gl_host: std::cell::OnceCell::new(),
+            }))
+        })
     }
 
     pub fn on_surface_viewport(&self, callback: Rc<dyn Fn(f32, f32)>) {

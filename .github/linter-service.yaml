@@ -1,0 +1,3 @@
+global:
+  exclude_paths:
+    - "macros/tests/compile_fail/*/main.rs"

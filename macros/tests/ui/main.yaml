@@ -20,7 +20,7 @@ templates:
             - type: TextBox
               id: edit
               text: {bind: {path: name, mode: TwoWay}}
-              validation: {validator: crate::validate_name, error: error, pending: pending}
+              validation: {validator: 'crate::validate_name', error: error, pending: pending}
             - type: Label
               id: outer
               text: {bind: {path: root.title}}
@@ -53,7 +53,10 @@ root:
   title: {bind: {path: title}}
   margin: 7
   padding: {top: 1, right: 2, bottom: 3, left: 4}
-  style: {horizontal_alignment: End, vertical_alignment: Stretch, text: {role: Code, scale: 0.8333333, foreground: [70, 70, 70]}}
+  style:
+    horizontal_alignment: End
+    vertical_alignment: Stretch
+    text: {role: Code, scale: 0.8333333, foreground: [70, 70, 70]}
   menus:
     - id: actions
       title: {literal: Actions}
@@ -74,10 +77,10 @@ root:
           - type: TextBox
             id: name
             text: {bind: {path: name, mode: TwoWay}}
-            validation: {validator: crate::validate_name, error: error, pending: pending}
+            validation: {validator: 'crate::validate_name', error: error, pending: pending}
           - type: TextBox
             id: converted
-            text: {bind: {path: progress, mode: TwoWay, converter: crate::NumberText}}
+            text: {bind: {path: progress, mode: TwoWay, converter: 'crate::NumberText'}}
           - type: TextBox
             id: readonly
             text: {bind: {path: name}}

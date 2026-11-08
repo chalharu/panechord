@@ -1,0 +1,4 @@
+# CI/dev builder images run trusted first-party builds as root (same waiver as
+# the hadolint DL3002 pragma in both Dockerfiles); they are never deployed as
+# services, so a non-root USER would only break volume mounts and caches.
+DS-0002

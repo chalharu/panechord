@@ -11,6 +11,7 @@ FROM rust:1.99.1-slim-bookworm@sha256:f2c004e3d2d8b547e8cf7ffbc29205385f4e71d23e
 # New releases apply only after the 3-day minimum release age.
 ARG NEXTEST_VERSION=0.9.150 # renovate: datasource=crate depName=cargo-nextest
 ARG LLVM_COV_VERSION=0.9.1 # renovate: datasource=crate depName=cargo-llvm-cov
+# hadolint ignore=DL3008
 RUN apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /tools \

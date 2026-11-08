@@ -22,6 +22,15 @@ pub(crate) type ViewportHook = Rc<dyn Fn(f32, f32)>;
 
 struct Surface {
     window: gtk4::Window,
+    /// Private GL drawable host (macOS): binding an NSOpenGLContext to the
+    /// toolkit-owned contentView hijacks its layer, and the window loses
+    /// composition (transparent window) once the swapchain is never
+    /// presented, as since the readback switch in b4d305ea. The context
+    /// lives on this hidden subview instead; the toolkit view keeps only
+    /// its own composition. Owned here so the borrowed handle outlives
+    /// the call.
+    #[cfg(target_os = "macos")]
+    gl_host: std::cell::OnceCell<objc2::rc::Retained<objc2_app_kit::NSView>>,
 }
 
 #[cfg(target_os = "macos")]
@@ -147,13 +156,9 @@ impl HasWindowHandle for Surface {
         }
         #[cfg(target_os = "macos")]
         {
-            // Fresh lookup every call: GDK may recreate the native
-            // surface (resize/show), so a cached NSView can go stale
-            // while GL keeps drawing into a detached view. The old
-            // direct-render path re-resolved handles each tick for the
-            // same reason; no per-widget NSView exists on the macOS
-            // backend (all widgets share this surface view), so the
-            // window contentView remains the correct handle.
+            // Fresh contentView every call (GDK may recreate the native
+            // surface on resize/show); the handle itself is the owned
+            // private host below, stable across those recreations.
             let surface = self.window.surface().ok_or(HandleError::Unavailable)?;
             if !surface.type_().name().contains("Macos") {
                 return Err(HandleError::NotSupported);
@@ -162,14 +167,42 @@ impl HasWindowHandle for Surface {
             let window =
                 unsafe { objc2::rc::Retained::<objc2_app_kit::NSWindow>::retain(pointer.cast()) }
                     .ok_or(HandleError::Unavailable)?;
-            let view = window.contentView().ok_or(HandleError::Unavailable)?;
+            let content = window.contentView().ok_or(HandleError::Unavailable)?;
+            // Private GL drawable host: binding an NSOpenGLContext to the
+            // toolkit-owned contentView hijacks its layer, and the window
+            // loses composition (transparent window) once the swapchain is
+            // never presented, as since the readback switch. The context
+            // lives on this hidden subview instead; the toolkit view keeps
+            // only its own composition. No per-widget NSView exists on
+            // the macOS backend (widgets share the surface view).
+            let mtm = objc2::MainThreadMarker::new().ok_or(HandleError::Unavailable)?;
+            let host = self.gl_host.get_or_init(|| {
+                let view = objc2_app_kit::NSView::new(mtm);
+                view.setHidden(true);
+                view
+            });
+            // Re-parent when GDK recreates the native surface underneath us
+            // (the old direct-render path re-resolved handles each tick).
+            let reparent = unsafe { host.superview() }
+                .map(|parent| {
+                    !std::ptr::eq(
+                        objc2::rc::Retained::as_ptr(&parent).cast::<std::ffi::c_void>(),
+                        objc2::rc::Retained::as_ptr(&content).cast::<std::ffi::c_void>(),
+                    )
+                })
+                .unwrap_or(true);
+            if reparent {
+                host.removeFromSuperview();
+                host.setFrame(content.bounds());
+                host.setAutoresizingMask(
+                    objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable
+                        | objc2_app_kit::NSAutoresizingMaskOptions::ViewHeightSizable,
+                );
+                content.addSubview(host);
+            }
             let pointer =
-                std::ptr::NonNull::new(objc2::rc::Retained::as_ptr(&view).cast_mut().cast())
+                std::ptr::NonNull::new(objc2::rc::Retained::as_ptr(host).cast_mut().cast())
                     .ok_or(HandleError::Unavailable)?;
-            // `window`/`view` retains drop here; the pointer borrows from
-            // the live GDK surface owned by `self.window`, valid for the
-            // `&self` borrow of the returned handle — same contract as
-            // the X11/Wayland/Win32 paths above.
             Ok(unsafe {
                 WindowHandle::borrow_raw(raw_window_handle::RawWindowHandle::AppKit(
                     raw_window_handle::AppKitWindowHandle::new(pointer),
@@ -343,6 +376,8 @@ impl View {
         gtk4::prelude::WidgetExt::realize(&self.0.window);
         callback(Rc::new(Surface {
             window: self.0.window.clone(),
+            #[cfg(target_os = "macos")]
+            gl_host: std::cell::OnceCell::new(),
         }))
     }
 

@@ -102,7 +102,7 @@ raw-window-handle = { version = "=0.6.2" }
 rfd = { version = "=0.17.2" }
 schemars = { version = "=1.2.3" }
 serde = { default-features = false, version = "=1.0.229" }
-serde-saphyr = { version = "=2.0.0" }
+serde-saphyr = { version = "=2.1.1" }
 serde_json = { version = "=1.0.154" }
 serde_path_to_error = { version = "=0.1.20" }
 syn = { features = ["extra-traits", "full", "visit-mut"], version = "=3.0.9" }

@@ -538,9 +538,7 @@ impl<T: Clone + 'static> ItemsRefresh<T> {
     fn clamped(&self) -> Option<(Vec<Keyed<T>>, usize, Viewport)> {
         let list = &self.list;
         let snapshot = self.source.borrow().clone();
-        let Some(viewport) = list.current.get() else {
-            return None;
-        };
+        let viewport = list.current.get()?;
         let start = match viewport.range(snapshot.len()) {
             Ok(range) => range.start,
             Err(error) => {

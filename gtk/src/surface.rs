@@ -411,7 +411,16 @@ impl View {
         let weak = Rc::downgrade(&self.0);
         picture.add_tick_callback(move |widget, _| {
             if let Some(inner) = weak.upgrade() {
-                let allocation = widget.allocation();
+                // Size from the mount frame (parent), not the Picture
+                // itself: an empty Picture (no paintable yet) can measure
+                // 0x0, which would deadlock viewport at zero and starve the
+                // renderer that would provide the first frame. The frame
+                // Box expands regardless of content, like the old
+                // window-driven sizing.
+                let allocation = widget
+                    .parent()
+                    .map(|parent| parent.allocation())
+                    .unwrap_or_else(|| widget.allocation());
                 let size = (
                     allocation.width().max(0) as f32,
                     allocation.height().max(0) as f32,

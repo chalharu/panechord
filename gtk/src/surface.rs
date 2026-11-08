@@ -22,8 +22,6 @@ pub(crate) type ViewportHook = Rc<dyn Fn(f32, f32)>;
 
 struct Surface {
     window: gtk4::Window,
-    #[cfg(target_os = "macos")]
-    native_view: std::cell::OnceCell<objc2::rc::Retained<objc2_app_kit::NSView>>,
 }
 
 #[cfg(target_os = "macos")]
@@ -149,24 +147,29 @@ impl HasWindowHandle for Surface {
         }
         #[cfg(target_os = "macos")]
         {
-            if self.native_view.get().is_none() {
-                let surface = self.window.surface().ok_or(HandleError::Unavailable)?;
-                if !surface.type_().name().contains("Macos") {
-                    return Err(HandleError::NotSupported);
-                }
-                let pointer =
-                    unsafe { gdk_macos_surface_get_native_window(surface.to_glib_none().0) };
-                let window = unsafe {
-                    objc2::rc::Retained::<objc2_app_kit::NSWindow>::retain(pointer.cast())
-                }
-                .ok_or(HandleError::Unavailable)?;
-                let view = window.contentView().ok_or(HandleError::Unavailable)?;
-                let _ = self.native_view.set(view);
+            // Fresh lookup every call: GDK may recreate the native
+            // surface (resize/show), so a cached NSView can go stale
+            // while GL keeps drawing into a detached view. The old
+            // direct-render path re-resolved handles each tick for the
+            // same reason; no per-widget NSView exists on the macOS
+            // backend (all widgets share this surface view), so the
+            // window contentView remains the correct handle.
+            let surface = self.window.surface().ok_or(HandleError::Unavailable)?;
+            if !surface.type_().name().contains("Macos") {
+                return Err(HandleError::NotSupported);
             }
-            let view = self.native_view.get().ok_or(HandleError::Unavailable)?;
-            let pointer =
-                std::ptr::NonNull::new(objc2::rc::Retained::as_ptr(view).cast_mut().cast())
+            let pointer = unsafe { gdk_macos_surface_get_native_window(surface.to_glib_none().0) };
+            let window =
+                unsafe { objc2::rc::Retained::<objc2_app_kit::NSWindow>::retain(pointer.cast()) }
                     .ok_or(HandleError::Unavailable)?;
+            let view = window.contentView().ok_or(HandleError::Unavailable)?;
+            let pointer =
+                std::ptr::NonNull::new(objc2::rc::Retained::as_ptr(&view).cast_mut().cast())
+                    .ok_or(HandleError::Unavailable)?;
+            // `window`/`view` retains drop here; the pointer borrows from
+            // the live GDK surface owned by `self.window`, valid for the
+            // `&self` borrow of the returned handle — same contract as
+            // the X11/Wayland/Win32 paths above.
             Ok(unsafe {
                 WindowHandle::borrow_raw(raw_window_handle::RawWindowHandle::AppKit(
                     raw_window_handle::AppKitWindowHandle::new(pointer),
@@ -340,8 +343,6 @@ impl View {
         gtk4::prelude::WidgetExt::realize(&self.0.window);
         callback(Rc::new(Surface {
             window: self.0.window.clone(),
-            #[cfg(target_os = "macos")]
-            native_view: std::cell::OnceCell::new(),
         }))
     }
 

@@ -46,46 +46,49 @@ invalid geometry rejects on every backend instead of returning a dangling Parent
 | Review concern | Resolution |
 | --- | --- |
 | Dirty-field omissions | Conservative `bind` invalidates all. |
-|  | Explicit optimization APIs are separately named. |
-|  | They carry documented proof obligations. |
-|  | Generated readers, writers, dependency names share one path. |
+| Dirty-field omissions | Explicit optimization APIs are separately named. |
+| Dirty-field omissions | They carry documented proof obligations. |
+| Dirty-field omissions | Generated names share one parsed path. |
 | Owner/share confusion | `owned_view` takes non-Clone `StoreOwner`. |
-|  | Fails if a shared `Store` handle exists. |
-|  | Compile-fail and runtime tests cover both. |
-|  | Sharing from an owner explicitly delegates final closure. |
+| Owner/share confusion | Fails if a shared `Store` handle exists. |
+| Owner/share confusion | Compile-fail and runtime tests cover both. |
+| Owner/share confusion | Owner sharing delegates final closure. |
 | Write rejection ambiguity | `try_set` returns typed rejections. |
-|  | Variants: `ReadOnly`, `Closed`, `Capacity`, `Conversion`. |
-|  | Acceptance is not an application receipt. |
-|  | Acceptance bools are `must_use`; discards are explicit. |
+| Write rejection ambiguity | `ReadOnly`, `Closed`. |
+| Write rejection ambiguity | `Capacity`, `Conversion`. |
+| Write rejection ambiguity | Acceptance is not an application receipt. |
+| Write rejection ambiguity | Bools are `must_use`; discards explicit. |
 | Dropped continuation | Store fails closed (`dispatch_failed`). |
-|  | Never silently retains a stranded FIFO. |
-|  | Hosts still poll retained futures, never block callbacks. |
+| Dropped continuation | Never silently retains a stranded FIFO. |
+| Dropped continuation | Still poll retained futures; don't block. |
 | Projection duplicates | `map` keeps its non-`PartialEq` contract. |
-|  | `distinct` is an explicit opt-in. |
+| Projection duplicates | `distinct` is an explicit opt-in. |
 | Backend Style errors | `try_style` validates before mutating. |
-|  | Checks spacing, finite size, parent placement. |
-|  | Missing IDs reject, never alias root. |
-|  | `style` records errors; invalid GTK placement never panics. |
+| Backend Style errors | Checks spacing, finite size, parent placement. |
+| Backend Style errors | Missing IDs reject, never alias root. |
+| Backend Style errors | `style` records errors. |
+| Backend Style errors | Invalid GTK placement never panics. |
 | Late cleanup | `on_close` runs right after closure. |
-|  | Same on GTK, Tao and AppKit. |
+| Late cleanup | Same on GTK, Tao and AppKit. |
 | Viewport writeback | Writable models: effective start. |
-|  | Last-page start; readonly scrolls locally. |
-|  | Tao overscan stays within count+1. |
+| Viewport writeback | Last-page start; readonly scrolls locally. |
+| Viewport writeback | Tao overscan stays within count+1. |
 | Diagnostic locations | JSON has source spans too. |
-|  | YAML unknown fields use spanned keys. |
-|  | Primary markers selected structurally; CRLF kept. |
-|  | Ambiguous diagnostics stay unchanged. |
+| Diagnostic locations | YAML unknown fields use spanned keys. |
+| Diagnostic locations | Primary markers selected structurally; CRLF kept. |
+| Diagnostic locations | Ambiguous diagnostics stay unchanged. |
 | Editable rows (AppKit) | Frames move; retained pairs stay mounted. |
-|  | Regression keeps editor identity, marked text, selection. |
+| Editable rows (AppKit) | Regression keeps editor identity. |
+| Editable rows (AppKit) | Marked text and selection kept. |
 | Distribution (AppKit) | `@rpath` bridge, reproducible bundle. |
-|  | Verification relocates the bundle for smoke runs. |
-|  | No DYLD overrides or absolute build rpaths. |
+| Distribution (AppKit) | Verification relocates the bundle for smoke runs. |
+| Distribution (AppKit) | No DYLD overrides or absolute build rpaths. |
 | Clipboard interference | Mutable probes need opt-in. |
-|  | Probes need an isolated desktop. |
-|  | Synthetic input isn't external IME certification. |
+| Clipboard interference | Probes need an isolated desktop. |
+| Clipboard interference | Synthetic input isn't external IME certification. |
 | Smoke readiness | Backends wait for draw notification. |
-|  | Never a fixed delay. |
-|  | Formal runners keep a configurable hang watchdog. |
+| Smoke readiness | Never a fixed delay. |
+| Smoke readiness | Formal runners keep a configurable hang watchdog. |
 
 ## Common Rejection Contract
 
@@ -99,20 +102,18 @@ diagnostics. Formal gates run the same probe with actual GTK, Tao and AppKit con
 | Slider Conversion | Unchanged 42.4 | Retained 42.0 | `try_set` keeps type |
 | readonly/disabled/hidden | Unchanged | Unremounted | Err; no writer added |
 | unknown literal Tab page | Not built | Partial close | Error at selected tab |
-| unknown bound initial Tab page | Shared Store kept. |  |  |
-|  | Consumed owner closed. |  |  |
-|  |  | Partial View closed. |  |
-|  |  |  | `try_view`/`try_owned_view` Err. |
-| empty Tab choice | Empty stays empty. | First page kept. |  |
+| empty Tab choice | Empty stays empty. | First page kept. | No error. |
 | readonly select | Unchanged. | Last accepted page. | Err. |
 | unknown Combo/Tab operation choice | Unchanged | Retained | pre-mutation Err |
 | nested menu disabled parent | Unchanged | Retained tree | Leaf Err. |
-|  |  |  | Typed argument kept when enabled. |
+| nested menu disabled parent | Unchanged | Retained tree | Typed arg kept. |
 | Dialog readonly/hidden parent | Stays closed | No modal | `set_open` Err |
-| Dialog open/dismiss/reopen | Open flag true/false. |  |  |
-|  | Follows accepted operations. |  |  |
-|  |  | Native modal or Tao overlay. |  |
-|  |  |  | Commands/`set_open` accept; close/reopen verified. |
+
+Unknown bound initial Tab pages keep the shared Store but close the consumed
+owner and any partial View; `try_view` and `try_owned_view` return Err.
+Dialog open/dismiss/reopen follows accepted operations for the open flag,
+using the native modal or Tao overlay; commands and `set_open` accept, and
+close then reopen verifies.
 
 Dialog open/close is an explicit model operation; a hidden placeholder is not
 a user visibility request. Native modal appearance is not required to match the

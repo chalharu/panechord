@@ -31,7 +31,8 @@ native toolkit dependency is required.
   hook slots; dropping a token unregisters and aborts its pending shutdown waits.
 - `WindowHooks` has public Rc callbacks: `confirm` produces
   `LocalBoxFuture<'static, bool>`, `cancel` returns unit, `drain` produces
-  `LocalBoxFuture<'static, ()>`, and `close` returns unit. Capture native views weakly.
+  `LocalBoxFuture<'static, ()>`, and `close` returns unit. Capture native
+  views weakly.
 - `ShutdownCoordinator` is Clone/Default, has `new`, `register_window`,
   `window_count`, `phase() -> ShutdownPhase`, `cancel_shutdown() -> bool`,
   `close_now()`, and `async request_shutdown(Duration) -> ShutdownOutcome`.
@@ -102,7 +103,8 @@ projecting outside internal borrows; they do not clone S. Legacy mutation
 clones S once, and the public `snapshot()` still returns an owned clone.
 Arbitrary updates invalidate all subscribed projections.
 `bind_scoped_explicit(field,read,write)` indexes a top-level field;
-its writer only invalidates that field and unscoped listeners, but still clones S.
+its writer only invalidates that field and unscoped listeners, but still
+clones S.
 `update_scoped_explicit(fields, |previous| Some(next_state))` constructs an
 owned state without invoking S::clone; returning None skips publication
 entirely. Declare all changed top-level fields, and only use scoped
@@ -198,7 +200,8 @@ forcibly closes windows. Cancellation is at most once per window per request.
 Repeated close is idempotent. Registrations during shutdown and duplicate IDs
 return errors. Unmounted windows stop participating in outstanding waits.
 The real-timer regression waits longer than the drain budget during confirmation,
-asserts no cancellation/close, then approves and verifies the stuck drain times out.
+asserts no cancellation/close, then approves and verifies the stuck drain
+times out.
 
 ## Deliberate boundaries
 

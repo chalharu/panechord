@@ -10,10 +10,12 @@ An interactive macOS desktop, Rust 1.95 or later, and Xcode Command Line Tools
 with Swift. From the repository root, pick exactly one backend:
 
 ```sh
-env -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH -u DYLD_INSERT_LIBRARIES \
+env -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH \
+  -u DYLD_INSERT_LIBRARIES \
   cargo run --locked -p panechord-library --no-default-features \
     --features backend-macos -- --folder /path/to/files
-env -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH -u DYLD_INSERT_LIBRARIES \
+env -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH \
+  -u DYLD_INSERT_LIBRARIES \
   cargo run --locked -p panechord-demo --no-default-features \
     --features backend-macos -- --smoke
 sh scripts/verify-macos.sh
@@ -129,39 +131,39 @@ delays OS event handling by exactly that long.
 | Area | Automated scope |
 | --- | --- |
 | Demo / list | Shared smoke: draft retention and readonly. |
-|  | Save, close veto, save-wait, re-confirm. |
-|  | Final JSON; sandbox edit bursts; Latest results. |
-|  | Failure recovery, selection, close. |
+| Demo / list | Save, close veto, save-wait, re-confirm. |
+| Demo / list | Final JSON; sandbox edit bursts; Latest results. |
+| Demo / list | Failure recovery, selection, close. |
 | Input | Marked text; Japanese commit injection. |
-|  | Real-OS clipboard copy/cut/paste; Tab / Shift+Tab. |
+| Input | Real-OS clipboard copy/cut/paste; Tab / Shift+Tab. |
 | Menu | Native key equivalents for Primary/Cmd+S, enablement, dynamic rebuild |
 | Typed menu | `MenuItem<i32>` delivered without String conversion |
 | Three windows | Shared store; auxiliary reopen. |
-|  | Menu handoff after active-window close. |
-|  | Quit hook reachable; denial needs no re-present. |
-|  | Confirm/cancel/drain/close ordering kept. |
+| Three windows | Menu handoff after active-window close. |
+| Three windows | Quit hook reachable; denial needs no re-present. |
+| Three windows | Confirm/cancel/drain/close ordering kept. |
 | Session limits | Clone reattach; foreign registration refusal. |
-|  | Closed-view refusal; reattach another Session after failure. |
+| Session limits | Closed views refuse; reattach after failure. |
 | Validation scope | Evict/remount cycles; pending reset. |
-|  | Ignores off-screen updates; subscriptions don't grow. |
+| Validation scope | Ignores off-screen updates; subscriptions don't grow. |
 | Accessibility | Role and identifier readback — not screen-reader operation |
 | List mounting | 100-row model; 6 rows mounted. |
-|  | Range moves, reorder, invalid-key refusal, recovery. |
+| List mounting | Range moves, reorder, invalid-key refusal, recovery. |
 | Viewport contract | No mounts on invalid initial state. |
-|  | Out-of-range count/height refused; mounts kept. |
-|  | Valid recovery; `usize::MAX` last page. |
+| Viewport contract | Out-of-range count/height refused; mounts kept. |
+| Viewport contract | Valid recovery; `usize::MAX` last page. |
 | Readonly viewport | Local moves never touch the model. |
-|  | Later notifications still arrive. |
-|  | Automation shares the native scroll handler. |
+| Readonly viewport | Later notifications still arrive. |
+| Readonly viewport | Automation shares the native scroll handler. |
 | Menu refusal | Bad IDs, duplicates, bad shortcuts keep handlers. |
-|  | Old arguments kept; recover on a valid candidate. |
+| Menu refusal | Old arguments kept; recover on a valid candidate. |
 | Nested cleanup | Repeated mount/evict of one key. |
-|  | Registry clearing; stale-scroll invalidation. |
-|  | Weak template-resource expiry. |
+| Nested cleanup | Registry clearing; stale-scroll invalidation. |
+| Nested cleanup | Weak template-resource expiry. |
 | Dynamic row height | `frame_height` readback, real native change. |
-|  | No template rebuild needed. |
+| Dynamic row height | No template rebuild needed. |
 | Overload | Bulk updates; chained keys in order. |
-|  | WeakView and close hold up under load. |
+| Overload | WeakView and close hold up under load. |
 | Drawing | 640/960px native bitmaps; AppKit draw CPU time inside a chain |
 
 Conformance runs on the main thread; never initialize AppKit from a libtest

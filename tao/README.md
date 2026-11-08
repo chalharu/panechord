@@ -140,8 +140,9 @@ upgrade and call close only when ready; retain that token with `View::keep`.
 An on_close callback closes the Store when the View actually ends. Never capture
 View strongly in a callback/token stored on that same View. keep ownership and
 template-scoped token eviction are unchanged.
-Call `run_host` on the main thread, at most once per process. Do not initialize GTK4
-in the same process, or install a competing process-global muda event handler.
+Call `run_host` on the main thread, at most once per process. Do not
+initialize GTK4 in the same process, or install a competing process-global
+muda event handler.
 
 Diagnostics/automation: `error`, `diagnostics`, `frame_count`, `mount_identity`,
 `subscription_count`, and the frozen edit/click/menu/text/keys/count/viewport API.

@@ -1,8 +1,9 @@
 # Direct schema-v2 macros
 
-Call `panechord_macros::view!("ui/main.yaml", model, backend)` where `model` is a
-`panechord_runtime::Store<Settings>` and `backend` is a module/crate exposing the
-frozen `View` / `Parent` API. Paths are relative to the caller's Cargo manifest.
+Call `panechord_macros::view!("ui/main.yaml", model, backend)` where `model`
+is a `panechord_runtime::Store<Settings>` and `backend` is a module/crate
+exposing the frozen `View` / `Parent` API. Paths are relative to the
+caller's Cargo manifest.
 The model expression is evaluated once. The View retains a strong root Store
 through its `on_close` callback; bindings and commands retain only weak Store
 ownership (and frozen snapshot data). Closing a shared `view!` releases that
@@ -270,8 +271,9 @@ sh scripts/check-yaml.sh check -p panechord-library --no-default-features \
 primary spans to diagnostic consumers. Each node expansion carries parser-derived
 file/line/column, including template-local IDs. The wrapper preserves original
 Rust diagnostics and nonzero exit status, while adding a YAML primary span.
-Stable proc-macros cannot directly manufacture foreign-file spans; plain cargo
-without the wrapper still typechecks but can point at view!. This is not a full LSP.
+Stable proc-macros cannot directly manufacture foreign-file spans; plain
+cargo without the wrapper still typechecks but can point at view!. This is
+not a full LSP.
 Syntax/resource failures without a resolved node keep parser/invocation diagnostics.
 JSON node locations remain unsupported. Unknown schema fields use an unambiguous
 structural source-map match, otherwise the closest parent location.

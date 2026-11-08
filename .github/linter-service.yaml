@@ -1,3 +1,4 @@
 global:
   exclude_paths:
     - "macros/tests/compile_fail/*/main.rs"
+    - "macros/tests/compile_fail/*/Cargo.toml"

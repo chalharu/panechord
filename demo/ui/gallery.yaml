@@ -52,7 +52,7 @@ root:
           - type: TextBox
             id: name
             text: {bind: {path: name, mode: TwoWay}}
-            validation: {validator: crate::validate_name, error: name_error, pending: validating}
+            validation: {validator: 'crate::validate_name', error: name_error, pending: validating}
             style: {placement: {row: 0, column: 0}}
           - type: Label
             id: echo
@@ -75,7 +75,7 @@ root:
             text: {literal: Level}
           - type: TextBox
             id: number
-            text: {bind: {path: progress, mode: TwoWay, converter: crate::NumberText}}
+            text: {bind: {path: progress, mode: TwoWay, converter: 'crate::NumberText'}}
             style: {placement: {width: 120}}
           - type: Label
             id: progress_caption

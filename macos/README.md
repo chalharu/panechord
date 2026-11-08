@@ -10,10 +10,14 @@ An interactive macOS desktop, Rust 1.95 or later, and Xcode Command Line Tools
 with Swift. From the repository root, pick exactly one backend:
 
 ```sh
-env -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH -u DYLD_INSERT_LIBRARIES \
-  cargo run --locked -p panechord-library --no-default-features --features backend-macos -- --folder /path/to/files
-env -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH -u DYLD_INSERT_LIBRARIES \
-  cargo run --locked -p panechord-demo --no-default-features --features backend-macos -- --smoke
+env -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH \
+  -u DYLD_INSERT_LIBRARIES \
+  cargo run --locked -p panechord-library --no-default-features \
+    --features backend-macos -- --folder /path/to/files
+env -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH \
+  -u DYLD_INSERT_LIBRARIES \
+  cargo run --locked -p panechord-demo --no-default-features \
+    --features backend-macos -- --smoke
 sh scripts/verify-macos.sh
 sh scripts/measure-macos.sh
 ```
@@ -126,21 +130,40 @@ delays OS event handling by exactly that long.
 
 | Area | Automated scope |
 | --- | --- |
-| Demo / list | Shared smoke: draft retention, readonly, save, close veto, save-wait, re-confirm, final JSON; sandbox edit bursts, Latest results, failure recovery, selection, close |
-| Input | Marked text and Japanese commit injection into the field editor; real-OS clipboard copy/cut/paste; Tab / Shift+Tab |
+| Demo / list | Shared smoke: draft retention and readonly. |
+| Demo / list | Save, close veto, save-wait, re-confirm. |
+| Demo / list | Final JSON; sandbox edit bursts; Latest results. |
+| Demo / list | Failure recovery, selection, close. |
+| Input | Marked text; Japanese commit injection. |
+| Input | Real-OS clipboard copy/cut/paste; Tab / Shift+Tab. |
 | Menu | Native key equivalents for Primary/Cmd+S, enablement, dynamic rebuild |
 | Typed menu | `MenuItem<i32>` delivered without String conversion |
-| Three windows | Shared store, auxiliary reopen, menu handoff after active-window close, Quit confirm-hook reachability and denial without re-present, confirm/cancel/drain/close ordering |
-| Session limits | Clone reattach, foreign-Session and closed-view registration refusal, attaching a different Session after failure |
-| Validation scope | Evict/remount cycles, pending reset, no reaction to off-screen updates, no subscription growth |
+| Three windows | Shared store; auxiliary reopen. |
+| Three windows | Menu handoff after active-window close. |
+| Three windows | Quit hook reachable; denial needs no re-present. |
+| Three windows | Confirm/cancel/drain/close ordering kept. |
+| Session limits | Clone reattach; foreign registration refusal. |
+| Session limits | Closed views refuse; reattach after failure. |
+| Validation scope | Evict/remount cycles; pending reset. |
+| Validation scope | Ignores off-screen updates; subscriptions don't grow. |
 | Accessibility | Role and identifier readback — not screen-reader operation |
-| List mounting | 100-row model, 6 mounted rows, range moves, reorder, invalid-key refusal and recovery |
-| Viewport contract | Zero mounts on invalid initial state, out-of-range count/height refused with mounts kept, valid recovery, usize::MAX last page |
-| Readonly viewport | Local moves leave the model untouched while later model notifications still arrive; automation uses the same handler as native scroll |
-| Menu refusal | Bad IDs, duplicate IDs, bad trailing shortcuts keep old handlers and arguments, then recover on a valid candidate |
-| Nested cleanup | Repeated mount/evict of one key, registry clearing, stale-scroll invalidation, weak template-resource expiry |
-| Dynamic row height | `frame_height` readback of a real native frame change with no template rebuild |
-| Overload | Bulk updates and chained synthetic keys delivered before each chain completes; WeakView and close under load |
+| List mounting | 100-row model; 6 rows mounted. |
+| List mounting | Range moves, reorder, invalid-key refusal, recovery. |
+| Viewport contract | No mounts on invalid initial state. |
+| Viewport contract | Out-of-range count/height refused; mounts kept. |
+| Viewport contract | Valid recovery; `usize::MAX` last page. |
+| Readonly viewport | Local moves never touch the model. |
+| Readonly viewport | Later notifications still arrive. |
+| Readonly viewport | Automation shares the native scroll handler. |
+| Menu refusal | Bad IDs, duplicates, bad shortcuts keep handlers. |
+| Menu refusal | Old arguments kept; recover on a valid candidate. |
+| Nested cleanup | Repeated mount/evict of one key. |
+| Nested cleanup | Registry clearing; stale-scroll invalidation. |
+| Nested cleanup | Weak template-resource expiry. |
+| Dynamic row height | `frame_height` readback, real native change. |
+| Dynamic row height | No template rebuild needed. |
+| Overload | Bulk updates; chained keys in order. |
+| Overload | WeakView and close hold up under load. |
 | Drawing | 640/960px native bitmaps; AppKit draw CPU time inside a chain |
 
 Conformance runs on the main thread; never initialize AppKit from a libtest

@@ -12,7 +12,8 @@ inner padding use logical pixels. Grid uses the supplied row/column, while
 children left at the default cell (0,0) flow in declaration order through the
 shared `grid_position` helper; it does not silently substitute a stack.
 Grid columns and row indices/spans are safety-bounded to 4096. Invalid/nonfinite
-spacing is rejected by `try_style` before mutation. A finite explicitly placed size is constrained by
+spacing is rejected by `try_style` before mutation. A finite explicitly
+placed size is constrained by
 the enclosing available size. Root styling uses `__root`; missing IDs never
 silently become aliases. `style` records validation failures in diagnostics.
 
@@ -117,7 +118,8 @@ these limits; it describes adapter support, not clipboard-service availability.
 
 ## Loop and verification
 
-`run_host` owns one UI-local future scheduler and one native loop. Worker wakeups cross
+`run_host` owns one UI-local future scheduler and one native loop. Worker
+wakeups cross
 the event proxy as coalesced numeric IDs, with a one-shot GTK idle nudge on Linux.
 Idle waits are event-driven; the only deadlines come from actual iced redraw
 requests (such as caret blinking), not a runtime polling timer. Close/drop owns
@@ -138,8 +140,9 @@ upgrade and call close only when ready; retain that token with `View::keep`.
 An on_close callback closes the Store when the View actually ends. Never capture
 View strongly in a callback/token stored on that same View. keep ownership and
 template-scoped token eviction are unchanged.
-Call `run_host` on the main thread, at most once per process. Do not initialize GTK4
-in the same process, or install a competing process-global muda event handler.
+Call `run_host` on the main thread, at most once per process. Do not
+initialize GTK4 in the same process, or install a competing process-global
+muda event handler.
 
 Diagnostics/automation: `error`, `diagnostics`, `frame_count`, `mount_identity`,
 `subscription_count`, and the frozen edit/click/menu/text/keys/count/viewport API.
@@ -156,10 +159,17 @@ The pure transaction test injects failures before/after every remove/append.
 The Linux display test also provokes an actual GTK append error (`Ctrl+Fn`),
 checks old native IDs/order/hotkeys/actions and title preservation, then activates
 the native Quit shim. It is ignored by default to isolate GTK thread ownership;
-from `panechord`, run it separately with
-`xvfb-run -a cargo test -p panechord-tao --lib tests::native_menu_append_failure_restores_accelerators_registry_and_quit -- --exact --ignored --test-threads=1`.
+from `panechord`, run it separately with:
+
+```sh
+xvfb-run -a cargo test -p panechord-tao --lib \
+  tests::native_menu_append_failure_restores_accelerators_registry_and_quit \
+  -- --exact --ignored --test-threads=1
+```
+
 `G_DEBUG=fatal-criticals` can additionally enforce clean GTK diagnostics.
-`examples/native_smoke.rs` has a real `main` calling `run_host`; it opens/draws a native
+`examples/native_smoke.rs` has a real `main` calling `run_host`; it
+opens/draws a native
 window and menu, mounts an application-defined advanced widget that roundtrips
 the system clipboard, awaits a worker completion, exercises automation and closes.
 On Linux it also activates the real native accelerator group and observes/closes

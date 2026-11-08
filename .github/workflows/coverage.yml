@@ -18,7 +18,6 @@
 # macOS display tests stay out of CI: they need an interactive desktop
 # (see scripts/verify-macos.sh); the macOS leg runs the headless subset only.
 name: Coverage
-
 on:
   push:
     branches: [main]
@@ -42,14 +41,11 @@ on:
       - ".github/workflows/coverage.yml"
       - ".github/workflows/docker/Dockerfile.ci"
   workflow_dispatch:
-
 permissions:
   contents: read
-
 concurrency:
   group: coverage-${{ github.ref }}
   cancel-in-progress: true
-
 env:
   CARGO_INCREMENTAL: "0"
   CARGO_PROFILE_TEST_DEBUG: "0"
@@ -60,7 +56,6 @@ env:
   NEXTEST_VERSION: "0.9.150" # renovate: datasource=crate depName=cargo-nextest
   LLVM_COV_VERSION: "0.9.1" # renovate: datasource=crate depName=cargo-llvm-cov
   RUST_TOOLCHAIN: "1.99.1" # renovate: datasource=github-releases depName=rust-lang/rust
-
 jobs:
   prepare-image:
     name: Prepare image
@@ -100,7 +95,6 @@ jobs:
           push: true
           tags: ghcr.io/${{ github.repository }}/ci-image-panechord:${{ steps.set-tag.outputs.tag }}
           provenance: false
-
   lint:
     name: Lint (container)
     needs: prepare-image
@@ -129,26 +123,27 @@ jobs:
           workspaces: |
             . -> target
       - name: Format check
-        run: >-
-          cargo fmt -p panechord -p panechord-runtime -p panechord-markup -p panechord-macros
-          -p panechord-gtk -p panechord-tao -p panechord-macos -p panechord-demo
-          -p panechord-library -- --check
+        run: |
+          cargo fmt -p panechord -p panechord-runtime -p panechord-markup \
+            -p panechord-macros -p panechord-gtk -p panechord-tao \
+            -p panechord-macos -p panechord-demo -p panechord-library \
+            -- --check
       - name: Clippy
-        run: >-
-          cargo clippy --locked -p panechord -p panechord-runtime -p panechord-markup
-          -p panechord-macros -p panechord-gtk -p panechord-tao -p panechord-macos
-          -p panechord-demo -p panechord-library --all-targets -- -D warnings
+        run: |
+          cargo clippy --locked -p panechord -p panechord-runtime -p panechord-markup \
+            -p panechord-macros -p panechord-gtk -p panechord-tao \
+            -p panechord-macos -p panechord-demo -p panechord-library --all-targets \
+            -- -D warnings
       - name: Clippy (Tao backend)
-        run: >-
-          cargo clippy --locked -p panechord-demo --all-targets
-          --no-default-features --features backend-tao -- -D warnings
+        run: |
+          cargo clippy --locked -p panechord-demo --all-targets \
+            --no-default-features --features backend-tao -- -D warnings
       - name: Clippy library (Tao backend)
-        run: >-
-          cargo clippy --locked -p panechord-library --all-targets --no-default-features
-          --features backend-tao -- -D warnings
+        run: |
+          cargo clippy --locked -p panechord-library --all-targets \
+            --no-default-features --features backend-tao -- -D warnings
       - name: YAML rustc wrapper tests
         run: python3 scripts/test-yaml-rustc.py
-
   archive-linux:
     name: Build Linux archive
     needs: prepare-image
@@ -198,7 +193,6 @@ jobs:
           path: artifacts/*.tar.zst
           compression-level: 0
           retention-days: 1
-
   run-linux-headless:
     name: Linux headless (nextest)
     needs: [prepare-image, archive-linux]
@@ -237,7 +231,6 @@ jobs:
           name: lcov-linux-headless
           path: coverage/*.info
           retention-days: 1
-
   run-linux-gtk:
     name: Linux GTK display (nextest, Xvfb)
     needs: [prepare-image, archive-linux]
@@ -315,7 +308,6 @@ jobs:
           name: lcov-linux-gtk
           path: coverage/*.info
           retention-days: 1
-
   run-linux-tao:
     name: Linux Tao display (nextest, Xvfb)
     needs: [prepare-image, archive-linux]
@@ -376,7 +368,6 @@ jobs:
           name: lcov-linux-tao
           path: coverage/*.info
           retention-days: 1
-
   run-linux-examples:
     name: Linux examples (Xvfb)
     needs: prepare-image
@@ -508,7 +499,6 @@ jobs:
           name: lcov-linux-examples
           path: coverage/*.info
           retention-days: 1
-
   build-windows:
     name: Build Windows archive
     runs-on: windows-latest
@@ -570,11 +560,13 @@ jobs:
             . -> target
             . -> target/llvm-cov-target
       - name: Tao demo build (Windows backend)
-        run: cargo build --locked -p panechord-demo --no-default-features --features backend-tao
+        run: |
+          cargo build --locked -p panechord-demo --no-default-features `
+            --features backend-tao
       - name: Tao demo clippy (Windows backend)
-        run: >-
-          cargo clippy --locked -p panechord-demo --all-targets
-          --no-default-features --features backend-tao -- -D warnings
+        run: |
+          cargo clippy --locked -p panechord-demo --all-targets `
+            --no-default-features --features backend-tao -- -D warnings
       - name: Build test archives (Tao backend)
         run: |
           mkdir artifacts
@@ -589,7 +581,6 @@ jobs:
           path: artifacts/*.tar.zst
           compression-level: 0
           retention-days: 1
-
   run-windows:
     name: Windows tests (nextest)
     needs: build-windows
@@ -666,7 +657,6 @@ jobs:
           name: lcov-windows
           path: coverage/*.info
           retention-days: 1
-
   build-macos:
     name: Build macOS archive (M1)
     runs-on: macos-26
@@ -740,7 +730,6 @@ jobs:
           path: artifacts/*.tar.zst
           compression-level: 0
           retention-days: 1
-
   run-macos:
     name: macOS tests (nextest, headless)
     needs: build-macos
@@ -810,7 +799,6 @@ jobs:
           name: lcov-macos
           path: coverage/*.info
           retention-days: 1
-
   run-linux-measure:
     name: Linux release CPU budgets
     needs: prepare-image
@@ -840,7 +828,6 @@ jobs:
             . -> target
       - name: Release CPU budgets
         run: sh scripts/measure.sh
-
   sonarcloud:
     name: SonarCloud
     needs:

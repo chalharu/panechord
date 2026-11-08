@@ -561,11 +561,11 @@ jobs:
             . -> target/llvm-cov-target
       - name: Tao demo build (Windows backend)
         run: |
-          cargo build --locked -p panechord-demo --no-default-features \
+          cargo build --locked -p panechord-demo --no-default-features `
             --features backend-tao
       - name: Tao demo clippy (Windows backend)
         run: |
-          cargo clippy --locked -p panechord-demo --all-targets \
+          cargo clippy --locked -p panechord-demo --all-targets `
             --no-default-features --features backend-tao -- -D warnings
       - name: Build test archives (Tao backend)
         run: |

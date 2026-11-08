@@ -28,6 +28,9 @@ FROM rust:1.99.1-slim-bookworm@sha256:f2c004e3d2d8b547e8cf7ffbc29205385f4e71d23e
 # hadolint ignore=DL3002
 USER 0
 
+# One-shot builder: no daemon healthcheck by design.
+HEALTHCHECK NONE
+
 # Union of scripts/Dockerfile.linux (GTK3/4, Tao, X11/Xvfb) and the
 # link toolchain the coverage legs need (clang, mold). One layer, then the
 # apt lists are deleted inside the same layer.

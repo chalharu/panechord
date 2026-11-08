@@ -1,5 +1,7 @@
 ARG RUST_VERSION=1.99.1
 FROM rust:${RUST_VERSION}-slim-bookworm
+# One-shot builder: no daemon healthcheck by design.
+HEALTHCHECK NONE
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates cmake dbus-x11 fonts-dejavu-core fonts-noto-cjk gdb \

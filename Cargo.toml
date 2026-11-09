@@ -99,7 +99,7 @@ proc-macro-crate = { version = "=3.5.0" }
 proc-macro2 = { version = "=1.0.107" }
 quote = { version = "=1.0.47" }
 raw-window-handle = { version = "=0.6.2" }
-rfd = { version = "=0.17.2" }
+rfd = { version = "=0.18.0" }
 schemars = { version = "=1.2.3" }
 serde = { default-features = false, version = "=1.0.229" }
 serde-saphyr = { version = "=2.1.1" }

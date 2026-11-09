@@ -2,6 +2,8 @@ global:
   exclude_paths:
     - "macros/tests/compile_fail/*/main.rs"
     - "macros/tests/compile_fail/*/Cargo.toml"
+    # Not a Dockerfile; hadolint must not parse it.
+    - "scripts/Dockerfile.linux.dockerignore"
 linters:
   cargo-coupling:
     min_grade: C

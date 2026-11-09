@@ -1,5 +1,6 @@
 [package]
 edition = "2024"
+license = "MPL-2.0"
 name = "panechord-ui-missing-field"
 publish = false
 version = "0.0.0"

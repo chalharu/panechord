@@ -1743,6 +1743,12 @@ impl AutomationView for View {
     }
     fn click(&self, id: &str) -> Result<(), String> {
         let node = self.find(id)?;
+        if let Kind::Checkbox(_, checked) = &node.kind {
+            return self.toggle(id, !checked.get());
+        }
+        if let Kind::Radio(_, value, _) = &node.kind {
+            return self.select(id, value);
+        }
         if let Kind::Page(key) = &node.kind {
             let parent = node
                 .parent
@@ -2416,6 +2422,18 @@ impl TabView for View {
         let Kind::Tabs(tabs) = &node.kind else {
             return Err("target is not a tab".into());
         };
+        let pages: Vec<_> = self
+            .tab_keys(&node)
+            .into_iter()
+            .map(|id| Choice {
+                id,
+                label: String::new(),
+            })
+            .collect();
+        if !(1..=MAX_MOUNTS).contains(&pages.len()) {
+            return Err("Tab requires 1..=256 pages".into());
+        }
+        panechord_runtime::validate_choices(&pages, &tabs.selected.get()).map_err(str::to_owned)?;
         tabs.finished.set(true);
         self.normalize_tab(&node)?;
         self.0.changed();
@@ -2961,14 +2979,21 @@ impl MenuView for View {
         let nodes: Vec<_> = self.0.nodes.borrow().values().cloned().collect();
         let mut matches = Vec::new();
         for node in nodes {
+            let item_id = if id.contains('/') {
+                id.strip_prefix(node.id.as_str())
+                    .and_then(|suffix| suffix.strip_prefix('/'))
+            } else {
+                Some(id)
+            };
             if let Kind::Menu(menu) = &node.kind
-                && menu.actions.borrow().contains_key(id)
+                && let Some(item_id) = item_id
+                && menu.actions.borrow().contains_key(item_id)
             {
-                matches.push(node.clone());
+                matches.push((node.clone(), item_id.to_owned()));
             }
         }
         match matches.as_slice() {
-            [node] => self.activate_menu_node(node, id),
+            [(node, item_id)] => self.activate_menu_node(node, item_id),
             [] => Err(format!("unknown menu item: {id}")),
             _ => Err(format!("ambiguous menu item across menus: {id}")),
         }

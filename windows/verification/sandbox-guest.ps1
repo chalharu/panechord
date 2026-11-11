@@ -11,7 +11,7 @@ $report = [ordered]@{
     SchemaVersion = 1; Passed = $false; StartUtc = [DateTime]::UtcNow.ToString('o'); EndUtc = $null
     PackageDirectory = $packageDirectory; Runtime = $null; FrameworksBefore = @(); FrameworksAfter = @()
     Configuration = $null; PackageVerifier = $null; PackageVerifierReport = $null
-    Tests = @(); AdditionalTests = @(); Cases = @(); Probes = @(); Startups = @(); CleanupTests = $null; Diagnostics = @()
+    Tests = @(); AdditionalTests = @(); Cases = @(); Probes = @(); Startups = @(); Controls = $null; CleanupTests = $null; Diagnostics = @()
 }
 function Invoke-BoundedChild([string]$Name, [string]$FileName, [string]$Arguments) {
     $result = [ordered]@{ Name = $Name; FileName = $FileName; Arguments = $Arguments
@@ -247,10 +247,30 @@ try {
     $startups = @()
     if ($configuration.PSObject.Properties.Name -contains 'StartupExecutables') { $startups = @($configuration.StartupExecutables) }
     foreach ($entry in $startups) { $report.Startups += Invoke-BoundedStartup $entry.FileName }
+    $controlsRequested = ($configuration.PSObject.Properties.Name -contains 'ControlsExecutable' -and $null -ne $configuration.ControlsExecutable)
+    if ($controlsRequested) {
+        if ($configuration.ControlsExecutable -cne 'controls.exe') { throw 'Unexpected controls executable.' }
+        Assert-PackageLeaf $configuration.ControlsExecutable
+        $result = Invoke-BoundedChild 'controls' (Join-Path $packageDirectory $configuration.ControlsExecutable) ''
+        $requiredMarkers = @(
+            'CONTRACT3 PASS slider closed capacity conversion readonly hidden disabled normalized-display',
+            'MENUS3 PASS nested typed-argument parent-enablement',
+            'DIALOG3 PASS readonly hidden-parent close-reopen',
+            'TABS3 PASS top bottom left right selection retained',
+            'CONTROLS3 PASS checkbox readonly radio slider combo image tab dialog',
+            'NATIVE_LIFECYCLE_PASS native-instances=0 registrations=0 bridge-retired=true natural-Start-return'
+        )
+        $lines = ($result.Stdout + "`n" + $result.Stderr) -split '\r\n|\n|\r'
+        $missingMarkers = @($requiredMarkers | Where-Object { $lines -cnotcontains $_ })
+        $result.Passed = ($result.ExitCode -eq 0 -and -not $result.TimedOut -and $result.Diagnostics.Count -eq 0 -and $missingMarkers.Count -eq 0)
+        $result | Add-Member -NotePropertyName MissingMarkers -NotePropertyValue $missingMarkers
+        $report.Controls = $result
+    }
     $report.FrameworksAfter = @(Get-FrameworkInventory)
     $report.Passed = ($verification.Passed -and $cleanup.Passed -and $report.FrameworksAfter.Count -eq 0 -and $report.Tests.Count -eq $tests.Count -and $report.Cases.Count -eq 4 -and
         $report.AdditionalTests.Count -eq $additionalTests.Count -and @($report.AdditionalTests | Where-Object { -not $_.Passed }).Count -eq 0 -and
         $report.Startups.Count -eq $startups.Count -and @($report.Startups | Where-Object { -not $_.Passed }).Count -eq 0 -and
+        (-not $controlsRequested -or ($null -ne $report.Controls -and $report.Controls.Passed -eq $true)) -and
         @($report.Tests + $report.Cases + $report.Probes | Where-Object { -not $_.Passed }).Count -eq 0)
     if (-not $report.Passed) { $report.Diagnostics += 'Package/test/case/native evidence failed; inspect individual results.' }
 } catch { $report.Passed = $false; $report.Diagnostics += $_.Exception.ToString(); $report.Diagnostics += $_.ScriptStackTrace }

@@ -92,6 +92,7 @@ objc2-app-kit = { default-features = false, features = [
 objc2-foundation = { default-features = false, features = [
   "NSString",
 ], version = "=0.3.2" }
+panechord = { path = "." }
 panechord-gtk = { path = "gtk" }
 panechord-macos = { path = "macos" }
 panechord-macros = { path = "macros" }
@@ -100,6 +101,7 @@ panechord-native = { path = "native" }
 panechord-runtime = { path = "runtime" }
 panechord-tao = { path = "tao" }
 panechord-windows = { path = "windows" }
+png = { version = "=0.18.1" }
 proc-macro-crate = { version = "=3.5.0" }
 proc-macro2 = { version = "=1.0.107" }
 quote = { version = "=1.0.47" }
@@ -113,4 +115,12 @@ serde_path_to_error = { version = "=0.1.20" }
 syn = { features = ["extra-traits", "full", "visit-mut"], version = "=3.0.9" }
 tao = { version = "=0.37.2" }
 window_clipboard = { version = "=0.5.1" }
+windows-collections = { version = "=0.100.0" }
+windows-core = { version = "=0.100.0" }
+windows-future = { version = "=0.100.0" }
+windows-numerics = { version = "=0.100.0" }
+windows-reactor = { version = "=0.100.0" }
+windows-reactor-setup = { version = "=0.100.0" }
+windows-reference = { version = "=0.100.0" }
 windows-sys = { version = "=0.61.2" }
+windows-time = { version = "=0.100.0" }

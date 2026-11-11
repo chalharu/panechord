@@ -19,7 +19,7 @@ default = ["backend-gtk"]
 [dependencies]
 futures.workspace = true
 futures-timer.workspace = true
-panechord = { path = ".." }
+panechord.workspace = true
 panechord-macros.workspace = true
 panechord-runtime.workspace = true
 

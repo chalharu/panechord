@@ -137,9 +137,31 @@ pub(crate) fn native_assertions(id: &str) -> std::result::Result<(), String> {
                 n.generation, expected.0, expected.1
             );
         }
+        eprintln!(
+            "NATIVE_ASSERT_CONTEXT {}",
+            native_focus_context(n.generation)?
+        );
         n.renderer.assertions()
     })()
     .map_err(|e| e.to_string())
+}
+pub(crate) fn native_focus_context(generation: u64) -> Result<String> {
+    let state = current()?;
+    let native = state.natives.borrow().get(&generation).cloned();
+    let native = native.ok_or_else(|| sdk_error("focus diagnostic native retired"))?;
+    let thread = unsafe { GetCurrentThreadId() };
+    let mut info: GUITHREADINFO = unsafe { std::mem::zeroed() };
+    info.cbSize = std::mem::size_of::<GUITHREADINFO>() as u32;
+    let available = unsafe { GetGUIThreadInfo(thread, &mut info) } != 0;
+    Ok(format!(
+        "id={} generation={generation} hwnd={:p} thread={thread} owner-thread={} gui-info={available} active={:p} focus={:p} foreground={:p}",
+        native.id,
+        native.hwnd,
+        unsafe { GetWindowThreadProcessId(native.hwnd, std::ptr::null_mut()) },
+        info.hwndActive,
+        info.hwndFocus,
+        unsafe { GetForegroundWindow() },
+    ))
 }
 pub(crate) fn native_set_text(
     id: &str,
@@ -173,6 +195,21 @@ pub(crate) fn native_removed_token(id: &str, token: u64) -> std::result::Result<
 pub(crate) fn native_hold_entry(id: &str, node: &str) -> std::result::Result<u64, String> {
     native_for(id)
         .and_then(|n| n.renderer.hold_entry(node))
+        .map_err(|e| e.to_string())
+}
+pub(crate) fn native_request_focus(id: &str, node: &str) -> std::result::Result<(), String> {
+    native_for(id)
+        .and_then(|n| n.renderer.request_entry_focus(node))
+        .map_err(|e| e.to_string())
+}
+pub(crate) fn native_focus_delivered(id: &str, node: &str) -> std::result::Result<bool, String> {
+    native_for(id)
+        .and_then(|n| n.renderer.entry_focus_delivered(node))
+        .map_err(|e| e.to_string())
+}
+pub(crate) fn native_menu_edit_assertions(id: &str, node: &str) -> std::result::Result<(), String> {
+    native_for(id)
+        .and_then(|n| n.renderer.menu_edit_assertions(node))
         .map_err(|e| e.to_string())
 }
 pub(crate) fn diagnostic_text_probe(

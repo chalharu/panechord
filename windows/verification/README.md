@@ -25,7 +25,7 @@ a unique temporary directory, or supply a new absolute path; never reuse one.
 Build the probe separately on the host, then pass its actual Cargo artifact:
 
 ```powershell
-cargo build -p panechord-demo --example windows_smoke --no-default-features --features windows-self-contained --locked --offline
+cargo build -p panechord-demo --example windows_smoke --no-default-features --features backend-windows --locked --offline
 $TargetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $PWD 'target' }
 $ProbeExe = Join-Path $TargetDir 'debug\examples\windows_smoke.exe'
 & .\windows\verification\sandbox.ps1 -Run -ProbeExecutable $ProbeExe -ProbeCases @('minimal-yaml') -WatchdogSeconds 240
@@ -40,6 +40,24 @@ For `minimal-yaml`, guest execution uses `--case minimal-yaml` and requires exit
 no timeout/capture diagnostics, stderr `PROBE minimal-yaml NATIVE_MOUNT_EFFECT`
 and `PROBE minimal-yaml close-accepted`, and stdout
 `NATIVE_PROBE_PASS minimal-yaml normal-exit` after the native event loop returns.
+
+### Normal application startup
+
+Pass the actual built artifacts (adjust paths for your Cargo target directory):
+
+```powershell
+$MinimalExe = Join-Path $TargetDir 'debug\examples\minimal.exe'
+$DemoExe = Join-Path $TargetDir 'debug\panechord-demo.exe'
+& .\windows\verification\sandbox.ps1 -Run -StartupExecutables @($MinimalExe, $DemoExe)
+```
+
+Host validation/copying never executes these EXEs. In Sandbox, each runs without
+arguments beside the existing app-local runtime, with a total 30-second watchdog.
+`report.Startups` requires driver READY/first-client and projection completion,
+matching process HWND, app-local Xaml/Windowing.Core, normal window close, exit 0
+and natural `Application.Start` return. Every requested startup must pass in
+addition to all existing checks. This proves native startup/normal close, not
+full gallery interaction coverage; no installed-runtime override is used.
 
 ### Prebuilt artifacts
 
@@ -59,6 +77,9 @@ Runtime 2.4.0 extraction; WebView2Directory contains the 1.0.4078.44 Core DLL
 (see cache paths above). Unique test paths must match all discovered test targets.
 This route trusts supplied artifact provenance: it cannot prove the executables'
 source or inspect their embedded manifests. Prefer the normal build route.
+
+Optional `-AdditionalTestExecutables @($DemoTestExe, $LibraryTestExe)` stages prebuilt Rust harnesses separately from formal tests.
+They run only in Sandbox; `report.AdditionalTests` must match the requested count and all pass, without changing formal target counts.
 
 ## Checks and verdict
 

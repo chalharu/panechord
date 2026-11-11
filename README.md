@@ -129,10 +129,12 @@ temporary directory. The input probe is
 set `PANECHORD_CONTROLS_REVIEW=1` for the interactive review.
 
 WinUI 3 is selected explicitly through the facade's `windows` feature, or the
-screens' `backend-windows` / `windows-self-contained` features with
-`--no-default-features`; the latter adds cache-only deployment. Shared `minimal.yaml`
+screens' `backend-windows` feature with `--no-default-features`. For the screens,
+this also embeds the activation manifest and stages the cached runtime;
+`windows-self-contained` is a compatibility alias. Shared `minimal.yaml`
 passed a native Sandbox roundtrip through `panechord::backend` and `Runner`;
-full gallery/library, IME/UIA and physical input remain unverified. Run all native
+minimal/gallery/library startup and normal close are also verified. Full interaction
+coverage, IME/UIA and physical input remain unverified. Run all native
 Windows applications/tests **only in Sandbox** using [Windows verification](windows/verification/README.md),
 which cleans up its owned Sandbox processes. Host builds/generation are allowed.
 

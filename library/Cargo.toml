@@ -12,8 +12,8 @@ version.workspace = true
 backend-gtk = ["panechord/gtk"]
 backend-macos = ["panechord/macos"]
 backend-tao = ["panechord/tao"]
-backend-windows = ["panechord/windows"]
-windows-self-contained = ["backend-windows", "panechord/windows-self-contained", "dep:panechord-windows"]
+backend-windows = ["panechord/windows-self-contained", "dep:panechord-windows"]
+windows-self-contained = ["backend-windows"]
 default = ["backend-gtk"]
 
 [dependencies]

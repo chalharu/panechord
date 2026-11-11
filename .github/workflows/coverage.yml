@@ -567,15 +567,28 @@ jobs:
         run: |
           cargo clippy --locked -p panechord-demo --all-targets `
             --no-default-features --features backend-tao -- -D warnings
-      # Compile-only WinUI gates need no installed/cached Runtime and do not
-      # execute native tests on the hosted runner. Sandbox acceptance is separate.
+      # Backend/facade checks need no Runtime cache. Application deployment and
+      # native execution are verified separately in Sandbox.
       - name: WinUI backend clippy (opt-in)
         run: |
           cargo clippy --locked -p panechord-windows --all-targets -- -D warnings
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo clippy --locked -p panechord-demo -p panechord-library --all-targets `
-            --no-default-features --features backend-windows -- -D warnings
+          cargo clippy --locked -p panechord --all-targets `
+            --no-default-features --features windows -- -D warnings
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: WinUI application deployment features
+        run: |
+          $metadata = cargo metadata --locked --no-deps --format-version 1 `
+            --no-default-features --features panechord-demo/backend-windows,panechord-library/backend-windows | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($name in @('panechord-demo', 'panechord-library')) {
+            $package = @($metadata.packages | Where-Object name -eq $name)
+            if ($package.Count -ne 1 -or
+                $package[0].features.'backend-windows' -notcontains 'panechord/windows-self-contained' -or
+                $package[0].features.'backend-windows' -notcontains 'dep:panechord-windows') {
+              throw "Missing WinUI deployment feature: $name"
+            }
+          }
       - name: Build test archives (Tao backend)
         run: |
           mkdir artifacts

@@ -16,7 +16,9 @@ impl Greeting {
 }
 fn main() -> Result<(), String> {
     backend::run_host(|host| {
-        use panechord_runtime::{Session, UiHost as _, WindowHost as _};
+        #[cfg(not(feature = "backend-windows"))]
+        use panechord_runtime::WindowHost as _;
+        use panechord_runtime::{Session, UiHost as _};
         let session = Session::new();
         host.attach(session.clone())?;
         let executor = host.executor();

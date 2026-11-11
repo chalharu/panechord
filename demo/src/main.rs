@@ -8,7 +8,9 @@ use panechord::backend;
 
 use model::{RowCommands, Settings, SettingsCommands};
 use native::{NumberText, meter, validate_name};
-use panechord_runtime::{BlockingPool, Session, Store, UiHost, WindowHost};
+#[cfg(not(feature = "backend-windows"))]
+use panechord_runtime::WindowHost;
+use panechord_runtime::{BlockingPool, Session, Store, UiHost};
 use std::{cell::RefCell, rc::Rc};
 
 fn main() -> Result<(), String> {

@@ -4,6 +4,8 @@ use futures::{
     channel::oneshot,
     future::{Either, select},
 };
+#[cfg(feature = "backend-windows")]
+use panechord_runtime::{AutomationView, ListView, ViewCore};
 use panechord_runtime::{Backend as _, Binding, Store};
 use std::{
     cell::{Cell, RefCell},

@@ -2,9 +2,10 @@
 
 Panechord is a declarative UI framework for Rust. You describe a window in
 YAML, hold the model in a `Store`, and let generated code wire the two
-together. The same declaration renders on three backends: real GTK4 widgets
+together. The same declaration renders on real GTK4 widgets
 (`panechord-gtk`), a Tao window with software-rendered controls
-(`panechord-tao`), and native AppKit (`panechord-macos`).
+(`panechord-tao`), native AppKit (`panechord-macos`), and an opt-in WinUI 3
+backend (`panechord-windows`, initial integration).
 
 ```rust
 use panechord_gtk as backend;
@@ -96,6 +97,7 @@ Three ideas carry the whole design:
 | `gtk` | GTK4 backend |
 | `tao` | Tao backend with software-rendered controls |
 | `macos` | AppKit backend (builds its Swift bridge internally) |
+| `windows` | Opt-in SDK-owned WinUI 3 backend; native controls and UI-local executor |
 | `demo` | Control gallery, minimal example, input probe |
 | `library` | Folder-scanning file list; a second worked screen |
 
@@ -104,7 +106,10 @@ Three ideas carry the whole design:
 - Rust 1.95 or later.
 - Linux: GTK4 development files (the Tao backend also uses a GTK3 bridge).
 - macOS: Xcode Command Line Tools with Swift.
-- Windows: only the Tao backend (`backend-tao`); verify natively on Windows.
+- Windows: Tao (`backend-tao`) or the initial WinUI 3 backend
+  (`backend-windows`). The platform default remains Tao. WinUI activation and
+  app-local deployment require additional build support; see
+  [Windows backend](windows/README.md).
 
 ## Running the screens
 
@@ -123,6 +128,15 @@ scrolling off screen. Gallery saves go to `panechord-demo-<pid>.txt` in the
 temporary directory. The input probe is
 `cargo run --locked -p panechord-demo --example controls`;
 set `PANECHORD_CONTROLS_REVIEW=1` for the interactive review.
+
+WinUI 3 is selected explicitly through the facade's `windows` feature, or the
+screens' `backend-windows` feature with `--no-default-features`. The screens also
+offer `windows-self-contained` for cache-only activation/deployment setup.
+Shared `minimal.yaml` has passed native Sandbox verification through
+`panechord::backend` and `Runner`; full gallery/library native acceptance and
+remaining capability gaps are separate gates, not implied by compilation.
+See [Windows verification](windows/verification/README.md) for the isolated
+runner, which always terminates its owned Sandbox processes after execution.
 
 ## Verification
 
@@ -166,7 +180,8 @@ Linux sysroot.
 - `markup/README.md` — parser limits (1 MiB, depth 64, separate 16k value-node
   and expanded-control budgets, no anchors).
 - `runtime/README.md` — scheduling, effects, shutdown, scope contracts.
-- `gtk/README.md`, `tao/README.md`, `macos/README.md` — backend behavior and limits.
+- `gtk/README.md`, `tao/README.md`, `macos/README.md`, `windows/README.md` — backend
+  behavior and limits.
 - `library/README.md` — the folder-scanning screen and its wiring pattern.
 
 ## Non-goals

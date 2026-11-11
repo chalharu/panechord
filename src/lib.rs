@@ -4,7 +4,10 @@ pub use panechord_runtime::*;
 #[cfg(any(
     all(feature = "gtk", feature = "tao"),
     all(feature = "gtk", feature = "macos"),
-    all(feature = "tao", feature = "macos")
+    all(feature = "tao", feature = "macos"),
+    all(feature = "windows", feature = "gtk"),
+    all(feature = "windows", feature = "tao"),
+    all(feature = "windows", feature = "macos")
 ))]
 compile_error!("select exactly one Panechord native backend");
 
@@ -14,11 +17,18 @@ pub use panechord_gtk as gtk;
 pub use panechord_macos as macos;
 #[cfg(all(
     feature = "native",
-    not(any(feature = "gtk", feature = "tao", feature = "macos"))
+    not(any(
+        feature = "gtk",
+        feature = "tao",
+        feature = "macos",
+        feature = "windows"
+    ))
 ))]
 pub use panechord_native as native;
 #[cfg(feature = "tao")]
 pub use panechord_tao as tao;
+#[cfg(feature = "windows")]
+pub use panechord_windows as windows;
 
 /// Startup builder: pre-build window options flow into the backend before the
 /// single `run_host` loop starts. Views are built inside `run`, so every
@@ -27,14 +37,16 @@ pub use panechord_tao as tao;
     feature = "native",
     feature = "gtk",
     feature = "tao",
-    feature = "macos"
+    feature = "macos",
+    feature = "windows"
 ))]
 pub struct Runner;
 #[cfg(any(
     feature = "native",
     feature = "gtk",
     feature = "tao",
-    feature = "macos"
+    feature = "macos",
+    feature = "windows"
 ))]
 impl Runner {
     pub fn builder() -> RunnerBuilder {
@@ -48,7 +60,8 @@ impl Runner {
     feature = "native",
     feature = "gtk",
     feature = "tao",
-    feature = "macos"
+    feature = "macos",
+    feature = "windows"
 ))]
 pub struct RunnerBuilder {
     automatic_window_tabbing: Option<bool>,
@@ -65,7 +78,8 @@ pub struct RunnerBuilder {
         feature = "native",
         feature = "gtk",
         feature = "tao",
-        feature = "macos"
+        feature = "macos",
+        feature = "windows"
     )
 ))]
 pub trait RunnerBuilderExtMacOS: Sized {
@@ -82,7 +96,8 @@ pub trait RunnerBuilderExtMacOS: Sized {
         feature = "native",
         feature = "gtk",
         feature = "tao",
-        feature = "macos"
+        feature = "macos",
+        feature = "windows"
     )
 ))]
 impl RunnerBuilderExtMacOS for RunnerBuilder {
@@ -95,7 +110,7 @@ impl RunnerBuilderExtMacOS for RunnerBuilder {
 /// Feature-selected backend. Downstream screens name the macro backend path
 /// through this module (`panechord::backend`), never the concrete backend
 /// crates: native backend selection belongs to Panechord. Combinations of
-/// `gtk`/`tao`/`macos` are rejected above; alongside `native`, the explicit
+/// `gtk`/`tao`/`macos`/`windows` are rejected above; alongside `native`, the explicit
 /// backend wins and `native` (the platform default) stays silent.
 /// `SelectedBackend` below derives from this module, so adding a backend
 /// touches exactly one alias plus its [`panechord_runtime::Backend`] impl.
@@ -105,11 +120,18 @@ pub use panechord_gtk as backend;
 pub use panechord_macos as backend;
 #[cfg(all(
     feature = "native",
-    not(any(feature = "gtk", feature = "tao", feature = "macos"))
+    not(any(
+        feature = "gtk",
+        feature = "tao",
+        feature = "macos",
+        feature = "windows"
+    ))
 ))]
 pub use panechord_native as backend;
 #[cfg(feature = "tao")]
 pub use panechord_tao as backend;
+#[cfg(feature = "windows")]
+pub use panechord_windows as backend;
 
 /// Feature-selected backend implementation behind the [`backend`] module:
 /// startup policy below stays generic, so new backends and new builder
@@ -120,7 +142,8 @@ pub use panechord_tao as backend;
     feature = "native",
     feature = "gtk",
     feature = "tao",
-    feature = "macos"
+    feature = "macos",
+    feature = "windows"
 ))]
 type SelectedBackend = backend::Backend;
 
@@ -128,7 +151,8 @@ type SelectedBackend = backend::Backend;
     feature = "native",
     feature = "gtk",
     feature = "tao",
-    feature = "macos"
+    feature = "macos",
+    feature = "windows"
 ))]
 impl RunnerBuilder {
     /// Restore the remembered main-window size (logical points) for the

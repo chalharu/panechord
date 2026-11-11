@@ -5,6 +5,8 @@ use crate::{
     scan,
 };
 use futures::future::LocalBoxFuture;
+#[cfg(feature = "backend-windows")]
+use panechord_runtime::ViewCore;
 use panechord_runtime::{BlockingPool, Executor, Keyed, Policy, Store, Subscription};
 use std::{cell::RefCell, rc::Rc};
 

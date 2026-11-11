@@ -1,5 +1,7 @@
 //! Automated verification is not application boilerplate.
 use crate::{backend, model::Settings};
+#[cfg(feature = "backend-windows")]
+use panechord_runtime::{AutomationView, ListView, MenuView, ViewCore};
 use panechord_runtime::{Binding, Store};
 use std::{cell::RefCell, path::PathBuf, rc::Rc, time::Instant};
 

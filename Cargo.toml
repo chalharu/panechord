@@ -10,6 +10,7 @@ members = [
   "native",
   "runtime",
   "tao",
+  "windows",
 ]
 resolver = "3"
 
@@ -30,6 +31,7 @@ panechord-macros.workspace = true
 panechord-native = { optional = true, workspace = true }
 panechord-runtime.workspace = true
 panechord-tao = { optional = true, workspace = true }
+panechord-windows = { optional = true, workspace = true }
 
 [features]
 default = []
@@ -37,6 +39,8 @@ gtk = ["dep:panechord-gtk"]
 macos = ["dep:panechord-macos"]
 native = ["dep:panechord-native"]
 tao = ["dep:panechord-tao"]
+windows = ["dep:panechord-windows"]
+windows-self-contained = ["windows", "panechord-windows/self-contained"]
 
 [profile.dev]
 opt-level = 3
@@ -95,6 +99,7 @@ panechord-markup = { path = "markup" }
 panechord-native = { path = "native" }
 panechord-runtime = { path = "runtime" }
 panechord-tao = { path = "tao" }
+panechord-windows = { path = "windows" }
 proc-macro-crate = { version = "=3.5.0" }
 proc-macro2 = { version = "=1.0.107" }
 quote = { version = "=1.0.47" }

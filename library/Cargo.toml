@@ -12,6 +12,8 @@ version.workspace = true
 backend-gtk = ["panechord/gtk"]
 backend-macos = ["panechord/macos"]
 backend-tao = ["panechord/tao"]
+backend-windows = ["panechord/windows"]
+windows-self-contained = ["backend-windows", "panechord/windows-self-contained", "dep:panechord-windows"]
 default = ["backend-gtk"]
 
 [dependencies]
@@ -20,3 +22,6 @@ futures-timer.workspace = true
 panechord = { path = ".." }
 panechord-macros.workspace = true
 panechord-runtime.workspace = true
+
+[target.'cfg(target_os = "windows")'.build-dependencies]
+panechord-windows = { workspace = true, optional = true, default-features = false }

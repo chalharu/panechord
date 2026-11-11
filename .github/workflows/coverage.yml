@@ -567,6 +567,15 @@ jobs:
         run: |
           cargo clippy --locked -p panechord-demo --all-targets `
             --no-default-features --features backend-tao -- -D warnings
+      # Compile-only WinUI gates need no installed/cached Runtime and do not
+      # execute native tests on the hosted runner. Sandbox acceptance is separate.
+      - name: WinUI backend clippy (opt-in)
+        run: |
+          cargo clippy --locked -p panechord-windows --all-targets -- -D warnings
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo clippy --locked -p panechord-demo -p panechord-library --all-targets `
+            --no-default-features --features backend-windows -- -D warnings
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build test archives (Tao backend)
         run: |
           mkdir artifacts

@@ -1,4 +1,9 @@
 use panechord::backend;
+#[cfg(feature = "backend-windows")]
+use panechord_runtime::{
+    AutomationView as _, DialogView as _, LayoutView as _, MenuView as _, SelectView as _,
+    TabView as _, ViewCore as _,
+};
 use panechord_runtime::{Choice, ImageFrame, Store};
 use std::{rc::Rc, sync::Arc};
 
@@ -46,7 +51,9 @@ fn main() -> Result<(), String> {
         }
     }
     backend::run_host(move |host| {
-        use panechord_runtime::{Session, UiHost as _, WindowHost as _};
+        #[cfg(not(feature = "backend-windows"))]
+        use panechord_runtime::WindowHost as _;
+        use panechord_runtime::{Session, UiHost as _};
         let session = Session::new();
         host.attach(session.clone())?;
         let executor = host.executor();

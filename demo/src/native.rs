@@ -1,5 +1,7 @@
 use crate::backend;
 use panechord_runtime::Binding;
+#[cfg(feature = "backend-windows")]
+use panechord_runtime::MediaView;
 
 pub struct NumberText;
 impl NumberText {

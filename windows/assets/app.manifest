@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+    Adapted from windows-reactor-setup 0.100.0 assets/app.manifest.
+    MIT OR Apache-2.0; see LICENSE-MIT.windows-reactor-setup.
+    Official sources:
+    - Microsoft.WindowsAppSDK.Foundation-2.3.9\package.appxfragment
+    - Microsoft.WindowsAppSDK.InteractiveExperiences-2.1.6\package.appxfragment
+    - Microsoft.WindowsAppSDK.WinUI-2.3.6\package.appxfragment
+    Activatable classes are represented losslessly in activation.txt and
+    expanded by build.rs. No custom GUID or registration is introduced.
+-->
+<assembly manifestVersion="1.0"
+        xmlns="urn:schemas-microsoft-com:asm.v1"
+        xmlns:winrtv1="urn:schemas-microsoft-com:winrt.v1"
+        xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
+    <description>windows-reactor-self-contained</description>
+    <asmv3:file name="SessionHandleIPCProxyStub.dll">
+        <asmv3:comClass clsid="{4321F616-6804-40F2-B584-B0D7708A720D}"></asmv3:comClass>
+        <asmv3:comInterfaceProxyStub name="ISessionHandleIPC" iid="{2B54FB34-8041-4505-9F31-7FB3BA0D6255}"></asmv3:comInterfaceProxyStub>
+        <asmv3:comInterfaceProxyStub name="ISessionEventHandleIPC" iid="{EBF3748D-1EF9-4B89-BA13-65D2B9EC04F0}"></asmv3:comInterfaceProxyStub>
+        <asmv3:comInterfaceProxyStub name="ILanguageModelAdapterHandleIPC" iid="{F75B465E-A49B-486F-ABBE-33F68E7E80ED}"></asmv3:comInterfaceProxyStub>
+    </asmv3:file>
+    <!-- ACTIVATION_CLASSES -->
+</assembly>

@@ -8,7 +8,9 @@ mod wiring;
 
 use panechord::backend;
 
-use panechord_runtime::{BlockingPool, Session, Store, UiHost, WindowHost};
+#[cfg(not(feature = "backend-windows"))]
+use panechord_runtime::WindowHost;
+use panechord_runtime::{BlockingPool, Session, Store, UiHost};
 use std::{
     cell::{Cell, RefCell},
     path::PathBuf,

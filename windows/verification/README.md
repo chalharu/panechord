@@ -103,6 +103,8 @@ They run only in Sandbox; `report.AdditionalTests` must match the requested coun
 - `--p1-smoke` requires exit 0 and `P1 SMOKE PASS`. Fault cases `--make-error`,
   `--task-panic`, `--reject-wake` each require exit **1**, their expected error,
   and both `FAULT_HOST_TEARDOWN_PASS` and `FAULT_TEARDOWN_PASS` markers.
+- Native layout checks read back the shared horizontal menu bar, bounded scroll
+  viewport/end offset, pinned footer and HWND/XAML size agreement after resizing.
 - Rust harnesses require exit 0, `test result: ok.` and nonzero passed tests;
   cleanup mocks require `SANDBOX_CLEANUP_TESTS_PASS cases=7`.
 - Acceptance requires harness exit **0** and **`Passed=true` in all three**:

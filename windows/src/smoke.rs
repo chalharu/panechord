@@ -136,7 +136,17 @@ fn controls<V: FullView>(
     rows: &Store<Vec<Keyed<String>>>,
 ) -> Result<(), String> {
     let root = view.root();
-    let scroll = view.try_scroll(&root, "scroll", false)?;
+    let shell = view.try_layout(
+        &root,
+        "window-body",
+        Layout::Stack {
+            horizontal: false,
+            gap: 5.0,
+        },
+    )?;
+    view.label(&shell, "pinned-header", text("Workspace"));
+    let scroll = view.try_scroll(&shell, "scroll", false)?;
+    view.label(&shell, "pinned-footer", text("Ready"));
     let body = view.try_layout(
         &scroll,
         "body",
@@ -546,7 +556,7 @@ fn controls<V: FullView>(
     );
     view.hierarchical_menu(
         "tools-menu",
-        text("Tools"),
+        model.bind(|s| if s.visible { "Tools" } else { "More" }.into(), None),
         Binding::constant(vec![MenuNode::Submenu {
             id: "notes-submenu".into(),
             label: "Notes".into(),
@@ -555,6 +565,7 @@ fn controls<V: FullView>(
         }]),
         dispatch,
     );
+    view.visible("tools-menu", model.bind(|s| s.visible, None));
     view.typed_menu(
         "edit-menu",
         text("Edit"),
@@ -752,6 +763,32 @@ async fn scenario(
     println!("STAGE editor-owner-present id=main");
     first.view.present();
     turn().await;
+    let root_identity = driver::native_identity("main", "__root")?;
+    let menu_identity = driver::native_identity("main", "tools-menu")?;
+    let original_height = driver::native_window_layout("main", false)?;
+    driver::native_scroll("main", true)?;
+    turn().await;
+    driver::native_window_layout("main", true)?;
+    driver::native_scroll("main", false)?;
+    let original_size = driver::native_resize("main", 720, 640)?;
+    turn().await;
+    let smaller_height = driver::native_window_layout("main", false)?;
+    require(
+        smaller_height < original_height - 50.0,
+        "resize did not reduce native viewport",
+    )?;
+    driver::native_resize("main", original_size.0, original_size.1)?;
+    turn().await;
+    // The window manager may clamp the requested outer size to its work area.
+    // The driver separately compares XAML's root with the actual HWND client.
+    require(
+        driver::native_window_layout("main", false)? > smaller_height + 50.0,
+        "enlarging did not increase native viewport",
+    )?;
+    require(
+        driver::native_identity("main", "__root")? == root_identity,
+        "resize replaced window root",
+    )?;
     // Automation and callbacks exercise retained state; native publication is
     // separately proved by the driver logs, not by these model observations.
     driver::native_assertions("main")?;
@@ -929,12 +966,23 @@ async fn scenario(
         "hidden/disabled button accepted invocation",
     )?;
     driver::native_assertions("main")?;
+    driver::native_scroll("main", false)?;
+    turn().await;
+    driver::native_window_layout("main", false)?;
     require(
         first.model.update(|s| {
             s.visible = true;
             s.enabled = true;
         }),
         "applicability restore rejected",
+    )?;
+    turn().await;
+    driver::native_scroll("main", false)?;
+    turn().await;
+    driver::native_window_layout("main", false)?;
+    require(
+        driver::native_identity("main", "tools-menu")? == menu_identity,
+        "menu update replaced MenuBarItem",
     )?;
     first.view.set_open("dialog", true)?;
     turn().await;
@@ -1033,7 +1081,7 @@ pub fn run<B: Backend<View = View, Host = Host>>(mode: Mode) -> Result<(), Strin
         let deadline = host.clone();
         host.executor().spawn(
             async move {
-                futures_timer::Delay::new(Duration::from_secs(18)).await;
+                futures_timer::Delay::new(Duration::from_secs(24)).await;
                 deadline
                     .fail("smoke watchdog: last close did not autoexit or scenario stalled".into());
             }

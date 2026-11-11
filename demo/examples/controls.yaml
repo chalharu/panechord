@@ -10,108 +10,112 @@ root:
       items: {bind: {path: menu_tree}}
       command: select_slot
   content:
-    type: StackLayout
-    id: screen
-    gap: 12
-    padding: 20
-    children:
-      - type: CheckBox
-        id: vsync
-        text: {literal: VSync}
-        checked: {bind: {path: vsync, mode: TwoWay}}
-      - type: CheckBox
-        id: readonly
-        text: {literal: Read Only}
-        checked: {literal: true}
-      - type: StackLayout
-        id: regions
-        orientation: Horizontal
-        gap: 12
-        children:
-          - type: Radio
-            id: ntsc
-            text: {literal: NTSC}
-            selected: {bind: {path: region, mode: TwoWay}}
-            value: ntsc
-          - type: Radio
-            id: pal
-            text: {literal: PAL}
-            selected: {bind: {path: region, mode: TwoWay}}
-            value: pal
-      - type: Label
-        id: volume_caption
-        text: {literal: Volume}
-      - type: Slider
-        id: volume
-        visible: {bind: {path: shown}}
-        enabled: {bind: {path: ready}}
-        style_binding: {bind: {path: volume_style}}
-        value: {bind: {path: volume, mode: TwoWay}}
-        min: 0
-        max: 100
-        step: 1
-      - type: Label
-        id: renderer_caption
-        text: {literal: Renderer}
-      - type: Combo
-        id: renderer
-        items: {bind: {path: renderers}}
-        selected: {bind: {path: renderer, mode: TwoWay}}
-      - type: Image
-        id: frame
-        source: {bind: {path: frame}}
-      - type: Tab
-        style: {placement: {height: 120}}
-        id: pages
-        position: Left
-        selected: {bind: {path: page, mode: TwoWay}}
-        pages:
-          - id: video
-            title: {literal: Video}
-            content:
-              type: Label
-              id: video_content
-              text: {literal: Video Settings}
-          - id: audio
-            title: {literal: Audio}
-            content:
-              type: Label
-              id: audio_content
-              text: {literal: Audio Settings}
-      - type: Tab
-        id: options
-        position: Top
-        selected: {bind: {path: option, mode: TwoWay}}
-        pages:
-          - id: general
-            title: {literal: General}
-            content:
-              type: Label
-              id: general_content
-              text: {literal: General Options}
-          - id: advanced
-            title: {literal: Advanced}
-            content:
-              type: Label
-              id: advanced_content
-              text: {literal: Advanced Options}
-      - type: Button
-        id: open_dialog
-        text: {literal: Settings}
-        command: open_dialog
-      - type: Dialog
-        id: dialog
-        title: {literal: Settings}
-        open: {bind: {path: open, mode: TwoWay}}
-        content:
-          type: StackLayout
-          id: dialog_content
-          padding: 20
+    type: Scroll
+    id: controls_scroll
+    orientation: Vertical
+    content:
+      type: StackLayout
+      id: screen
+      gap: 12
+      padding: 20
+      children:
+        - type: CheckBox
+          id: vsync
+          text: {literal: VSync}
+          checked: {bind: {path: vsync, mode: TwoWay}}
+        - type: CheckBox
+          id: readonly
+          text: {literal: Read Only}
+          checked: {literal: true}
+        - type: StackLayout
+          id: regions
+          orientation: Horizontal
           gap: 12
           children:
-            - type: DialogFooter
-              id: actions
-              accept_text: {literal: Save}
-              accept_command: dismiss
-              cancel_text: {literal: Cancel}
-              cancel_command: dismiss
+            - type: Radio
+              id: ntsc
+              text: {literal: NTSC}
+              selected: {bind: {path: region, mode: TwoWay}}
+              value: ntsc
+            - type: Radio
+              id: pal
+              text: {literal: PAL}
+              selected: {bind: {path: region, mode: TwoWay}}
+              value: pal
+        - type: Label
+          id: volume_caption
+          text: {literal: Volume}
+        - type: Slider
+          id: volume
+          visible: {bind: {path: shown}}
+          enabled: {bind: {path: ready}}
+          style_binding: {bind: {path: volume_style}}
+          value: {bind: {path: volume, mode: TwoWay}}
+          min: 0
+          max: 100
+          step: 1
+        - type: Label
+          id: renderer_caption
+          text: {literal: Renderer}
+        - type: Combo
+          id: renderer
+          items: {bind: {path: renderers}}
+          selected: {bind: {path: renderer, mode: TwoWay}}
+        - type: Image
+          id: frame
+          source: {bind: {path: frame}}
+        - type: Tab
+          style: {placement: {height: 120}}
+          id: pages
+          position: Left
+          selected: {bind: {path: page, mode: TwoWay}}
+          pages:
+            - id: video
+              title: {literal: Video}
+              content:
+                type: Label
+                id: video_content
+                text: {literal: Video Settings}
+            - id: audio
+              title: {literal: Audio}
+              content:
+                type: Label
+                id: audio_content
+                text: {literal: Audio Settings}
+        - type: Tab
+          id: options
+          position: Top
+          selected: {bind: {path: option, mode: TwoWay}}
+          pages:
+            - id: general
+              title: {literal: General}
+              content:
+                type: Label
+                id: general_content
+                text: {literal: General Options}
+            - id: advanced
+              title: {literal: Advanced}
+              content:
+                type: Label
+                id: advanced_content
+                text: {literal: Advanced Options}
+        - type: Button
+          id: open_dialog
+          text: {literal: Settings}
+          command: open_dialog
+        - type: Dialog
+          id: dialog
+          title: {literal: Settings}
+          open: {bind: {path: open, mode: TwoWay}}
+          content:
+            type: StackLayout
+            id: dialog_content
+            padding: 20
+            gap: 12
+            children:
+              - type: DialogFooter
+                id: actions
+                accept_text: {literal: Save}
+                accept_command: dismiss
+                cancel_text: {literal: Cancel}
+                cancel_command: dismiss

@@ -367,14 +367,24 @@ impl Renderer {
         if depth > super::MAX_DEPTH {
             return Err(sdk_error("native projection depth"));
         }
-        let children: Vec<_> = node
+        let all_children: Vec<_> = node
             .children
             .borrow()
             .iter()
             .map(|id| self.view.find(id).map_err(sdk_error))
             .collect::<Result<_>>()?;
+        // Window menus are chrome, not children of the content's layout.
+        let children: Vec<_> = all_children
+            .iter()
+            .filter(|c| node.id != ROOT || !matches!(c.kind, Kind::Menu(_)))
+            .cloned()
+            .collect();
         let style = node.style.get();
         let control = match &node.kind {
+            Kind::Panel(Layout::Stack {
+                horizontal: false,
+                gap,
+            }) => self.vertical_stack(node, "control", &children, *gap, depth)?,
             Kind::Panel(Layout::Stack { horizontal, gap }) => {
                 let o = self.panel(node, "control", false)?;
                 let s = o.element.cast::<n::IStackPanel>()?;
@@ -447,17 +457,7 @@ impl Renderer {
                 );
                 o.element.clone()
             }
-            Kind::Page(_) => {
-                let o = self.panel(node, "control", false)?;
-                self.child_list(
-                    &o,
-                    children
-                        .iter()
-                        .map(|c| self.render(c, depth + 1))
-                        .collect::<Result<_>>()?,
-                );
-                o.element.clone()
-            }
+            Kind::Page(_) => self.vertical_stack(node, "control", &children, 0.0, depth)?,
             Kind::Scroll(horizontal) => {
                 let o = self.object(node, "control", || n::ScrollViewer::new()?.cast())?;
                 let scroll = o.element.cast::<n::IScrollViewer>()?;
@@ -805,12 +805,55 @@ impl Renderer {
             Kind::TableCell(_)=>node.parent.as_ref().and_then(|id|self.view.find(id).ok()).is_some_and(|p|matches!(&p.kind,Kind::Table(t) if t.selection.as_ref().is_some_and(|b|b.is_writable()))),_=>true};
             c.SetIsEnabled(enabled)?;
         }
+        if matches!(node.kind, Kind::Menu(_)) {
+            // MenuBar owns these directly; a Border wrapper would give the
+            // same item a second native parent when it is inserted in Items.
+            return Ok(control);
+        }
         let padding = self.object(node, "padding", || n::Border::new()?.cast())?;
         padding
             .element
             .cast::<n::IBorder>()?
             .SetPadding(thickness(style.padding))?;
         self.content(&padding, &control)?;
+        let content = if node.id == ROOT {
+            let shell = self.panel(node, "window-shell", true)?;
+            let bar = self.object(node, "menubar", || n::MenuBar::new()?.cast())?;
+            let mut menus = Vec::new();
+            let mut visible_menu = false;
+            for child in &all_children {
+                if matches!(child.kind, Kind::Menu(_)) {
+                    // Render appearance/guards on the MenuBarItem itself. The
+                    // item, never its ordinary wrapper, belongs to Items.
+                    self.render(child, depth + 1)?;
+                    visible_menu |= child.visible.get();
+                    menus.push(
+                        self.find(&child.id, "control")?
+                            .element
+                            .cast::<n::MenuBarItem>()?,
+                    );
+                }
+            }
+            sync_items(&bar.element.cast::<n::IMenuBar>()?.Items()?, &menus)?;
+            bar.element.SetVisibility(if visible_menu {
+                n::Visibility::Visible
+            } else {
+                n::Visibility::Collapsed
+            })?;
+            grid_definitions(
+                &shell.element.cast()?,
+                &[],
+                &[
+                    length(0.0, n::GridUnitType::Auto),
+                    length(1.0, n::GridUnitType::Star),
+                ],
+            )?;
+            n::Grid::SetRow(&padding.element.cast::<n::FrameworkElement>()?, 1)?;
+            self.child_list(&shell, vec![bar.element.clone(), padding.element.clone()]);
+            shell.element.clone()
+        } else {
+            padding.element.clone()
+        };
         let wrapper = self.panel(node, "wrapper", true)?;
         let f = wrapper.element.cast::<n::IFrameworkElement>()?;
         f.SetWidth(style.placement.width.map_or(f64::NAN, f64::from))?;
@@ -839,8 +882,44 @@ impl Renderer {
                 n::Visibility::Collapsed
             },
         )?;
-        self.child_list(&wrapper, vec![padding.element.clone()]);
+        self.child_list(&wrapper, vec![content]);
         Ok(wrapper.element.clone())
+    }
+    // Star tracks receive the finite remainder after natural-height siblings.
+    // Under an unbounded ScrollViewer measure, XAML treats Star as Auto, so
+    // nested scrolling pages/dialogs retain natural content measurement.
+    fn vertical_stack(
+        &self,
+        node: &Rc<Node>,
+        role: &str,
+        children: &[Rc<Node>],
+        gap: f32,
+        depth: usize,
+    ) -> Result<n::UIElement> {
+        let o = self.panel(node, role, true)?;
+        let grid = o.element.cast::<n::IGrid>()?;
+        let mut elements = Vec::new();
+        let mut tracks = Vec::new();
+        for child in children {
+            let e = self.render(child, depth + 1)?;
+            if e.Visibility()? == n::Visibility::Collapsed || matches!(child.kind, Kind::Dialog(..))
+            {
+                n::Grid::SetRow(&e.cast::<n::FrameworkElement>()?, 0)?;
+                elements.push(e);
+                continue;
+            }
+            n::Grid::SetRow(&e.cast::<n::FrameworkElement>()?, tracks.len() as i32)?;
+            tracks.push(if fills_height(&self.view, child, depth + 1)? {
+                length(1.0, n::GridUnitType::Star)
+            } else {
+                length(0.0, n::GridUnitType::Auto)
+            });
+            elements.push(e);
+        }
+        grid_definitions(&grid, &[], &tracks)?;
+        grid.SetRowSpacing(f64::from(gap))?;
+        self.child_list(&o, elements);
+        Ok(o.element.clone())
     }
     fn table(
         &self,
@@ -963,8 +1042,7 @@ impl Renderer {
         Ok(outer.element.clone())
     }
     fn menu(&self, node: &Rc<Node>, menu: &super::MenuState) -> Result<n::UIElement> {
-        let bar = self.object(node, "control", || n::MenuBar::new()?.cast())?;
-        let item = self.object(node, "menu-root", || n::MenuBarItem::new()?.cast())?;
+        let item = self.object(node, "control", || n::MenuBarItem::new()?.cast())?;
         item.element
             .cast::<n::IMenuBarItem>()?
             .SetTitle(&node.text.borrow())?;
@@ -974,12 +1052,12 @@ impl Renderer {
         let native = menu.native.borrow().clone();
         let built = self.menu_items(node, &native, "menu", 0)?;
         sync_items(&item.element.cast::<n::IMenuBarItem>()?.Items()?, &built)?;
-        let list = bar.element.cast::<n::IMenuBar>()?.Items()?;
-        if list.Size()? != 1 || list.GetAt(0)? != item.element.cast::<n::MenuBarItem>()? {
-            list.Clear()?;
-            list.Append(&item.element.cast::<n::MenuBarItem>()?)?;
-        }
-        Ok(bar.element.clone())
+        item.element.SetVisibility(if node.visible.get() {
+            n::Visibility::Visible
+        } else {
+            n::Visibility::Collapsed
+        })?;
+        Ok(item.element.clone())
     }
     fn menu_items(
         &self,
@@ -1519,8 +1597,127 @@ impl Renderer {
             .SetText(value)
     }
     pub(crate) fn node_identity(&self, id: &str) -> Result<(u64, usize)> {
-        let o = self.find(id, "wrapper")?;
+        let node = self.view.find(id).map_err(sdk_error)?;
+        let o = self.find(
+            id,
+            if matches!(node.kind, Kind::Menu(_)) {
+                "control"
+            } else {
+                "wrapper"
+            },
+        )?;
         Ok((o.token, o.element.as_raw() as usize))
+    }
+    pub(crate) fn scroll_fixture(&self, end: bool) -> Result<()> {
+        let scroll = self
+            .find("scroll", "control")?
+            .element
+            .cast::<n::IScrollViewer>()?;
+        let target = if end { scroll.ScrollableHeight()? } else { 0.0 };
+        if !scroll.ChangeViewWithOptionalAnimation(None, Some(target), None, true)?
+            && (scroll.VerticalOffset()? - target).abs() > 1.0
+        {
+            return Err(sdk_error("native ScrollViewer rejected ChangeView"));
+        }
+        Ok(())
+    }
+    pub(crate) fn window_layout_assertions(&self, end: bool) -> Result<f64> {
+        self.root()?.UpdateLayout()?;
+        let shell = self.find(ROOT, "window-shell")?.element.clone();
+        let bar = self.find(ROOT, "menubar")?.element.clone();
+        let content = self.find(ROOT, "padding")?.element.clone();
+        let near = |a: f32, b: f32| (a - b).abs() < 1.0;
+        let shell_size = shell.RenderSize()?;
+        let bar_size = bar.RenderSize()?;
+        let content_size = content.RenderSize()?;
+        if bar_size.height <= 0.0
+            || !near(bar.ActualOffset()?.y, 0.0)
+            || !near(content.ActualOffset()?.y, bar_size.height)
+            || !near(content_size.height + bar_size.height, shell_size.height)
+        {
+            return Err(sdk_error(format!(
+                "native menu/content boundary shell={shell_size:?} bar={bar_size:?} content={content_size:?}"
+            )));
+        }
+        let items = bar.cast::<n::IMenuBar>()?.Items()?;
+        let menu_nodes: Vec<_> = self
+            .view
+            .find(ROOT)
+            .map_err(sdk_error)?
+            .children
+            .borrow()
+            .iter()
+            .map(|id| self.view.find(id).map_err(sdk_error))
+            .collect::<Result<Vec<_>>>()?
+            .into_iter()
+            .filter(|node| matches!(node.kind, Kind::Menu(_)))
+            .collect();
+        if items.Size()? as usize != menu_nodes.len() || menu_nodes.len() != 3 {
+            return Err(sdk_error("native common MenuBar item count"));
+        }
+        let mut previous_right = 0.0;
+        let mut first_y = None;
+        for (index, node) in menu_nodes.iter().enumerate() {
+            let element = self.find(&node.id, "control")?.element.clone();
+            if items.GetAt(index as u32)? != element.cast::<n::MenuBarItem>()?
+                || element.cast::<n::IMenuBarItem>()?.Title()? != *node.text.borrow()
+                || (element.Visibility()? == n::Visibility::Visible) != node.visible.get()
+            {
+                return Err(sdk_error("native common MenuBar order/title/visibility"));
+            }
+            if !node.visible.get() {
+                continue;
+            }
+            let offset = element.ActualOffset()?;
+            let size = element.RenderSize()?;
+            if size.width <= 0.0
+                || offset.x + 1.0 < previous_right
+                || first_y.is_some_and(|y| !near(y, offset.y))
+            {
+                return Err(sdk_error("native MenuBar items are not horizontal"));
+            }
+            first_y = Some(offset.y);
+            previous_right = offset.x + size.width;
+        }
+        let header = self.find("pinned-header", "wrapper")?.element.clone();
+        let footer = self.find("pinned-footer", "wrapper")?.element.clone();
+        let viewport = self.find("scroll", "wrapper")?.element.clone();
+        let stack = self.find("window-body", "control")?.element.clone();
+        let scroll = self
+            .find("scroll", "control")?
+            .element
+            .cast::<n::IScrollViewer>()?;
+        let viewport_height = scroll.ViewportHeight()?;
+        let scrollable = scroll.ScrollableHeight()?;
+        let offset = scroll.VerticalOffset()?;
+        if viewport_height <= 0.0
+            || !viewport_height.is_finite()
+            || scrollable <= 0.0
+            || scroll.VerticalScrollBarVisibility()? != n::ScrollBarVisibility::Auto
+            || !near(header.ActualOffset()?.y, 0.0)
+            || !near(
+                viewport.ActualOffset()?.y,
+                header.RenderSize()?.height + 5.0,
+            )
+            || !near(
+                footer.ActualOffset()?.y + footer.RenderSize()?.height,
+                stack.RenderSize()?.height,
+            )
+            || !near(
+                footer.ActualOffset()?.y,
+                viewport.ActualOffset()?.y + viewport.RenderSize()?.height + 5.0,
+            )
+            || (offset - if end { scrollable } else { 0.0 }).abs() > 1.0
+        {
+            return Err(sdk_error(format!(
+                "native bounded scrolling/pinned footer viewport={viewport_height} scrollable={scrollable} offset={offset} end={end}"
+            )));
+        }
+        println!(
+            "NATIVE_WINDOW_LAYOUT_PASS generation={} viewport={viewport_height} scrollable={scrollable} offset={offset} end={end} common-menubar-horizontal=true chrome-footer-pinned=true native-readback=true no-physical-input-claim",
+            self.generation
+        );
+        Ok(viewport_height)
     }
     pub(crate) fn hold_entry(&self, id: &str) -> Result<u64> {
         let o = self.find(id, "control")?;
@@ -1955,10 +2152,13 @@ enum Event {
     Selection,
     Dialog(n::ContentDialogResult),
 }
-fn sync_items(
-    list: &windows_collections::IVector<n::MenuFlyoutItemBase>,
-    items: &[n::MenuFlyoutItemBase],
-) -> Result<()> {
+fn sync_items<T: windows_core::RuntimeType + PartialEq>(
+    list: &windows_collections::IVector<T>,
+    items: &[T],
+) -> Result<()>
+where
+    for<'a> &'a T: windows_core::Param<T>,
+{
     let mut changed = list.Size()? as usize != items.len();
     if !changed {
         for (i, item) in items.iter().enumerate() {
@@ -2009,6 +2209,31 @@ fn track_end(row: i32, span: i32) -> Result<i32> {
         .filter(|end| row >= 0 && span > 0 && *end as usize <= super::MAX_NODES)
         .ok_or_else(|| sdk_error("native Grid row track overflow/budget"))
 }
+fn fills_height(view: &View, node: &Node, depth: usize) -> Result<bool> {
+    if depth > super::MAX_DEPTH {
+        return Err(sdk_error("native fill intent depth"));
+    }
+    let style = node.style.get();
+    if !node.visible.get() || !view.actionable_page(node) || style.placement.height.is_some() {
+        return Ok(false);
+    }
+    if style.vertical_alignment == Some(Alignment::Stretch) {
+        return Ok(true);
+    }
+    match node.kind {
+        Kind::Scroll(_) | Kind::Table(_) | Kind::Tabs(_) => Ok(true),
+        Kind::Panel(_) | Kind::Page(_) => {
+            for id in node.children.borrow().iter() {
+                let child = view.find(id).map_err(sdk_error)?;
+                if fills_height(view, &child, depth + 1)? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+        _ => Ok(false),
+    }
+}
 fn grid_definitions(
     grid: &n::IGrid,
     columns: &[n::GridLength],
@@ -2056,6 +2281,36 @@ fn grid_definitions(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use panechord_runtime::{Binding, LayoutView, TextView};
+    #[test]
+    fn scroll_fill_intent_propagates_through_stacks_but_not_fixed_or_hidden_children() {
+        let view = View::new(Binding::constant("layout".into()));
+        let root = view.root();
+        let stack = view.try_layout(&root, "stack", Layout::default()).unwrap();
+        view.try_scroll(&stack, "scroll", false).unwrap();
+        view.label(&stack, "footer", Binding::constant("pinned".into()));
+        let node = |id| view.find(id).unwrap();
+        assert!(fills_height(&view, &node(ROOT), 0).unwrap());
+        assert!(fills_height(&view, &node("stack"), 1).unwrap());
+        assert!(!fills_height(&view, &node("footer"), 2).unwrap());
+        view.visible("scroll", Binding::constant(false));
+        assert!(!fills_height(&view, &node("stack"), 1).unwrap());
+        view.visible("scroll", Binding::constant(true));
+        view.style(
+            "scroll",
+            panechord_runtime::Style {
+                placement: panechord_runtime::Placement {
+                    height: Some(100.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        assert!(!fills_height(&view, &node("stack"), 1).unwrap());
+        view.style("scroll", panechord_runtime::Style::default());
+        assert!(fills_height(&view, &node("stack"), 1).unwrap());
+        assert!(fills_height(&view, &node(ROOT), super::super::MAX_DEPTH + 1).is_err());
+    }
     #[test]
     fn auto_dimensions_clear_to_nan() {
         assert!(auto_equal(f64::NAN, None));

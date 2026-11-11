@@ -182,6 +182,79 @@ pub(crate) fn native_selectors(id: &str) -> std::result::Result<(), String> {
         .and_then(|n| n.renderer.selectors())
         .map_err(|e| e.to_string())
 }
+pub(crate) fn native_scroll(id: &str, end: bool) -> std::result::Result<(), String> {
+    native_for(id)
+        .and_then(|n| n.renderer.scroll_fixture(end))
+        .map_err(|e| e.to_string())
+}
+pub(crate) fn native_window_layout(id: &str, end: bool) -> std::result::Result<f64, String> {
+    (|| -> Result<_> {
+        let n = native_for(id)?;
+        n.identity()?;
+        let viewport = n.renderer.window_layout_assertions(end)?;
+        let mut client = RawRect::default();
+        let dpi = unsafe { GetDpiForWindow(n.hwnd) };
+        if dpi == 0 || unsafe { GetClientRect(n.hwnd, &mut client) } == 0 {
+            return Err(sdk_error("native fixture client size"));
+        }
+        let size = n.renderer.root()?.RenderSize()?;
+        let expected = (
+            f64::from(client.right - client.left) * 96.0 / f64::from(dpi),
+            f64::from(client.bottom - client.top) * 96.0 / f64::from(dpi),
+        );
+        if (f64::from(size.width) - expected.0).abs() > 1.0
+            || (f64::from(size.height) - expected.1).abs() > 1.0
+        {
+            return Err(sdk_error(format!(
+                "native root/client size mismatch root={size:?} expected={expected:?} dpi={dpi}"
+            )));
+        }
+        println!(
+            "NATIVE_CLIENT_LAYOUT_PASS generation={} client={}x{} dpi={dpi} root={size:?}",
+            n.generation,
+            client.right - client.left,
+            client.bottom - client.top
+        );
+        Ok(viewport)
+    })()
+    .map_err(|e| e.to_string())
+}
+pub(crate) fn native_resize(
+    id: &str,
+    width: i32,
+    height: i32,
+) -> std::result::Result<(i32, i32), String> {
+    (|| -> Result<_> {
+        let n = native_for(id)?;
+        n.identity()?;
+        if !(320..=8192).contains(&width) || !(320..=8192).contains(&height) {
+            return Err(sdk_error("native fixture resize bounds"));
+        }
+        let mut old = RawRect::default();
+        if unsafe { GetWindowRect(n.hwnd, &mut old) } == 0
+            || unsafe {
+                SetWindowPos(
+                    n.hwnd,
+                    std::ptr::null_mut(),
+                    0,
+                    0,
+                    width,
+                    height,
+                    SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+                )
+            } == 0
+        {
+            return Err(sdk_error("native fixture resize"));
+        }
+        let mut actual = RawRect::default();
+        if unsafe { GetWindowRect(n.hwnd, &mut actual) } == 0 {
+            return Err(sdk_error("native fixture resized rectangle"));
+        }
+        println!("NATIVE_RESIZE_READBACK generation={} old={}x{} requested={width}x{height} actual={}x{}", n.generation, old.right - old.left, old.bottom - old.top, actual.right - actual.left, actual.bottom - actual.top);
+        Ok((old.right - old.left, old.bottom - old.top))
+    })()
+    .map_err(|e| e.to_string())
+}
 pub(crate) fn native_dialog(id: &str, open: bool) -> std::result::Result<(), String> {
     native_for(id)
         .and_then(|n| n.renderer.dialog_fact(open))

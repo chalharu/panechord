@@ -40,7 +40,8 @@ try {
             AppLocal = $_.FileName.StartsWith($directory.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) }
     })
     $stdout = $process.StandardOutput.ReadToEndAsync()
-    if (-not $process.WaitForExit(15000)) { throw 'Full smoke exit watchdog expired' }
+    # Includes native scroll-end, two resizes and reactive menu layout turns.
+    if (-not $process.WaitForExit(25000)) { throw 'Full smoke exit watchdog expired' }
     if (-not $stdout.Wait(1000) -or -not $stderr.Wait(1000)) { throw 'Smoke capture did not close' }
     $report.ExitCode = $process.ExitCode; $report.Stdout = ($lines -join "`n") + "`n" + $stdout.Result; $report.Stderr = $stderr.Result
     if ($report.ExitCode -ne 0 -or -not $report.Stdout.Contains('P1 SMOKE PASS')) { throw 'Full generic Backend native smoke failed' }
@@ -60,6 +61,10 @@ try {
         'STAGE main-closed sibling-present', 'STAGE id-reuse id=main', 'STAGE auxiliary-continue windows=1', 'STAGE last-close-request autoexit-required')) {
         if (-not $report.Stdout.Contains($stage)) { throw "Missing scenario evidence: $stage" }
     }
+    if ([regex]::Matches($report.Stdout, '(?m)^NATIVE_WINDOW_LAYOUT_PASS ').Count -lt 6 -or
+        -not $report.Stdout.Contains('end=true common-menubar-horizontal=true chrome-footer-pinned=true') -or
+        [regex]::Matches($report.Stdout, '(?m)^NATIVE_RESIZE_READBACK ').Count -ne 2 -or
+        [regex]::Matches($report.Stdout, '(?m)^NATIVE_CLIENT_LAYOUT_PASS ').Count -lt 6) { throw 'Missing native menu/scroll/resize/client-boundary evidence' }
     if ($report.LoadedRuntimeModules.Count -eq 0 -or @($report.LoadedRuntimeModules | Where-Object { -not $_.AppLocal }).Count -ne 0) { throw 'Runtime modules missing or loaded outside package' }
     foreach ($name in @('Microsoft.UI.Xaml.dll', 'Microsoft.UI.Windowing.Core.dll')) {
         if (@($report.LoadedRuntimeModules | Where-Object { $_.Name -ieq $name }).Count -ne 1) { throw "Required module not loaded: $name" }

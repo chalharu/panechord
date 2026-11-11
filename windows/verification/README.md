@@ -59,6 +59,13 @@ and natural `Application.Start` return. Every requested startup must pass in
 addition to all existing checks. This proves native startup/normal close, not
 full gallery interaction coverage; no installed-runtime override is used.
 
+### Controls contract
+
+Build the demo's `controls` example with `backend-windows`, then pass its actual
+artifact as `-ControlsExecutable`. It runs without arguments only in Sandbox.
+`report.Controls` requires all five contract PASS lines, exit 0 and the natural
+native lifecycle return marker within 30 seconds; every existing check still applies.
+
 ### Prebuilt artifacts
 
 `-SkipBuild` still reads locked/offline, feature-enabled Cargo metadata. Supply

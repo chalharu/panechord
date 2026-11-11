@@ -240,6 +240,63 @@ fn native_and_automation_selection_paths_validate_and_follow_accepted_bindings()
     assert_eq!(view.error(), None);
 }
 #[test]
+fn checkbox_and_radio_clicks_use_guarded_binding_writes() {
+    let (_, executor, _) = setup();
+    let model = Store::new((false, String::from("a")), executor);
+    let view = view();
+    let panel = view.layout(&view.root(), "panel", Layout::default());
+    view.checkbox(
+        &panel,
+        "check",
+        Binding::constant("Check".into()),
+        model.bind(|s| s.0, Some(|s, v| s.0 = v)),
+    );
+    view.radio(
+        &panel,
+        "radio",
+        Binding::constant("B".into()),
+        model.bind(|s| s.1.clone(), Some(|s, v| s.1 = v)),
+        "b",
+    );
+    view.checkbox(
+        &panel,
+        "readonly",
+        Binding::constant("Readonly".into()),
+        Binding::constant(true),
+    );
+    view.radio(
+        &panel,
+        "readonly-radio",
+        Binding::constant("Readonly".into()),
+        Binding::constant("a".into()),
+        "b",
+    );
+    view.click("check").unwrap();
+    assert!(model.snapshot().0);
+    view.click("check").unwrap();
+    assert!(!model.snapshot().0);
+    for _ in 0..2 {
+        view.click("radio").unwrap();
+        assert_eq!(model.snapshot().1, "b");
+    }
+    assert!(view.click("readonly").is_err());
+    assert!(view.click("readonly-radio").is_err());
+    assert_eq!(view.checked("readonly"), Some(true));
+    assert_eq!(view.selected("readonly-radio").as_deref(), Some("a"));
+    view.visible("panel", Binding::constant(false));
+    assert!(view.click("check").is_err());
+    assert!(view.click("radio").is_err());
+    view.visible("panel", Binding::constant(true));
+    view.enabled("panel", Binding::constant(false));
+    assert!(view.click("check").is_err());
+    assert!(view.click("radio").is_err());
+    assert_eq!(model.snapshot(), (false, "b".into()));
+    view.close();
+    assert!(view.click("check").is_err());
+    assert!(view.click("radio").is_err());
+    assert_eq!(model.snapshot(), (false, "b".into()));
+}
+#[test]
 fn rejected_conversions_and_invalid_combo_snapshots_keep_last_valid_values() {
     let (_, executor, _) = setup();
     let model = Store::new(2.0, executor);
@@ -572,7 +629,7 @@ fn collection_callbacks_can_reenter_without_borrow_panics_and_scope_keep_is_raii
 #[test]
 fn manual_and_generic_tabs_four_positions_and_readonly_fallback() {
     let view = view();
-    let tabs = view.tab(&view.root(), "tabs", Binding::constant("missing".into()));
+    let tabs = view.tab(&view.root(), "tabs", Binding::constant(String::new()));
     let first = view
         .try_tab_page(&tabs, "first", Binding::constant("First".into()), "a")
         .unwrap();
@@ -622,6 +679,60 @@ fn manual_and_generic_tabs_four_positions_and_readonly_fallback() {
     assert_eq!(view.selected("dynamic").as_deref(), Some("one"));
     assert_eq!(selected.snapshot(), "one");
     assert!(view.text("dynamic/two/label").is_none());
+}
+#[test]
+fn manual_tab_rejects_unknown_initial_selection_without_writing_or_finishing() {
+    for writable in [false, true] {
+        let (_, executor, _) = setup();
+        let selected = Store::new("missing".to_owned(), executor);
+        let binding = if writable {
+            selected.bind(Clone::clone, Some(|s, v| *s = v))
+        } else {
+            selected.bind(Clone::clone, None)
+        };
+        let view = view();
+        let tabs = view.tab(&view.root(), "tabs", binding);
+        view.try_tab_page(&tabs, "first", Binding::constant("First".into()), "first")
+            .unwrap();
+        let before = view.render();
+        assert_eq!(
+            view.finish_tab(&tabs).unwrap_err(),
+            "unknown selected choice"
+        );
+        assert_eq!(selected.snapshot(), "missing");
+        assert_eq!(view.selected("tabs").as_deref(), Some("missing"));
+        assert_eq!(view.render(), before);
+        assert!(!selected.is_closed());
+        view.try_tab_page(
+            &tabs,
+            "missing",
+            Binding::constant("Missing".into()),
+            "missing",
+        )
+        .unwrap();
+        view.finish_tab(&tabs).unwrap();
+        assert_eq!(view.selected("tabs").as_deref(), Some("missing"));
+        assert_eq!(view.error(), None);
+    }
+}
+#[test]
+fn manual_tab_requires_pages_and_accepts_empty_or_existing_selection() {
+    for initial in ["", "second"] {
+        let view = view();
+        let tabs = view.tab(&view.root(), "tabs", Binding::constant(initial.into()));
+        assert_eq!(
+            view.finish_tab(&tabs).unwrap_err(),
+            "Tab requires 1..=256 pages"
+        );
+        for key in ["first", "second"] {
+            view.try_tab_page(&tabs, key, Binding::constant(key.into()), key)
+                .unwrap();
+        }
+        view.finish_tab(&tabs).unwrap();
+        let expected = if initial.is_empty() { "first" } else { initial };
+        assert_eq!(view.selected("tabs").as_deref(), Some(expected));
+        assert_eq!(view.error(), None);
+    }
 }
 fn table_fixture() -> Table {
     Table {
@@ -749,6 +860,56 @@ fn native_hierarchical_menu_preserves_typed_arguments_and_invalid_snapshot_rolls
     );
     assert!(view.activate_menu("two").is_err());
     assert!(view.activate_menu("one").is_err());
+}
+#[test]
+fn qualified_menu_ids_disambiguate_nested_leaves_without_changing_native_callbacks() {
+    let view = view();
+    let dispatched = Rc::new(RefCell::new(Vec::new()));
+    for (id, argument) in [
+        ("file", Argument::Number(1)),
+        ("tools", Argument::Toggle(true)),
+    ] {
+        let out = dispatched.clone();
+        view.hierarchical_menu(
+            id,
+            Binding::constant(id.into()),
+            Binding::constant(vec![MenuNode::Submenu {
+                id: "parent".into(),
+                label: "Parent".into(),
+                enabled: true,
+                children: vec![MenuNode::Item(menu_item("open", argument))],
+            }]),
+            Rc::new(move |argument| {
+                out.borrow_mut().push(argument);
+                true
+            }),
+        );
+    }
+    assert!(
+        view.activate_menu("open")
+            .unwrap_err()
+            .contains("ambiguous")
+    );
+    assert!(view.activate_menu("missing/open").is_err());
+    assert!(view.activate_menu("file/parent/open").is_err());
+    assert!(dispatched.borrow().is_empty());
+    view.activate_menu("file/open").unwrap();
+    view.activate_menu("tools/open").unwrap();
+    assert!(view.menu_callback("file").unwrap().call("open".into()));
+    assert_eq!(
+        *dispatched.borrow(),
+        vec![
+            Argument::Number(1),
+            Argument::Toggle(true),
+            Argument::Number(1)
+        ]
+    );
+    view.enabled("file", Binding::constant(false));
+    assert!(view.activate_menu("file/open").is_err());
+    view.visible("tools", Binding::constant(false));
+    assert!(view.activate_menu("tools/open").is_err());
+    assert_eq!(dispatched.borrow().len(), 3);
+    assert_eq!(view.error(), None);
 }
 #[test]
 fn dialog_retains_children_and_footer_invokes_ordered_commands_without_fake_ime_keys() {

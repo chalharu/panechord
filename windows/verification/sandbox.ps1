@@ -6,6 +6,7 @@ param(
     [string]$ApplicationExecutable, [string[]]$TestExecutables = @(),
     [string]$ProbeExecutable, [string[]]$ProbeCases = @(),
     [string[]]$StartupExecutables = @(),
+    [string]$ControlsExecutable,
     [string[]]$AdditionalTestExecutables = @(),
     # Explicit existing official extracted runtime, never arbitrary system DLLs.
     [string]$RuntimeDirectory,
@@ -296,6 +297,16 @@ try {
         Copy-Item -LiteralPath $path -Destination (Join-Path $payload $name)
         $startupEntries += [ordered]@{ FileName = $name; Source = $path }
     }
+    if ($ControlsExecutable) {
+        $resolved = Resolve-Path -LiteralPath $ControlsExecutable
+        if ($resolved.Provider.Name -ne 'FileSystem' -or $resolved.Path -notmatch '^[a-zA-Z]:\\[^:]*$') { throw "Expected local executable path without alternate streams: $ControlsExecutable" }
+        $path = $resolved.Path; Assert-X64Executable $path
+        for ($parent = Split-Path -Parent $path; $parent; $parent = Split-Path -Parent $parent) {
+            if (((Get-Item -LiteralPath $parent -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Reparse point in controls path: $parent" }
+        }
+        $ControlsExecutable = $path
+        Copy-Item -LiteralPath $ControlsExecutable -Destination (Join-Path $payload 'controls.exe')
+    }
     $additionalTestEntries = @(); $additionalTestIndex = 0
     foreach ($executable in $AdditionalTestExecutables) {
         $resolved = Resolve-Path -LiteralPath $executable
@@ -363,6 +374,7 @@ try {
         Application = 'panechord-windows-next.exe'; Tests = $testNames; CasesFile = 'cases.json'
         ProbeExecutable = $(if ($ProbeExecutable) { 'native-family.exe' } else { $null }); ProbeCases = $ProbeCases
         StartupExecutables = $startupEntries
+        ControlsExecutable = $(if ($ControlsExecutable) { 'controls.exe' } else { $null })
         AdditionalTestExecutables = $additionalTestEntries
         SetupVersion = '0.100.0'; ReactorVersion = '0.100.0'; SetupRuntimeNuGetVersion = '2.4.0'
         RuntimeNuGetVersion = $RuntimeNuGetVersion; RuntimeCompatibilityProbe = $false; WebView2NuGetVersion = '1.0.4078.44'
@@ -376,6 +388,7 @@ try {
         Host = [ordered]@{ PreparedUtc = [DateTime]::UtcNow.ToString('o'); CargoTargetDirectory = $metadata.target_directory; BuildSkipped = [bool]$SkipBuild
             PackageId = $formal[0].id; ApplicationTarget = 'native_smoke'; TestTargets = @($testTargets | Select-Object name, kind)
             ApplicationInput = $ApplicationExecutable; TestInputs = $TestExecutables
+            ControlsSourcePath = $(if ($ControlsExecutable) { $ControlsExecutable } else { $null })
             AdditionalTestSourcePaths = @($additionalTestEntries | ForEach-Object { $_.Source })
             StartupSourcePaths = @($startupEntries | ForEach-Object { $_.Source }) }
     }

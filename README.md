@@ -106,10 +106,9 @@ Three ideas carry the whole design:
 - Rust 1.95 or later.
 - Linux: GTK4 development files (the Tao backend also uses a GTK3 bridge).
 - macOS: Xcode Command Line Tools with Swift.
-- Windows: Tao (`backend-tao`) or the initial WinUI 3 backend
-  (`backend-windows`). The platform default remains Tao. WinUI activation and
-  app-local deployment require additional build support; see
-  [Windows backend](windows/README.md).
+- Windows: Tao remains the platform default; WinUI 3 (`backend-windows`) is an
+  opt-in Windows 11 x64 MSVC preview. See [Windows backend](windows/README.md)
+  for build support and exact-version deployment caches.
 
 ## Running the screens
 
@@ -130,13 +129,12 @@ temporary directory. The input probe is
 set `PANECHORD_CONTROLS_REVIEW=1` for the interactive review.
 
 WinUI 3 is selected explicitly through the facade's `windows` feature, or the
-screens' `backend-windows` feature with `--no-default-features`. The screens also
-offer `windows-self-contained` for cache-only activation/deployment setup.
-Shared `minimal.yaml` has passed native Sandbox verification through
-`panechord::backend` and `Runner`; full gallery/library native acceptance and
-remaining capability gaps are separate gates, not implied by compilation.
-See [Windows verification](windows/verification/README.md) for the isolated
-runner, which always terminates its owned Sandbox processes after execution.
+screens' `backend-windows` / `windows-self-contained` features with
+`--no-default-features`; the latter adds cache-only deployment. Shared `minimal.yaml`
+passed a native Sandbox roundtrip through `panechord::backend` and `Runner`;
+full gallery/library, IME/UIA and physical input remain unverified. Run all native
+Windows applications/tests **only in Sandbox** using [Windows verification](windows/verification/README.md),
+which cleans up its owned Sandbox processes. Host builds/generation are allowed.
 
 ## Verification
 

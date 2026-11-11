@@ -9,7 +9,9 @@ Official registry `windows-bindgen =0.100.0` generates `../src/owned_bindings.rs
 - Read-only Microsoft `windows-rs` revision:
   `a57cc321bfdbac6bb98c488ba49f399da8fcb98a`.
 - Source: `crates/tools/reactor/winmd`, 27 WinMD inputs, SDK **2.4.0**.
-- 133 filters plus the official generator's default Windows metadata.
+- 140 filters plus the official generator's default Windows metadata.
+- Official composition for Application and Panel; generated implementations for
+  IApplicationOverrides, IFrameworkElementOverrides and IXamlMetadataProvider.
 - `inputs/PROVENANCE.txt` records the revision and Git blob IDs (SHA-1).
   Extraction uses read-only `git show`; the tool never fetches or modifies upstream.
 - Transient `inputs/*.winmd` and local `target/` are ignored. Keep provenance,
@@ -27,7 +29,10 @@ cargo run --locked --offline --manifest-path windows/bindgen/Cargo.toml -- <path
 This runs only the host generator, not a native application/test. It writes inputs,
 provenance and Rust; unexpected extra WinMD inputs are rejected. Regenerate twice
 and compare output for reproducibility. Output SHA-256:
-`D879F55ECBE0B179A6943FF7C8D1C866E5A116646340EDB320713FF801949CF2`.
+`2DF1B24D5A3105AE95BBC3174532DDD3BED1EE129624BF3D04E5C66AB90C53C1`
+(1,051,950 bytes). The four additional filters expose KeyboardAccelerator
+construction, properties, Invoked and its Handled event argument; Panel/Flex
+composition is retained.
 
 ## Licenses
 

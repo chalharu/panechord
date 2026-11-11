@@ -5,6 +5,8 @@ param(
     [string]$ArtifactDirectory = (Join-Path $env:TEMP ('panechord-windows-sandbox-' + [guid]::NewGuid().ToString('N'))),
     [string]$ApplicationExecutable, [string[]]$TestExecutables = @(),
     [string]$ProbeExecutable, [string[]]$ProbeCases = @(),
+    [string[]]$StartupExecutables = @(),
+    [string[]]$AdditionalTestExecutables = @(),
     # Explicit existing official extracted runtime, never arbitrary system DLLs.
     [string]$RuntimeDirectory,
     [ValidateSet('2.6.4', '2.4.0')][string]$RuntimeNuGetVersion = '2.4.0',
@@ -282,6 +284,30 @@ try {
         Assert-X64Executable $ProbeExecutable
         Copy-Item -LiteralPath $ProbeExecutable -Destination (Join-Path $payload 'native-family.exe')
     }
+    $startupEntries = @(); $startupIndex = 0
+    foreach ($executable in $StartupExecutables) {
+        $resolved = Resolve-Path -LiteralPath $executable
+        if ($resolved.Provider.Name -ne 'FileSystem' -or $resolved.Path -notmatch '^[a-zA-Z]:\\[^:]*$') { throw "Expected local executable path without alternate streams: $executable" }
+        $path = $resolved.Path; Assert-X64Executable $path
+        for ($parent = Split-Path -Parent $path; $parent; $parent = Split-Path -Parent $parent) {
+            if (((Get-Item -LiteralPath $parent -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Reparse point in startup path: $parent" }
+        }
+        $startupIndex++; $name = "startup-$startupIndex.exe"
+        Copy-Item -LiteralPath $path -Destination (Join-Path $payload $name)
+        $startupEntries += [ordered]@{ FileName = $name; Source = $path }
+    }
+    $additionalTestEntries = @(); $additionalTestIndex = 0
+    foreach ($executable in $AdditionalTestExecutables) {
+        $resolved = Resolve-Path -LiteralPath $executable
+        if ($resolved.Provider.Name -ne 'FileSystem' -or $resolved.Path -notmatch '^[a-zA-Z]:\\[^:]*$') { throw "Expected local executable path without alternate streams: $executable" }
+        $path = $resolved.Path; Assert-X64Executable $path
+        for ($parent = Split-Path -Parent $path; $parent; $parent = Split-Path -Parent $parent) {
+            if (((Get-Item -LiteralPath $parent -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Reparse point in additional test path: $parent" }
+        }
+        $additionalTestIndex++; $name = "additional-test-$additionalTestIndex.exe"
+        Copy-Item -LiteralPath $path -Destination (Join-Path $payload $name)
+        $additionalTestEntries += [ordered]@{ FileName = $name; Source = $path }
+    }
     if (-not $RuntimeDirectory) { $RuntimeDirectory = Split-Path -Parent $ApplicationExecutable }
     $RuntimeDirectory = (Resolve-Path -LiteralPath $RuntimeDirectory).Path
     Assert-PlainTree $RuntimeDirectory
@@ -336,6 +362,8 @@ try {
         SchemaVersion = 1; KeepOpen = [bool]$KeepOpen; HostManagedCleanup = [bool]$Run; ChildTimeoutSeconds = 30
         Application = 'panechord-windows-next.exe'; Tests = $testNames; CasesFile = 'cases.json'
         ProbeExecutable = $(if ($ProbeExecutable) { 'native-family.exe' } else { $null }); ProbeCases = $ProbeCases
+        StartupExecutables = $startupEntries
+        AdditionalTestExecutables = $additionalTestEntries
         SetupVersion = '0.100.0'; ReactorVersion = '0.100.0'; SetupRuntimeNuGetVersion = '2.4.0'
         RuntimeNuGetVersion = $RuntimeNuGetVersion; RuntimeCompatibilityProbe = $false; WebView2NuGetVersion = '1.0.4078.44'
         WindowsPackages = @($windowsPackages | Select-Object name, version, source)
@@ -347,7 +375,9 @@ try {
         FormalActivationSHA256 = (Get-FileHash -LiteralPath $activationList -Algorithm SHA256).Hash
         Host = [ordered]@{ PreparedUtc = [DateTime]::UtcNow.ToString('o'); CargoTargetDirectory = $metadata.target_directory; BuildSkipped = [bool]$SkipBuild
             PackageId = $formal[0].id; ApplicationTarget = 'native_smoke'; TestTargets = @($testTargets | Select-Object name, kind)
-            ApplicationInput = $ApplicationExecutable; TestInputs = $TestExecutables }
+            ApplicationInput = $ApplicationExecutable; TestInputs = $TestExecutables
+            AdditionalTestSourcePaths = @($additionalTestEntries | ForEach-Object { $_.Source })
+            StartupSourcePaths = @($startupEntries | ForEach-Object { $_.Source }) }
     }
     $config | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $payload 'configuration.json') -Encoding UTF8
     Assert-PlainTree $payload

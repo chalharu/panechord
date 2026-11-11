@@ -77,6 +77,18 @@ fn require(condition: bool, message: &str) -> Result<(), String> {
 async fn turn() {
     futures_timer::Delay::new(Duration::from_millis(600)).await;
 }
+async fn focus_entry(id: &str, node: &str) -> Result<(), String> {
+    driver::native_request_focus(id, node)?;
+    // Await the real event, not an assumed synchronous Focus() callback or a
+    // fixed settling delay. Each check yields UI dispatch; total wait is bounded.
+    for _ in 0..20 {
+        futures_timer::Delay::new(Duration::from_millis(25)).await;
+        if driver::native_focus_delivered(id, node)? {
+            return Ok(());
+        }
+    }
+    Err(format!("smoke: GotFocus delivery deadline: {id}/{node}"))
+}
 
 /// Actual native facts for a shared-YAML diagnostic, not retained View text.
 #[doc(hidden)]
@@ -117,7 +129,7 @@ pub fn native_text_probe(
 }
 
 /// Builds all twelve shared capabilities using the generic View contract.
-/// Flex/IME/OS input and automatic scrolling are not approximated or claimed.
+/// IME/OS input and automatic scrolling are not approximated or claimed.
 fn controls<V: FullView>(
     view: &V,
     model: &Store<Model>,
@@ -175,6 +187,90 @@ fn controls<V: FullView>(
     view.visible("save", model.bind(|s| s.visible, None));
     view.enabled("save", model.bind(|s| s.enabled, None));
     view.style_binding("echo", model.bind(|s| s.style, None));
+    let flex = view.try_layout(&body, "flex", Layout::Flex { gap: 7.0 })?;
+    view.style_binding(
+        "flex",
+        model.bind(
+            |s| Style {
+                placement: panechord_runtime::Placement {
+                    width: Some(if s.style.placement.width.is_some() {
+                        288.0
+                    } else {
+                        188.0
+                    }),
+                    ..Default::default()
+                },
+                padding: panechord_runtime::Edges {
+                    left: 11.0,
+                    top: 13.0,
+                    right: 17.0,
+                    bottom: 19.0,
+                },
+                horizontal_alignment: Some(panechord_runtime::Alignment::Start),
+                ..Default::default()
+            },
+            None,
+        ),
+    );
+    for (id, width, height) in [
+        ("flex-a", 60.0, 20.0),
+        ("flex-b", 80.0, 30.0),
+        ("flex-c", 25.0, 10.0),
+    ] {
+        view.label(&flex, id, text(""));
+        view.style(
+            id,
+            Style {
+                placement: panechord_runtime::Placement {
+                    width: Some(width),
+                    height: Some(height),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+    }
+    view.style(
+        "flex-a",
+        Style {
+            placement: panechord_runtime::Placement {
+                width: Some(60.0),
+                height: Some(20.0),
+                ..Default::default()
+            },
+            margin: panechord_runtime::Edges {
+                left: 2.0,
+                top: 1.0,
+                right: 3.0,
+                bottom: 4.0,
+            },
+            padding: panechord_runtime::Edges {
+                left: 3.0,
+                right: 5.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    );
+    view.style_binding(
+        "flex-b",
+        model.bind(
+            |s| Style {
+                placement: panechord_runtime::Placement {
+                    width: Some(if s.style.placement.width.is_some() {
+                        120.0
+                    } else {
+                        80.0
+                    }),
+                    height: Some(30.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            None,
+        ),
+    );
+    view.visible("flex-c", model.bind(|s| s.visible, None));
     view.separator(&body, "separator", false);
     let grid = view.try_layout(
         &body,
@@ -405,14 +501,14 @@ fn controls<V: FullView>(
             destructive: false,
         },
     );
-    let item = |id: &str| MenuItem {
+    let item = |id: &str, shortcut: &str| MenuItem {
         id: id.into(),
         label: "Save note".into(),
         argument: (),
         enabled: true,
         visible: true,
         role: MenuRole::Normal,
-        shortcut: None,
+        shortcut: Some(shortcut.into()),
     };
     let dispatch = {
         let model = model.clone();
@@ -421,7 +517,31 @@ fn controls<V: FullView>(
     view.typed_menu(
         "file-menu",
         text("File"),
-        Binding::constant(vec![item("file-save")]),
+        model.bind(
+            |s| {
+                vec![
+                    MenuItem {
+                        id: "file-save".into(),
+                        label: "Save note".into(),
+                        argument: (),
+                        enabled: s.enabled,
+                        visible: s.visible,
+                        role: MenuRole::Normal,
+                        shortcut: Some("Primary+S".into()),
+                    },
+                    MenuItem {
+                        id: "file-quit".into(),
+                        label: "Quit".into(),
+                        argument: (),
+                        enabled: true,
+                        visible: true,
+                        role: MenuRole::Quit,
+                        shortcut: Some("Primary+Q".into()),
+                    },
+                ]
+            },
+            None,
+        ),
         dispatch.clone(),
     );
     view.hierarchical_menu(
@@ -431,9 +551,33 @@ fn controls<V: FullView>(
             id: "notes-submenu".into(),
             label: "Notes".into(),
             enabled: true,
-            children: vec![MenuNode::Item(item("tools-save"))],
+            children: vec![MenuNode::Item(item("tools-save", "Primary+Shift+S"))],
         }]),
         dispatch,
+    );
+    view.typed_menu(
+        "edit-menu",
+        text("Edit"),
+        Binding::constant(
+            [
+                ("edit-copy", "Copy", MenuRole::Copy),
+                ("edit-cut", "Cut", MenuRole::Cut),
+                ("edit-paste", "Paste", MenuRole::Paste),
+                ("edit-select", "Select All", MenuRole::SelectAll),
+            ]
+            .into_iter()
+            .map(|(id, label, role)| MenuItem {
+                id: id.into(),
+                label: label.into(),
+                role,
+                argument: (),
+                shortcut: None,
+                enabled: true,
+                visible: true,
+            })
+            .collect(),
+        ),
+        Rc::new(|()| panic!("edit selectors must not dispatch the application argument")),
     );
     view.error().map_or(Ok(()), Err)
 }
@@ -602,9 +746,39 @@ async fn scenario(
     )?;
     println!("NATIVE_TITLE_PASS same-caption empty-caption stable-hwnd=true");
     println!("STAGE empty-title windows=2");
+    // Opening sibling activated its Window last. Native editor operations need
+    // an active owner, not merely Focus() on an inactive XAML tree. Present is
+    // queued by the driver; yield a real UI turn before checking GotFocus.
+    println!("STAGE editor-owner-present id=main");
+    first.view.present();
+    turn().await;
     // Automation and callbacks exercise retained state; native publication is
     // separately proved by the driver logs, not by these model observations.
     driver::native_assertions("main")?;
+    for editor in ["entry", "readonly", "entry"] {
+        focus_entry("main", editor).await?;
+        driver::native_menu_edit_assertions("main", editor)?;
+    }
+    // Guest-only native smoke scenario. No host tests/app execution is needed
+    // to compile this; the Sandbox's local clipboard needs no host redirection.
+    let original = first.model.snapshot().text;
+    first.view.activate_menu("edit-select")?;
+    first.view.activate_menu("edit-copy")?;
+    first.view.activate_menu("edit-cut")?;
+    turn().await;
+    require(
+        first.model.snapshot().text.is_empty(),
+        "native Cut did not update Store",
+    )?;
+    first.view.activate_menu("edit-paste")?;
+    turn().await;
+    require(
+        first.model.snapshot().text == original,
+        "native Paste did not restore clipboard text",
+    )?;
+    println!(
+        "NATIVE_MENU_CLIPBOARD_PASS Copy-Cut-Paste-native=true Store-roundtrip=true no-physical-input-claim"
+    );
     let retained_one = driver::native_identity("main", "repeat/one")?;
     let retained_two = driver::native_identity("main", "repeat/two")?;
     driver::native_set_text("main", "entry", "Edited note")?;
@@ -707,6 +881,7 @@ async fn scenario(
         .ok_or("old row missing")?
         .model;
     let obsolete_text = obsolete.snapshot();
+    focus_entry("main", "repeat/one/edit").await?;
     let old_event = driver::native_hold_entry("main", "repeat/one/edit")?;
     let new_row = Store::new("Replacement note".to_owned(), host.executor());
     let next_row = new_row.clone();
@@ -753,6 +928,7 @@ async fn scenario(
         first.view.click("save").is_err(),
         "hidden/disabled button accepted invocation",
     )?;
+    driver::native_assertions("main")?;
     require(
         first.model.update(|s| {
             s.visible = true;
@@ -771,6 +947,15 @@ async fn scenario(
         "native publication/control error",
     )?;
     println!("STAGE all-controls roundtrip=pass");
+    let confirmations = first.confirmations.get();
+    first.view.activate_menu("file-quit")?;
+    turn().await;
+    require(
+        !first.view.is_closed()
+            && first.confirmations.get() == confirmations + 1
+            && !sibling.view.is_closed(),
+        "menu Quit bypassed veto or affected sibling",
+    )?;
     veto_then_close(&first, &sibling, &session).await?;
     println!("STAGE main-closed sibling-present");
     let replacement = window(&host, &session, "main")?;

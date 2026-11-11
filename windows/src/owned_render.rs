@@ -10,15 +10,46 @@ use futures::{
     future::{AbortHandle, Abortable},
 };
 use panechord_runtime::{
-    Alignment, AutomationView, Edges, Executor, Layout, SelectView, TabPosition, TextOverflow,
-    TextRole, TextStyle,
+    Alignment, AutomationView, Edges, Executor, Layout, MenuView, SelectView, TabPosition,
+    TextOverflow, TextRole, TextStyle, ViewCore,
 };
 use std::{
     cell::{Cell, RefCell},
     collections::{BTreeMap, BTreeSet},
     rc::Rc,
+    sync::atomic::{AtomicU64, Ordering},
 };
 use windows_core::{EventRevoker, IInspectable, Interface, Result};
+
+#[path = "owned_menu.rs"]
+mod owned_menu;
+pub(super) use owned_menu::shortcut_native;
+
+static NEXT_MENU_EPOCH: AtomicU64 = AtomicU64::new(0);
+
+fn next_menu_epoch() -> Result<u64> {
+    let mut previous = NEXT_MENU_EPOCH.load(Ordering::Relaxed);
+    loop {
+        let next = previous
+            .checked_add(1)
+            .ok_or_else(|| sdk_error("menu renderer epoch exhausted"))?;
+        match NEXT_MENU_EPOCH.compare_exchange_weak(
+            previous,
+            next,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => return Ok(next),
+            Err(current) => previous = current,
+        }
+    }
+}
+
+struct Accelerator {
+    native: n::KeyboardAccelerator,
+    revision: u64,
+    _revoker: EventRevoker,
+}
 
 type Key = (usize, String);
 struct Object {
@@ -39,6 +70,7 @@ struct Object {
     showing: Cell<bool>,
     changes: Cell<u64>,
     menu_event: RefCell<Option<EventRevoker>>,
+    menu_id: RefCell<Option<String>>,
     image_revision: Cell<u64>,
 }
 impl Object {
@@ -66,6 +98,7 @@ impl Drop for Object {
 pub(crate) struct Renderer {
     view: View,
     generation: u64,
+    menu_epoch: u64,
     bridge: Rc<Bridge>,
     objects: RefCell<BTreeMap<Key, Rc<Object>>>,
     used: RefCell<BTreeSet<Key>>,
@@ -73,12 +106,31 @@ pub(crate) struct Renderer {
     applying: Cell<bool>,
     retired: Cell<bool>,
     stale_entry: RefCell<Option<(u64, n::ITextBox)>>,
+    last_focused_entry: Cell<Option<u64>>,
+    accelerators: RefCell<BTreeMap<u64, Accelerator>>,
+    accelerators_revoked: Cell<u64>,
+    last_revoked_accelerator: RefCell<Option<(u64, u64, n::KeyboardAccelerator)>>,
 }
 impl Renderer {
     pub(crate) fn new(view: View, generation: u64, bridge: Rc<Bridge>) -> Result<Self> {
+        let menu_epoch = next_menu_epoch()?;
+        let owner = view.downgrade();
+        view.0.native_edit.replace(Some(Rc::new(move |role| {
+            let owner = owner.upgrade().ok_or("native editor owner retired")?;
+            let mut result = Err("no focused native editor (owned host required)".into());
+            with_renderer(generation, |r| {
+                if r.menu_epoch == menu_epoch && r.view.same_view(&owner) {
+                    result = r.edit_menu(role);
+                }
+                Ok(())
+            })
+            .map_err(|e| e.to_string())?;
+            result
+        })));
         Ok(Self {
             view,
             generation,
+            menu_epoch,
             bridge,
             objects: RefCell::default(),
             used: RefCell::default(),
@@ -86,6 +138,10 @@ impl Renderer {
             applying: Cell::new(false),
             retired: Cell::new(false),
             stale_entry: RefCell::default(),
+            last_focused_entry: Cell::new(None),
+            accelerators: RefCell::default(),
+            accelerators_revoked: Cell::new(0),
+            last_revoked_accelerator: RefCell::default(),
         })
     }
     fn key(node: &Rc<Node>, role: &str) -> Key {
@@ -140,6 +196,7 @@ impl Renderer {
             showing: Cell::new(false),
             changes: Cell::new(0),
             menu_event: RefCell::default(),
+            menu_id: RefCell::default(),
             image_revision: Cell::new(0),
         });
         self.objects.borrow_mut().insert(key, object.clone());
@@ -295,6 +352,14 @@ impl Renderer {
         for (key, _) in removed {
             self.objects.borrow_mut().remove(&key);
         }
+        if self
+            .last_focused_entry
+            .get()
+            .is_some_and(|token| !self.objects.borrow().values().any(|o| o.token == token))
+        {
+            self.last_focused_entry.set(None);
+        }
+        self.sync_accelerators()?;
         self.view.0.dirty.set(false);
         Ok(())
     }
@@ -371,7 +436,17 @@ impl Renderer {
                 self.child_list(&o, elements);
                 o.element.clone()
             }
-            Kind::Panel(Layout::Flex { .. }) => return Err(sdk_error("retained Flex unsupported")),
+            Kind::Panel(Layout::Flex { gap }) => {
+                let o = self.object(node, "control", || super::owned_flex::panel(*gap)?.cast())?;
+                self.child_list(
+                    &o,
+                    children
+                        .iter()
+                        .map(|c| self.render(c, depth + 1))
+                        .collect::<Result<_>>()?,
+                );
+                o.element.clone()
+            }
             Kind::Page(_) => {
                 let o = self.panel(node, "control", false)?;
                 self.child_list(
@@ -893,6 +968,9 @@ impl Renderer {
         item.element
             .cast::<n::IMenuBarItem>()?
             .SetTitle(&node.text.borrow())?;
+        item.element
+            .cast::<n::IControl>()?
+            .SetIsEnabled(self.view.actionable(node))?;
         let native = menu.native.borrow().clone();
         let built = self.menu_items(node, &native, "menu", 0)?;
         sync_items(&item.element.cast::<n::IMenuBarItem>()?.Items()?, &built)?;
@@ -927,6 +1005,10 @@ impl Renderer {
                     let o = self.object(node, &role, || n::MenuFlyoutSubItem::new()?.cast())?;
                     let sub = o.element.cast::<n::IMenuFlyoutSubItem>()?;
                     sub.SetText(label)?;
+                    let metadata = self.menu_metadata(node, key)?;
+                    o.element
+                        .cast::<n::IControl>()?
+                        .SetIsEnabled(metadata.1.enabled && self.view.actionable(node))?;
                     let children = self.menu_items(node, items, &role, depth + 1)?;
                     sync_items(&sub.Items()?, &children)?;
                     result.push(o.element.cast()?);
@@ -940,7 +1022,12 @@ impl Renderer {
                         n::MenuFlyoutItem::new()?.cast()
                     })?;
                     let item = o.element.cast::<n::IMenuFlyoutItem>()?;
+                    let (id, metadata) = self.menu_metadata(node, key)?;
+                    o.menu_id.replace(Some(id));
                     item.SetText(label)?;
+                    item.SetKeyboardAcceleratorTextOverride(&owned_menu::shortcut_caption(
+                        &metadata,
+                    ))?;
                     o.element
                         .cast::<n::IControl>()?
                         .SetIsEnabled(*enabled && self.view.actionable(node))?;
@@ -949,13 +1036,16 @@ impl Renderer {
                     {
                         o.menu_event.take();
                         let generation = self.generation;
+                        let epoch = self.menu_epoch;
                         let token = o.token;
                         let revision = node.snapshot_revision.get();
-                        let label = label.clone();
                         o.menu_event.replace(Some(item.Click(move |_, _| {
                             callback(|| {
                                 with_renderer(generation, |r| {
-                                    r.event(token, revision, Event::Menu(label.clone()))
+                                    if r.menu_epoch != epoch {
+                                        return Ok(());
+                                    }
+                                    r.invoke_menu(token, revision).map(|_| ())
                                 })
                             })
                         })?));
@@ -983,6 +1073,22 @@ impl Renderer {
         } else {
             match &o.node.kind {
                 Kind::Entry(_) => {
+                    let epoch = self.menu_epoch;
+                    revokers.push(o.element.GotFocus(move |_, _| {
+                        callback(|| {
+                            with_renderer(generation, |r| {
+                                if r.menu_epoch == epoch {
+                                    r.focus_entry(token);
+                                } else {
+                                    eprintln!(
+                                        "NATIVE_GOT_FOCUS_REJECT generation={generation} token={token} event-epoch={epoch} renderer-epoch={}",
+                                        r.menu_epoch
+                                    );
+                                }
+                                Ok(())
+                            })
+                        })
+                    })?);
                     revokers.push(o.element.cast::<n::ITextBox>()?.TextChanged(move |_, _| {
                         callback(|| {
                             with_renderer(generation, |r| r.event(token, revision, Event::Text))
@@ -1064,9 +1170,7 @@ impl Renderer {
             return Ok(());
         }
         let node = &o.node;
-        if matches!(event, Event::Menu(_) | Event::Selection)
-            && node.snapshot_revision.get() != revision
-        {
+        if matches!(event, Event::Selection) && node.snapshot_revision.get() != revision {
             return Ok(());
         }
         o.changes.set(
@@ -1139,14 +1243,6 @@ impl Renderer {
                         _ => windows_reactor::ContentDialogResult::None,
                     };
                     let _ = cb.call(result);
-                }
-            }
-            Event::Menu(label) => {
-                if let Kind::Menu(m) = &node.kind {
-                    let cb = m.callback.borrow().clone();
-                    if let Some(cb) = cb {
-                        let _ = cb.call(label);
-                    }
                 }
             }
         }
@@ -1323,6 +1419,23 @@ impl Renderer {
         Ok(())
     }
     pub(crate) fn quiesce(&self) {
+        self.view.0.native_edit.take();
+        self.last_focused_entry.set(None);
+        let accelerators = self.accelerators.take();
+        for accelerator in accelerators.into_values() {
+            // Quiesce cannot return errors; callback preserves the driver's fault path.
+            callback(|| accelerator.native.SetIsEnabled(false));
+        }
+        let root = self
+            .objects
+            .borrow()
+            .values()
+            .find(|o| o.role == "wrapper" && o.node.id == ROOT)
+            .cloned();
+        if let Some(root) = root {
+            callback(|| root.element.KeyboardAccelerators()?.Clear());
+        }
+        self.last_revoked_accelerator.take();
         let objects: Vec<_> = self.objects.borrow().values().cloned().collect();
         for o in objects {
             o.revokers.take();
@@ -1336,6 +1449,7 @@ impl Renderer {
         if self.retired.replace(true) {
             return Ok(());
         }
+        self.quiesce();
         let objects = self.objects.take();
         for o in objects.values() {
             o.retire()?;
@@ -1410,6 +1524,7 @@ impl Renderer {
     }
     pub(crate) fn hold_entry(&self, id: &str) -> Result<u64> {
         let o = self.find(id, "control")?;
+        self.assert_entry_focus(id)?;
         self.stale_entry.replace(Some((o.token, o.element.cast()?)));
         Ok(o.token)
     }
@@ -1427,6 +1542,14 @@ impl Renderer {
         }
         stale.1.SetText("obsolete native event")?;
         self.event(token, 0, Event::Text)?;
+        let saved = self.last_focused_entry.replace(Some(token));
+        let rejected = self.view.activate_menu("edit-select").is_err();
+        self.last_focused_entry.set(saved);
+        if !rejected {
+            return Err(sdk_error(
+                "removed native editor token routed to a replacement",
+            ));
+        }
         println!(
             "NATIVE_REMOVED_TOKEN_PASS generation={} old-token={token} old-TextBox.SetText=true revoked-callback-no-target=true",
             self.generation
@@ -1474,6 +1597,8 @@ impl Renderer {
         {
             return Err(sdk_error("native root not Loaded event/readback"));
         }
+        self.flex_assertions()?;
+        self.menu_assertions()?;
         let xaml = root.XamlRoot()?;
         for id in [
             "entry",
@@ -1743,6 +1868,84 @@ impl Renderer {
         );
         Ok(())
     }
+    fn flex_assertions(&self) -> Result<()> {
+        let panel = self.find("flex", "control")?.element.clone();
+        let wrapper = self.find("flex", "wrapper")?.element.clone();
+        // Flush native invalidation, never call the overrides directly. These
+        // facts must be produced by XAML's actual Measure/Arrange dispatch.
+        wrapper.UpdateLayout()?;
+        let wide = self
+            .view
+            .retained_style("flex")
+            .and_then(|s| s.placement.width)
+            == Some(288.0);
+        let visible = self.view.find("flex-c").map_err(sdk_error)?.visible.get();
+        let expected_width = if wide {
+            if visible { 224.0 } else { 192.0 }
+        } else {
+            152.0
+        };
+        let expected_height = if !wide && visible { 47.0 } else { 30.0 };
+        let close = |a: f32, b: f32| (a - b).abs() < 0.75;
+        let desired = panel.DesiredSize()?;
+        let render = panel.RenderSize()?;
+        let offset = panel.ActualOffset()?;
+        if !close(desired.width, expected_width)
+            || !close(desired.height, expected_height)
+            || !close(render.width, if wide { 260.0 } else { 160.0 })
+            || !close(render.height, expected_height)
+            || !close(offset.x, 11.0)
+            || !close(offset.y, 13.0)
+        {
+            return Err(sdk_error(format!(
+                "native Flex extent/padding wide={wide} visible={visible} desired={desired:?} render={render:?} offset={offset:?}"
+            )));
+        }
+        let dimensions = [
+            ("flex-a", 2.0, 1.0, 60.0, 20.0),
+            ("flex-b", 72.0, 0.0, if wide { 120.0 } else { 80.0 }, 30.0),
+            (
+                "flex-c",
+                if wide { 199.0 } else { 0.0 },
+                if wide { 0.0 } else { 37.0 },
+                25.0,
+                10.0,
+            ),
+        ];
+        for (id, x, y, width, height) in dimensions {
+            let element = self.find(id, "wrapper")?.element.clone();
+            if id == "flex-c" && !visible {
+                if element.Visibility()? != n::Visibility::Collapsed {
+                    return Err(sdk_error("native Flex collapsed child"));
+                }
+                continue;
+            }
+            let offset = element.ActualOffset()?;
+            let size = element.RenderSize()?;
+            if !close(offset.x, x)
+                || !close(offset.y, y)
+                || !close(size.width, width)
+                || !close(size.height, height)
+            {
+                return Err(sdk_error(format!(
+                    "native Flex slot {id}: offset={offset:?} size={size:?}"
+                )));
+            }
+        }
+        let outer = wrapper.RenderSize()?;
+        let a = self.find("flex-a", "wrapper")?.element.DesiredSize()?;
+        if !close(outer.height, expected_height + 32.0)
+            || !close(a.width, 65.0)
+            || !close(a.height, 25.0)
+        {
+            return Err(sdk_error("native Flex wrapper margin/padding dimensions"));
+        }
+        println!(
+            "NATIVE_FLEX_PASS generation={} wide={wide} visible={visible} variable-width=true gap=7 margin-padding=true native-Measure-Arrange=true",
+            self.generation
+        );
+        Ok(())
+    }
 }
 enum Event {
     Click,
@@ -1751,7 +1954,6 @@ enum Event {
     Value,
     Selection,
     Dialog(n::ContentDialogResult),
-    Menu(String),
 }
 fn sync_items(
     list: &windows_collections::IVector<n::MenuFlyoutItemBase>,

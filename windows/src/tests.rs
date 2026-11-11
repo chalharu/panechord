@@ -326,12 +326,22 @@ fn image_is_encoded_png_not_raw_rgba_and_meter_is_finite_clamped() {
     assert!(view.error().unwrap().contains("finite"));
 }
 #[test]
-fn layout_canvas_grid_style_separator_and_honest_flex_rejection() {
+fn layout_canvas_grid_style_separator_and_retained_flex() {
     let view = view();
+    let flex = view
+        .try_layout(&view.root(), "flex", Layout::Flex { gap: 7.0 })
+        .unwrap();
+    view.label(
+        &flex,
+        "flex-child",
+        Binding::constant("variable width".into()),
+    );
+    assert_eq!(view.text("flex-child").as_deref(), Some("variable width"));
+    // Snapshot stability proves retained identity, not native wrapping geometry.
+    assert_eq!(view.render(), view.render());
     assert!(
-        view.try_layout(&view.root(), "flex", Layout::Flex { gap: 0.0 })
-            .unwrap_err()
-            .contains("Flex")
+        view.try_layout(&flex, "flex-nested", Layout::default())
+            .is_ok()
     );
     let canvas = view
         .try_layout(&view.root(), "canvas", Layout::Absolute)
@@ -945,23 +955,160 @@ fn close_releases_scope_keep_even_if_provider_keeps_a_stale_collection_callback(
     assert_eq!(dropped.get(), 1);
 }
 #[test]
-fn unsupported_menu_selectors_are_errors_and_make_does_not_publish_them() {
+fn edit_menu_roles_mount_but_without_a_focused_native_editor_never_dispatch() {
     let (_, _, host) = setup();
-    let result = host.make(|_| {
+    host.make(|_| {
         let view = view();
-        let mut item = menu_item("copy", Argument::Number(1));
-        item.role = MenuRole::Copy;
+        let items = [
+            MenuRole::Copy,
+            MenuRole::Cut,
+            MenuRole::Paste,
+            MenuRole::SelectAll,
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, role)| {
+            let mut item = menu_item(&format!("edit-{index}"), Argument::Number(1));
+            item.role = role;
+            item
+        })
+        .collect();
         view.typed_menu(
             "menu",
             Binding::constant("Edit".into()),
-            Binding::constant(vec![item]),
+            Binding::constant(items),
+            Rc::new(|_| panic!("edit role must not dispatch its typed argument")),
+        );
+        assert_eq!(view.error(), None);
+        for index in 0..4 {
+            assert!(
+                view.activate_menu(&format!("edit-{index}"))
+                    .unwrap_err()
+                    .contains("focused native editor")
+            );
+        }
+        Ok(())
+    })
+    .unwrap();
+    assert!(!host.is_closed());
+    assert!(host.registered_views().is_empty());
+}
+
+#[test]
+fn normal_shortcuts_mount_and_invalid_updates_keep_previous_routes() {
+    let received = Rc::new(RefCell::new(Vec::new()));
+    let out = received.clone();
+    let mut save = menu_item("save", Argument::Number(7));
+    save.shortcut = Some("Primary+S".into());
+    let (items, changes, _) = source(vec![save.clone()]);
+    let view = view();
+    view.typed_menu(
+        "menu",
+        Binding::constant("File".into()),
+        items,
+        Rc::new(move |a| {
+            out.borrow_mut().push(a);
+            true
+        }),
+    );
+    assert_eq!(view.error(), None);
+    view.activate_menu("save").unwrap();
+    let callback = view.menu_callback("menu").unwrap();
+    let snapshot = view.render();
+    save.shortcut = Some("Primary+Ctrl+S".into());
+    emit(&changes, vec![save]);
+    assert!(view.error().unwrap().contains("invalid menu shortcut"));
+    assert_eq!(view.render(), snapshot);
+    assert_eq!(view.menu_callback("menu").unwrap(), callback);
+    view.activate_menu("save").unwrap();
+    assert_eq!(
+        *received.borrow(),
+        vec![Argument::Number(7), Argument::Number(7)]
+    );
+}
+
+#[test]
+fn duplicate_native_chords_and_custom_predefined_shortcuts_are_rejected() {
+    for (first, second) in [("Primary+S", "Ctrl+S"), ("ctrl+shift+s", "Shift+Primary+S")] {
+        let view = view();
+        let mut a = menu_item("a", Argument::Number(1));
+        a.shortcut = Some(first.into());
+        let mut b = menu_item("b", Argument::Number(2));
+        b.shortcut = Some(second.into());
+        view.typed_menu(
+            "menu",
+            Binding::constant("File".into()),
+            Binding::constant(vec![a, b]),
             Rc::new(|_| true),
         );
-        Ok(())
-    });
-    assert!(result.unwrap_err().contains("selectors"));
-    assert!(host.is_closed());
-    assert!(host.registered_views().is_empty());
+        assert!(view.error().unwrap().contains("duplicate"));
+        assert!(view.activate_menu("a").is_err());
+    }
+    let view = view();
+    let mut a = menu_item("a", Argument::Number(1));
+    a.shortcut = Some("Primary+S".into());
+    view.typed_menu(
+        "first",
+        Binding::constant("First".into()),
+        Binding::constant(vec![a.clone()]),
+        Rc::new(|_| true),
+    );
+    a.id = "b".into();
+    view.typed_menu(
+        "second",
+        Binding::constant("Second".into()),
+        Binding::constant(vec![a]),
+        Rc::new(|_| true),
+    );
+    assert!(view.error().unwrap().contains("ambiguous"));
+    assert!(view.activate_menu("a").is_ok());
+    assert!(view.activate_menu("b").is_err());
+    let view = View::new(Binding::constant("Edit".into()));
+    let mut copy = menu_item("copy", Argument::Number(1));
+    copy.role = MenuRole::Copy;
+    copy.shortcut = Some("Ctrl+C".into());
+    view.typed_menu(
+        "edit",
+        Binding::constant("Edit".into()),
+        Binding::constant(vec![copy]),
+        Rc::new(|_| true),
+    );
+    assert!(view.error().unwrap().contains("predefined"));
+}
+
+#[test]
+fn quit_uses_vetoable_close_request_and_about_keeps_its_typed_argument() {
+    let view = view();
+    let requests = Rc::new(Cell::new(0));
+    let count = requests.clone();
+    view.on_close_request(Rc::new(move || count.set(count.get() + 1)));
+    let received = Rc::new(RefCell::new(Vec::new()));
+    let out = received.clone();
+    let mut quit = menu_item("quit", Argument::Number(999));
+    quit.role = MenuRole::Quit;
+    quit.shortcut = Some("Primary+Q".into());
+    let mut about = menu_item("about", Argument::Number(42));
+    about.role = MenuRole::About;
+    view.typed_menu(
+        "menu",
+        Binding::constant("Application".into()),
+        Binding::constant(vec![quit, about]),
+        Rc::new(move |a| {
+            out.borrow_mut().push(a);
+            true
+        }),
+    );
+    assert_eq!(view.error(), None);
+    view.activate_menu("quit").unwrap();
+    assert_eq!(requests.get(), 1);
+    assert!(!view.is_closed());
+    assert!(received.borrow().is_empty());
+    view.enabled("menu", Binding::constant(false));
+    assert!(view.activate_menu("quit").is_err());
+    assert_eq!(requests.get(), 1);
+    view.enabled("menu", Binding::constant(true));
+    view.activate_menu("about").unwrap();
+    assert_eq!(*received.borrow(), vec![Argument::Number(42)]);
 }
 #[test]
 fn old_native_menu_callback_cannot_dispatch_a_replaced_argument() {

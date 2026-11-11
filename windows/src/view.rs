@@ -34,6 +34,8 @@ const ROOT: &str = "__root";
 const MAX_NODES: usize = 8192;
 const MAX_DEPTH: usize = 64;
 const MAX_MOUNTS: usize = 256;
+#[path = "owned_flex.rs"]
+mod owned_flex;
 #[path = "owned_render.rs"]
 pub(crate) mod owned_render;
 type ViewportCallback = Rc<dyn Fn(usize)>;
@@ -69,6 +71,7 @@ pub(super) struct Inner {
     invalidate: RefCell<Option<Rc<dyn Fn()>>>,
     native_close: RefCell<Option<Rc<dyn Fn()>>>,
     native_close_pending: Cell<bool>,
+    native_edit: RefCell<Option<NativeEdit>>,
     present: RefCell<Option<Rc<dyn Fn()>>>,
     host_request: RefCell<Option<Rc<dyn Fn()>>>,
     image_updates: Cell<usize>,
@@ -164,8 +167,17 @@ struct TableState {
 }
 struct MenuState {
     native: RefCell<Vec<windows_reactor::MenuItem>>,
+    native_ids: RefCell<std::collections::HashMap<windows_reactor::Key, String>>,
     actions: RefCell<BTreeMap<String, Rc<dyn Fn() -> bool>>>,
+    metadata: RefCell<BTreeMap<String, MenuMetadata>>,
     callback: RefCell<Option<Callback<String>>>,
+}
+type NativeEdit = Rc<dyn Fn(MenuRole) -> Result<(), String>>;
+#[derive(Clone)]
+struct MenuMetadata {
+    role: MenuRole,
+    chord: Option<panechord_runtime::Shortcut>,
+    enabled: bool,
 }
 impl Node {
     fn new(id: String, parent: Option<String>, depth: usize, kind: Kind) -> Rc<Self> {
@@ -289,6 +301,7 @@ impl Inner {
         let present = self.present.take();
         let request = self.host_request.take();
         let native = self.native_close.take();
+        self.native_edit.take();
         self.native_close_pending.set(true);
         self.dirty.set(false);
         for node in nodes.into_values() {
@@ -817,7 +830,9 @@ impl View {
                     )
                 }))
             }
-            Kind::Panel(Layout::Flex { .. }) => unreachable!("Flex rejected before insertion"),
+            // Diagnostic snapshot only: Reactor DSL cannot express custom panels.
+            // The product renderer uses owned_flex's native Measure/Arrange.
+            Kind::Panel(Layout::Flex { .. }) => self.stack_children(&node, visible, enabled),
             Kind::Scroll(horizontal) => ScrollViewer::new()
                 .horizontal_scroll_bar_visibility(if *horizontal {
                     ScrollBarVisibility::Auto
@@ -1141,6 +1156,7 @@ impl ViewCore for View {
                 invalidate: RefCell::default(),
                 native_close: RefCell::default(),
                 native_close_pending: Cell::new(false),
+                native_edit: RefCell::default(),
                 present: RefCell::default(),
                 host_request: RefCell::default(),
                 host: RefCell::default(),
@@ -1307,9 +1323,6 @@ impl LayoutView for View {
     }
     fn try_layout(&self, parent: &Parent, id: &str, layout: Layout) -> Result<Parent, String> {
         layout.validate().map_err(str::to_owned)?;
-        if matches!(layout, Layout::Flex { .. }) {
-            return Err("Flex requires variable-size wrapping with gap; public VariableSizedWrapGrid is fixed-cell and has no gap contract".into());
-        }
         let node = self.insert(parent, id, Kind::Panel(layout))?;
         self.0.changed();
         Ok(self.parent_for(&node))
@@ -2975,7 +2988,9 @@ impl View {
             id,
             Kind::Menu(MenuState {
                 native: RefCell::default(),
+                native_ids: RefCell::default(),
                 actions: RefCell::default(),
+                metadata: RefCell::default(),
                 callback: RefCell::default(),
             }),
         ) {
@@ -2993,8 +3008,15 @@ impl View {
                 });
                 self.bind(&node, source, move |view, node, items| {
                     let leaves = panechord_runtime::flatten_menu(&items)?;
-                    if leaves.iter().any(|leaf| leaf.shortcut.is_some() || !matches!(leaf.role, MenuRole::Normal | MenuRole::About | MenuRole::Quit | MenuRole::Separator)) {
-                        return Err("native menu edit selectors/shortcuts require driver routing and are not implemented".into());
+                    // Validate the full snapshot, including invisible leaves, before commit.
+                    for leaf in &leaves {
+                        if let Some(raw) = &leaf.shortcut {
+                            let chord = parse_shortcut(raw)?;
+                            if !matches!(leaf.role, MenuRole::Normal | MenuRole::Quit) {
+                                return Err("custom shortcut on predefined native role is unsupported".into());
+                            }
+                            owned_render::shortcut_native(&chord)?;
+                        }
                     }
                     let items = panechord_runtime::visible_tree(&items);
                     // 0.100.0 delivers the label, not Key. Reject ambiguous
@@ -3006,10 +3028,39 @@ impl View {
                         }
                     }
                     let mut actions = BTreeMap::new();
-                    let native = build_menu(&items, true, &dispatch, &mut actions);
+                    let mut metadata = BTreeMap::new();
+                    let native = build_menu(&items, true, &dispatch, &mut actions, &mut metadata);
+                    let mut chords = BTreeSet::new();
+                    let mut existing_chords = BTreeSet::new();
+                    for other in view.0.nodes.borrow().values() {
+                        if Rc::ptr_eq(other, node) { continue; }
+                        if let Kind::Menu(other) = &other.kind {
+                            for old in other.metadata.borrow().values() {
+                                if let Some(old) = &old.chord {
+                                    let (key, modifiers) = owned_render::shortcut_native(old)?;
+                                    existing_chords.insert((key.0, modifiers.0));
+                                }
+                            }
+                        }
+                    }
+                    for entry in metadata.values() {
+                        if let Some(chord) = &entry.chord {
+                            let (key, modifiers) = owned_render::shortcut_native(chord)?;
+                            if !chords.insert((key.0, modifiers.0)) {
+                                return Err("duplicate native menu shortcut".into());
+                            }
+                            // Root accelerators share the window; reject ambiguity across menus too.
+                            if existing_chords.contains(&(key.0, modifiers.0)) {
+                                return Err("ambiguous native menu shortcut across menus".into());
+                            }
+                        }
+                    }
                     let Kind::Menu(menu) = &node.kind else { unreachable!() };
-                    let old = menu.actions.replace(actions); menu.native.replace(native);
-                    let revision = node.snapshot_revision.get().wrapping_add(1); node.snapshot_revision.set(revision);
+                    let revision = node.snapshot_revision.get().checked_add(1).ok_or("menu snapshot revision exhausted")?;
+                    let native_ids = metadata.keys().map(|id| (windows_reactor::Key::from(id.clone()), id.clone())).collect();
+                    let old = menu.actions.replace(actions); menu.native.replace(native); menu.metadata.replace(metadata);
+                    menu.native_ids.replace(native_ids);
+                    node.snapshot_revision.set(revision);
                     menu.callback.replace(Some(view.event(node, move |view, node, label: String| {
                         if node.snapshot_revision.get() != revision { return Ok(()); }
                         let id = labels.get(&label).ok_or("unknown native menu label")?;
@@ -3027,6 +3078,32 @@ impl View {
         if !self.actionable(node) {
             return Err("menu or ancestor is hidden/disabled".into());
         }
+        let metadata = menu
+            .metadata
+            .borrow()
+            .get(id)
+            .cloned()
+            .ok_or("unknown menu item metadata")?;
+        if !metadata.enabled {
+            return Err("menu command is disabled".into());
+        }
+        match metadata.role {
+            MenuRole::Copy | MenuRole::Cut | MenuRole::Paste | MenuRole::SelectAll => {
+                let route = self
+                    .0
+                    .native_edit
+                    .borrow()
+                    .clone()
+                    .ok_or("no focused native editor (owned host required)")?;
+                return route(metadata.role);
+            }
+            MenuRole::Quit => {
+                self.request_close();
+                return Ok(());
+            }
+            MenuRole::Normal | MenuRole::About => (),
+            MenuRole::Separator => return Err("separator is not actionable".into()),
+        }
         let action = menu
             .actions
             .borrow()
@@ -3040,11 +3117,16 @@ impl View {
         }
     }
 }
+fn parse_shortcut(raw: &str) -> Result<panechord_runtime::Shortcut, String> {
+    panechord_runtime::Shortcut::parse(raw)
+        .map_err(|error| format!("invalid menu shortcut {raw:?}: {error}"))
+}
 fn build_menu<A: Clone + 'static>(
     items: &[MenuNode<A>],
     enabled: bool,
     dispatch: &Rc<dyn Fn(A) -> bool>,
     actions: &mut MenuActions,
+    metadata: &mut BTreeMap<String, MenuMetadata>,
 ) -> Vec<windows_reactor::MenuItem> {
     let mut native = Vec::new();
     for item in items {
@@ -3054,6 +3136,19 @@ fn build_menu<A: Clone + 'static>(
             }
             MenuNode::Item(item) => {
                 let allowed = enabled && item.enabled;
+                metadata.insert(
+                    item.id.clone(),
+                    MenuMetadata {
+                        role: item.role.clone(),
+                        chord: item
+                            .shortcut
+                            .as_deref()
+                            .map(parse_shortcut)
+                            .transpose()
+                            .expect("validated shortcut"),
+                        enabled: allowed,
+                    },
+                );
                 let dispatch = dispatch.clone();
                 let argument = item.argument.clone();
                 actions.insert(
@@ -3071,11 +3166,21 @@ fn build_menu<A: Clone + 'static>(
                 label,
                 enabled: local,
                 children,
-            } => native.push(windows_reactor::MenuItem::submenu(
-                id.clone(),
-                label.clone(),
-                build_menu(children, enabled && *local, dispatch, actions),
-            )),
+            } => {
+                metadata.insert(
+                    id.clone(),
+                    MenuMetadata {
+                        role: MenuRole::Normal,
+                        chord: None,
+                        enabled: enabled && *local,
+                    },
+                );
+                native.push(windows_reactor::MenuItem::submenu(
+                    id.clone(),
+                    label.clone(),
+                    build_menu(children, enabled && *local, dispatch, actions, metadata),
+                ));
+            }
         }
     }
     native

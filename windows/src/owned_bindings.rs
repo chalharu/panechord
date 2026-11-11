@@ -10095,6 +10095,194 @@ pub struct IFrameworkElement_Vtbl {
     ) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
+    IFrameworkElementOverrides,
+    IFrameworkElementOverrides_Vtbl,
+    0xffc6fd98_f38c_5904_9ce4_97a3427cf4ba
+);
+impl windows_core::RuntimeType for IFrameworkElementOverrides {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+    const NAME: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::from_slice(b"Microsoft.UI.Xaml.IFrameworkElementOverrides");
+}
+impl IFrameworkElementOverrides {
+    pub(crate) fn MeasureOverride(&self, availablesize: Size) -> windows_core::Result<Size> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).MeasureOverride)(
+                windows_core::Interface::as_raw(self),
+                availablesize,
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+    pub(crate) fn ArrangeOverride(&self, finalsize: Size) -> windows_core::Result<Size> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).ArrangeOverride)(
+                windows_core::Interface::as_raw(self),
+                finalsize,
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+    pub(crate) fn OnApplyTemplate(&self) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).OnApplyTemplate)(
+                windows_core::Interface::as_raw(self),
+            )
+            .ok()
+        }
+    }
+    pub(crate) fn GoToElementStateCore(
+        &self,
+        statename: &str,
+        usetransitions: bool,
+    ) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).GoToElementStateCore)(
+                windows_core::Interface::as_raw(self),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(statename)),
+                usetransitions,
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+}
+impl windows_core::RuntimeName for IFrameworkElementOverrides {
+    const NAME: &'static str = "Microsoft.UI.Xaml.IFrameworkElementOverrides";
+}
+pub trait IFrameworkElementOverrides_Impl: windows_core::IUnknownImpl {
+    fn MeasureOverride(&self, availableSize: &Size) -> windows_core::Result<Size>;
+    fn ArrangeOverride(&self, finalSize: &Size) -> windows_core::Result<Size>;
+    fn OnApplyTemplate(&self) -> windows_core::Result<()>;
+    fn GoToElementStateCore(
+        &self,
+        stateName: &windows_core::HSTRING,
+        useTransitions: bool,
+    ) -> windows_core::Result<bool>;
+}
+impl IFrameworkElementOverrides_Vtbl {
+    pub const fn new<Identity: IFrameworkElementOverrides_Impl, const OFFSET: isize>() -> Self {
+        unsafe extern "system" fn MeasureOverride<
+            Identity: IFrameworkElementOverrides_Impl,
+            const OFFSET: isize,
+        >(
+            this: *mut core::ffi::c_void,
+            availablesize: Size,
+            result__: *mut Size,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                match IFrameworkElementOverrides_Impl::MeasureOverride(
+                    this,
+                    core::mem::transmute(&availablesize),
+                ) {
+                    Ok(ok__) => {
+                        result__.write(ok__);
+                        windows_core::HRESULT(0)
+                    }
+                    Err(err) => err.into(),
+                }
+            }
+        }
+        unsafe extern "system" fn ArrangeOverride<
+            Identity: IFrameworkElementOverrides_Impl,
+            const OFFSET: isize,
+        >(
+            this: *mut core::ffi::c_void,
+            finalsize: Size,
+            result__: *mut Size,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                match IFrameworkElementOverrides_Impl::ArrangeOverride(
+                    this,
+                    core::mem::transmute(&finalsize),
+                ) {
+                    Ok(ok__) => {
+                        result__.write(ok__);
+                        windows_core::HRESULT(0)
+                    }
+                    Err(err) => err.into(),
+                }
+            }
+        }
+        unsafe extern "system" fn OnApplyTemplate<
+            Identity: IFrameworkElementOverrides_Impl,
+            const OFFSET: isize,
+        >(
+            this: *mut core::ffi::c_void,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                IFrameworkElementOverrides_Impl::OnApplyTemplate(this).into()
+            }
+        }
+        unsafe extern "system" fn GoToElementStateCore<
+            Identity: IFrameworkElementOverrides_Impl,
+            const OFFSET: isize,
+        >(
+            this: *mut core::ffi::c_void,
+            statename: *mut core::ffi::c_void,
+            usetransitions: bool,
+            result__: *mut bool,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                match IFrameworkElementOverrides_Impl::GoToElementStateCore(
+                    this,
+                    core::mem::transmute(&statename),
+                    usetransitions,
+                ) {
+                    Ok(ok__) => {
+                        result__.write(ok__);
+                        windows_core::HRESULT(0)
+                    }
+                    Err(err) => err.into(),
+                }
+            }
+        }
+        Self {
+            base__: windows_core::IInspectable_Vtbl::new::<
+                Identity,
+                IFrameworkElementOverrides,
+                OFFSET,
+            >(),
+            MeasureOverride: MeasureOverride::<Identity, OFFSET>,
+            ArrangeOverride: ArrangeOverride::<Identity, OFFSET>,
+            OnApplyTemplate: OnApplyTemplate::<Identity, OFFSET>,
+            GoToElementStateCore: GoToElementStateCore::<Identity, OFFSET>,
+        }
+    }
+    pub fn matches(iid: &windows_core::GUID) -> bool {
+        iid == &<IFrameworkElementOverrides as windows_core::Interface>::IID
+    }
+}
+#[repr(C)]
+pub struct IFrameworkElementOverrides_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub MeasureOverride:
+        unsafe extern "system" fn(*mut core::ffi::c_void, Size, *mut Size) -> windows_core::HRESULT,
+    pub ArrangeOverride:
+        unsafe extern "system" fn(*mut core::ffi::c_void, Size, *mut Size) -> windows_core::HRESULT,
+    pub OnApplyTemplate: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub GoToElementStateCore: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        bool,
+        *mut bool,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
     IFrameworkTemplate,
     IFrameworkTemplate_Vtbl,
     0x0084c7c2_de48_5b0b_8a5a_e4fb76b7f7d1
@@ -11181,9 +11369,243 @@ impl windows_core::RuntimeType for IKeyboardAccelerator {
     const SIGNATURE: windows_core::imp::ConstBuffer =
         windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
+impl IKeyboardAccelerator {
+    pub(crate) fn Key(&self) -> windows_core::Result<VirtualKey> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Key)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+    pub(crate) fn SetKey(&self, value: VirtualKey) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetKey)(
+                windows_core::Interface::as_raw(self),
+                value,
+            )
+            .ok()
+        }
+    }
+    pub(crate) fn Modifiers(&self) -> windows_core::Result<VirtualKeyModifiers> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Modifiers)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+    pub(crate) fn SetModifiers(&self, value: VirtualKeyModifiers) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetModifiers)(
+                windows_core::Interface::as_raw(self),
+                value,
+            )
+            .ok()
+        }
+    }
+    pub(crate) fn IsEnabled(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).IsEnabled)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+    pub(crate) fn SetIsEnabled(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsEnabled)(
+                windows_core::Interface::as_raw(self),
+                value,
+            )
+            .ok()
+        }
+    }
+    pub(crate) fn ScopeOwner(&self) -> windows_core::Result<DependencyObject> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).ScopeOwner)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub(crate) fn SetScopeOwner<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<DependencyObject>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetScopeOwner)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+            )
+            .ok()
+        }
+    }
+    pub(crate) fn Invoked<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(
+                windows_core::Ref<KeyboardAccelerator>,
+                windows_core::Ref<KeyboardAcceleratorInvokedEventArgs>,
+            ) + 'static,
+    {
+        let handler: TypedEventHandler<KeyboardAccelerator, KeyboardAcceleratorInvokedEventArgs> = {
+            let com =
+                windows_core::imp::DelegateBox::<
+                    TypedEventHandler<KeyboardAccelerator, KeyboardAcceleratorInvokedEventArgs>,
+                    F,
+                >::new(
+                    &TypedEventHandlerBox::<
+                        KeyboardAccelerator,
+                        KeyboardAcceleratorInvokedEventArgs,
+                        F,
+                    >::VTABLE,
+                    handler,
+                );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).Invoked)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveInvoked,
+            ))
+        }
+    }
+}
 #[repr(C)]
 pub struct IKeyboardAccelerator_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
+    pub Key:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut VirtualKey) -> windows_core::HRESULT,
+    pub SetKey:
+        unsafe extern "system" fn(*mut core::ffi::c_void, VirtualKey) -> windows_core::HRESULT,
+    pub Modifiers: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut VirtualKeyModifiers,
+    ) -> windows_core::HRESULT,
+    pub SetModifiers: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        VirtualKeyModifiers,
+    ) -> windows_core::HRESULT,
+    pub IsEnabled:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    pub SetIsEnabled:
+        unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
+    pub ScopeOwner: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    pub SetScopeOwner: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    pub Invoked: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut i64,
+    ) -> windows_core::HRESULT,
+    pub RemoveInvoked:
+        unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IKeyboardAcceleratorFactory,
+    IKeyboardAcceleratorFactory_Vtbl,
+    0xca1d410a_af2a_51b9_a1de_6c0af9f3b598
+);
+impl windows_core::RuntimeType for IKeyboardAcceleratorFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IKeyboardAcceleratorFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IKeyboardAcceleratorInvokedEventArgs,
+    IKeyboardAcceleratorInvokedEventArgs_Vtbl,
+    0x62c9fdb0_b574_527d_97eb_5c7f674441e0
+);
+impl windows_core::RuntimeType for IKeyboardAcceleratorInvokedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IKeyboardAcceleratorInvokedEventArgs {
+    pub(crate) fn Handled(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Handled)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+    pub(crate) fn SetHandled(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetHandled)(
+                windows_core::Interface::as_raw(self),
+                value,
+            )
+            .ok()
+        }
+    }
+    pub(crate) fn Element(&self) -> windows_core::Result<DependencyObject> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Element)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub(crate) fn KeyboardAccelerator(&self) -> windows_core::Result<KeyboardAccelerator> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).KeyboardAccelerator)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+}
+#[repr(C)]
+pub struct IKeyboardAcceleratorInvokedEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub Handled:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    pub SetHandled:
+        unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
+    pub Element: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    pub KeyboardAccelerator: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     ILaunchActivatedEventArgs,
@@ -11944,6 +12366,25 @@ pub struct IPanel_Vtbl {
     pub SetBackgroundTransition: unsafe extern "system" fn(
         *mut core::ffi::c_void,
         *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IPanelFactory,
+    IPanelFactory_Vtbl,
+    0xf5e7e21c_4c97_5d20_bee6_3e4fc6ab14e9
+);
+impl windows_core::RuntimeType for IPanelFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IPanelFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub CreateInstance: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
@@ -22926,6 +23367,32 @@ windows_core::imp::interface_hierarchy!(
     windows_core::IInspectable
 );
 windows_core::imp::required_hierarchy!(KeyboardAccelerator, DependencyObject);
+impl KeyboardAccelerator {
+    pub(crate) fn new() -> windows_core::Result<Self> {
+        Self::IKeyboardAcceleratorFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn IKeyboardAcceleratorFactory<
+        R,
+        F: FnOnce(&IKeyboardAcceleratorFactory) -> windows_core::Result<R>,
+    >(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<
+            KeyboardAccelerator,
+            IKeyboardAcceleratorFactory,
+        > = windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
 impl windows_core::RuntimeType for KeyboardAccelerator {
     const SIGNATURE: windows_core::imp::ConstBuffer =
         windows_core::imp::ConstBuffer::for_class::<Self, IKeyboardAccelerator>();
@@ -22945,6 +23412,34 @@ impl windows_core::RuntimeName for KeyboardAccelerator {
 }
 unsafe impl Send for KeyboardAccelerator {}
 unsafe impl Sync for KeyboardAccelerator {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KeyboardAcceleratorInvokedEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    KeyboardAcceleratorInvokedEventArgs,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl windows_core::RuntimeType for KeyboardAcceleratorInvokedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IKeyboardAcceleratorInvokedEventArgs>();
+}
+unsafe impl windows_core::Interface for KeyboardAcceleratorInvokedEventArgs {
+    type Vtable = <IKeyboardAcceleratorInvokedEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID =
+        <IKeyboardAcceleratorInvokedEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for KeyboardAcceleratorInvokedEventArgs {
+    type Target = IKeyboardAcceleratorInvokedEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for KeyboardAcceleratorInvokedEventArgs {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Input.KeyboardAcceleratorInvokedEventArgs";
+}
+unsafe impl Send for KeyboardAcceleratorInvokedEventArgs {}
+unsafe impl Sync for KeyboardAcceleratorInvokedEventArgs {}
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct KeyboardAcceleratorPlacementMode(pub i32);
@@ -23962,6 +24457,33 @@ impl windows_core::RuntimeType for Orientation {
 pub struct Panel(windows_core::IUnknown);
 windows_core::imp::interface_hierarchy!(Panel, windows_core::IUnknown, windows_core::IInspectable);
 windows_core::imp::required_hierarchy!(Panel, FrameworkElement, UIElement, DependencyObject);
+impl Panel {
+    pub(crate) fn compose<T>(compose: T) -> windows_core::Result<Self>
+    where
+        T: windows_core::Compose,
+    {
+        Self::IPanelFactory(|this| unsafe {
+            let (derived__, base__) = windows_core::Compose::compose(compose);
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInstance)(
+                windows_core::Interface::as_raw(this),
+                core::mem::transmute_copy(&derived__),
+                base__ as *mut _ as _,
+                &mut result__,
+            )
+            .ok()?;
+            let _ = &derived__;
+            windows_core::imp::Type::from_abi(result__)
+        })
+    }
+    fn IPanelFactory<R, F: FnOnce(&IPanelFactory) -> windows_core::Result<R>>(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<Panel, IPanelFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
 impl windows_core::RuntimeType for Panel {
     const SIGNATURE: windows_core::imp::ConstBuffer =
         windows_core::imp::ConstBuffer::for_class::<Self, IPanel>();
@@ -26922,6 +27444,190 @@ impl windows_core::imp::TypeKind for VerticalAlignment {
 impl windows_core::RuntimeType for VerticalAlignment {
     const SIGNATURE: windows_core::imp::ConstBuffer =
         windows_core::imp::ConstBuffer::from_slice(b"enum(Microsoft.UI.Xaml.VerticalAlignment;i4)");
+}
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct VirtualKey(pub i32);
+impl VirtualKey {
+    pub const None: Self = Self(0);
+    pub const LeftButton: Self = Self(1);
+    pub const RightButton: Self = Self(2);
+    pub const Cancel: Self = Self(3);
+    pub const MiddleButton: Self = Self(4);
+    pub const XButton1: Self = Self(5);
+    pub const XButton2: Self = Self(6);
+    pub const Back: Self = Self(8);
+    pub const Tab: Self = Self(9);
+    pub const Clear: Self = Self(12);
+    pub const Enter: Self = Self(13);
+    pub const Shift: Self = Self(16);
+    pub const Control: Self = Self(17);
+    pub const Menu: Self = Self(18);
+    pub const Pause: Self = Self(19);
+    pub const CapitalLock: Self = Self(20);
+    pub const Kana: Self = Self(21);
+    pub const Hangul: Self = Self(21);
+    pub const ImeOn: Self = Self(22);
+    pub const Junja: Self = Self(23);
+    pub const Final: Self = Self(24);
+    pub const Hanja: Self = Self(25);
+    pub const Kanji: Self = Self(25);
+    pub const ImeOff: Self = Self(26);
+    pub const Escape: Self = Self(27);
+    pub const Convert: Self = Self(28);
+    pub const NonConvert: Self = Self(29);
+    pub const Accept: Self = Self(30);
+    pub const ModeChange: Self = Self(31);
+    pub const Space: Self = Self(32);
+    pub const PageUp: Self = Self(33);
+    pub const PageDown: Self = Self(34);
+    pub const End: Self = Self(35);
+    pub const Home: Self = Self(36);
+    pub const Left: Self = Self(37);
+    pub const Up: Self = Self(38);
+    pub const Right: Self = Self(39);
+    pub const Down: Self = Self(40);
+    pub const Select: Self = Self(41);
+    pub const Print: Self = Self(42);
+    pub const Execute: Self = Self(43);
+    pub const Snapshot: Self = Self(44);
+    pub const Insert: Self = Self(45);
+    pub const Delete: Self = Self(46);
+    pub const Help: Self = Self(47);
+    pub const Number0: Self = Self(48);
+    pub const Number1: Self = Self(49);
+    pub const Number2: Self = Self(50);
+    pub const Number3: Self = Self(51);
+    pub const Number4: Self = Self(52);
+    pub const Number5: Self = Self(53);
+    pub const Number6: Self = Self(54);
+    pub const Number7: Self = Self(55);
+    pub const Number8: Self = Self(56);
+    pub const Number9: Self = Self(57);
+    pub const A: Self = Self(65);
+    pub const B: Self = Self(66);
+    pub const C: Self = Self(67);
+    pub const D: Self = Self(68);
+    pub const E: Self = Self(69);
+    pub const F: Self = Self(70);
+    pub const G: Self = Self(71);
+    pub const H: Self = Self(72);
+    pub const I: Self = Self(73);
+    pub const J: Self = Self(74);
+    pub const K: Self = Self(75);
+    pub const L: Self = Self(76);
+    pub const M: Self = Self(77);
+    pub const N: Self = Self(78);
+    pub const O: Self = Self(79);
+    pub const P: Self = Self(80);
+    pub const Q: Self = Self(81);
+    pub const R: Self = Self(82);
+    pub const S: Self = Self(83);
+    pub const T: Self = Self(84);
+    pub const U: Self = Self(85);
+    pub const V: Self = Self(86);
+    pub const W: Self = Self(87);
+    pub const X: Self = Self(88);
+    pub const Y: Self = Self(89);
+    pub const Z: Self = Self(90);
+    pub const LeftWindows: Self = Self(91);
+    pub const RightWindows: Self = Self(92);
+    pub const Application: Self = Self(93);
+    pub const Sleep: Self = Self(95);
+    pub const NumberPad0: Self = Self(96);
+    pub const NumberPad1: Self = Self(97);
+    pub const NumberPad2: Self = Self(98);
+    pub const NumberPad3: Self = Self(99);
+    pub const NumberPad4: Self = Self(100);
+    pub const NumberPad5: Self = Self(101);
+    pub const NumberPad6: Self = Self(102);
+    pub const NumberPad7: Self = Self(103);
+    pub const NumberPad8: Self = Self(104);
+    pub const NumberPad9: Self = Self(105);
+    pub const Multiply: Self = Self(106);
+    pub const Add: Self = Self(107);
+    pub const Separator: Self = Self(108);
+    pub const Subtract: Self = Self(109);
+    pub const Decimal: Self = Self(110);
+    pub const Divide: Self = Self(111);
+    pub const F1: Self = Self(112);
+    pub const F2: Self = Self(113);
+    pub const F3: Self = Self(114);
+    pub const F4: Self = Self(115);
+    pub const F5: Self = Self(116);
+    pub const F6: Self = Self(117);
+    pub const F7: Self = Self(118);
+    pub const F8: Self = Self(119);
+    pub const F9: Self = Self(120);
+    pub const F10: Self = Self(121);
+    pub const F11: Self = Self(122);
+    pub const F12: Self = Self(123);
+    pub const F13: Self = Self(124);
+    pub const F14: Self = Self(125);
+    pub const F15: Self = Self(126);
+    pub const F16: Self = Self(127);
+    pub const F17: Self = Self(128);
+    pub const F18: Self = Self(129);
+    pub const F19: Self = Self(130);
+    pub const F20: Self = Self(131);
+    pub const F21: Self = Self(132);
+    pub const F22: Self = Self(133);
+    pub const F23: Self = Self(134);
+    pub const F24: Self = Self(135);
+    pub const NavigationView: Self = Self(136);
+    pub const NavigationMenu: Self = Self(137);
+    pub const NavigationUp: Self = Self(138);
+    pub const NavigationDown: Self = Self(139);
+    pub const NavigationLeft: Self = Self(140);
+    pub const NavigationRight: Self = Self(141);
+    pub const NavigationAccept: Self = Self(142);
+    pub const NavigationCancel: Self = Self(143);
+    pub const NumberKeyLock: Self = Self(144);
+    pub const Scroll: Self = Self(145);
+    pub const LeftShift: Self = Self(160);
+    pub const RightShift: Self = Self(161);
+    pub const LeftControl: Self = Self(162);
+    pub const RightControl: Self = Self(163);
+    pub const LeftMenu: Self = Self(164);
+    pub const RightMenu: Self = Self(165);
+    pub const GoBack: Self = Self(166);
+    pub const GoForward: Self = Self(167);
+    pub const Refresh: Self = Self(168);
+    pub const Stop: Self = Self(169);
+    pub const Search: Self = Self(170);
+    pub const Favorites: Self = Self(171);
+    pub const GoHome: Self = Self(172);
+    pub const GamepadA: Self = Self(195);
+    pub const GamepadB: Self = Self(196);
+    pub const GamepadX: Self = Self(197);
+    pub const GamepadY: Self = Self(198);
+    pub const GamepadRightShoulder: Self = Self(199);
+    pub const GamepadLeftShoulder: Self = Self(200);
+    pub const GamepadLeftTrigger: Self = Self(201);
+    pub const GamepadRightTrigger: Self = Self(202);
+    pub const GamepadDPadUp: Self = Self(203);
+    pub const GamepadDPadDown: Self = Self(204);
+    pub const GamepadDPadLeft: Self = Self(205);
+    pub const GamepadDPadRight: Self = Self(206);
+    pub const GamepadMenu: Self = Self(207);
+    pub const GamepadView: Self = Self(208);
+    pub const GamepadLeftThumbstickButton: Self = Self(209);
+    pub const GamepadRightThumbstickButton: Self = Self(210);
+    pub const GamepadLeftThumbstickUp: Self = Self(211);
+    pub const GamepadLeftThumbstickDown: Self = Self(212);
+    pub const GamepadLeftThumbstickRight: Self = Self(213);
+    pub const GamepadLeftThumbstickLeft: Self = Self(214);
+    pub const GamepadRightThumbstickUp: Self = Self(215);
+    pub const GamepadRightThumbstickDown: Self = Self(216);
+    pub const GamepadRightThumbstickRight: Self = Self(217);
+    pub const GamepadRightThumbstickLeft: Self = Self(218);
+}
+impl windows_core::imp::TypeKind for VirtualKey {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for VirtualKey {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::from_slice(b"enum(Windows.System.VirtualKey;i4)");
 }
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

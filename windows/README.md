@@ -10,8 +10,8 @@ other architectures/toolchains are unverified.
 
 - Facade: `panechord/windows` selects `panechord::backend`, used with
   `Runner::builder()`. `windows-self-contained` adds cache-only deployment.
-- Demo/library: select `backend-windows` or `windows-self-contained` with
-  `--no-default-features` (their default is GTK).
+- Demo/library: select `backend-windows` with `--no-default-features` (their default
+  is GTK). This includes cache-only deployment; `windows-self-contained` is an alias.
 - Choose only one explicit backend. An explicit Windows feature overrides
   `native`; the Windows `native` default remains Tao.
 - Backend features are `self-contained` (deployment) and `native-smoke`
@@ -20,8 +20,9 @@ other architectures/toolchains are unverified.
 From the repository root on Windows, with the caches below, build only:
 
 ```powershell
-cargo build -p panechord-demo --no-default-features --features windows-self-contained --locked --offline
-cargo build -p panechord-library --no-default-features --features windows-self-contained --locked --offline
+cargo build -p panechord-demo --example minimal --no-default-features --features backend-windows --locked --offline
+cargo build -p panechord-demo --no-default-features --features backend-windows --locked --offline
+cargo build -p panechord-library --no-default-features --features backend-windows --locked --offline
 ```
 
 Run all native applications and test executables **only in Windows Sandbox** via
@@ -50,13 +51,13 @@ and stages an existing official VS2022 x64 VC143 CRT; it never installs one.
 ### Consuming executables
 
 Linker arguments are not transitive: each executable package needs a `build.rs`.
-Its `windows-self-contained` feature should enable `panechord/windows-self-contained`
+Its Windows backend feature should enable `panechord/windows-self-contained`
 and `dep:panechord-windows`. Add an optional `panechord-windows` build dependency
 under `[target.'cfg(target_os = "windows")'.build-dependencies]`, using the matching
 version/path and `default-features = false`, **without** its `self-contained` feature.
 In `build.rs`'s `main`, call the hidden build-script API
 `panechord_windows::deployment::configure_self_contained()` under
-`#[cfg(all(target_os = "windows", feature = "windows-self-contained"))]`.
+`#[cfg(all(target_os = "windows", feature = "backend-windows"))]`.
 See [demo/build.rs](../demo/build.rs) and [demo/Cargo.toml](../demo/Cargo.toml)
 for the exact sample. No manual linker flags are needed; a Windows host is required.
 
@@ -64,13 +65,14 @@ for the exact sample. No manual linker flags are needed; a Windows host is requi
 
 Sandbox verification established a shared `minimal.yaml` native TextBox event
 → Store → TextBlock roundtrip and natural close through the facade and `Runner`.
-Native fixtures also cover layout/property readback, keyed identity, callback
-revocation, dialogs and multiwindow close/generation handling. Full gallery/library
-execution, IME/UIA, physical keyboard/pointer input and release qualification remain
-unverified; this is not production or accessibility-conformance acceptance.
+Minimal, gallery and library startup/normal close are verified with `backend-windows`
+alone. Native fixtures cover variable-size Flex wrapping, menu editor/clipboard
+operations, accelerator ownership/revocation, keyed identity, dialogs and multiwindow
+close handling. Full interaction coverage, IME/UIA, physical keyboard/pointer input
+and release qualification remain unverified.
 
-Unsupported preview areas include Flex, Code fonts, inherited/TextBox text styles,
-middle ellipsis and menu shortcuts/edit selectors. Lists use bounded paging, not
+Unsupported preview areas include Code fonts, inherited/TextBox text styles and
+middle ellipsis. Lists use bounded paging, not
 scroll-offset virtualization; oversized snapshots are rejected.
 
 ## Bindings and licenses

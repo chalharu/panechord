@@ -20,7 +20,10 @@ const FILTERS: &[&str] = &[
     "Microsoft.UI.Xaml.Window.CreateInstance",
     "Microsoft.UI.Xaml.IWindow",
     "Microsoft.UI.Xaml.IFrameworkElement",
+    "Microsoft.UI.Xaml.IFrameworkElementOverrides",
     "Microsoft.UI.Xaml.IUIElement",
+    "Microsoft.UI.Xaml.Controls.Panel",
+    "Microsoft.UI.Xaml.Controls.Panel.CreateInstance",
     "Microsoft.UI.Xaml.Controls.StackPanel",
     "Microsoft.UI.Xaml.Controls.StackPanel.CreateInstance",
     "Microsoft.UI.Xaml.Controls.Grid",
@@ -98,6 +101,10 @@ const FILTERS: &[&str] = &[
     "Microsoft.UI.Xaml.Controls.MenuFlyoutItem",
     "Microsoft.UI.Xaml.Controls.MenuFlyoutItem.CreateInstance",
     "Microsoft.UI.Xaml.Controls.IMenuFlyoutItem",
+    "Microsoft.UI.Xaml.Input.KeyboardAccelerator",
+    "Microsoft.UI.Xaml.Input.KeyboardAccelerator.CreateInstance",
+    "Microsoft.UI.Xaml.Input.IKeyboardAccelerator",
+    "Microsoft.UI.Xaml.Input.IKeyboardAcceleratorInvokedEventArgs",
     "Microsoft.UI.Xaml.Controls.MenuFlyoutSubItem",
     "Microsoft.UI.Xaml.Controls.MenuFlyoutSubItem.CreateInstance",
     "Microsoft.UI.Xaml.Controls.IMenuFlyoutSubItem",
@@ -158,7 +165,7 @@ fn main() {
     let inputs = root.join("bindgen/inputs");
     fs::create_dir_all(&inputs).expect("cannot create metadata directory");
     fs::create_dir_all(root.join("src")).expect("cannot create output directory");
-    assert_eq!(FILTERS.len(), 133, "unexpected filter inventory");
+    assert_eq!(FILTERS.len(), 140, "unexpected filter inventory");
 
     let tool = git(clone, &["show", &format!("{REVISION}:crates/tools/reactor/src/main.rs")]);
     assert!(String::from_utf8_lossy(&tool).contains("const WINDOWS_APP_SDK_VERSION: &str = \"2.4.0\";"),
@@ -195,9 +202,11 @@ fn main() {
         .output(root.join("src/owned_bindings.rs"))
         .implements([
             "Microsoft.UI.Xaml.IApplicationOverrides",
+            "Microsoft.UI.Xaml.IFrameworkElementOverrides",
             "Microsoft.UI.Xaml.Markup.IXamlMetadataProvider",
         ])
         .compose("Microsoft.UI.Xaml.Application")
+        .compose("Microsoft.UI.Xaml.Controls.Panel")
         .minimal()
         .dead_code()
         .flat()

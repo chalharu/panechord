@@ -6,7 +6,7 @@
 # instead of compiling them (faster image builds, no extra rustc needed).
 # Versions follow the 3-day minimum-age rule; keep in sync with
 # .github/workflows/coverage.yml.
-FROM rust:1.99.1-slim-bookworm@sha256:f2c004e3d2d8b547e8cf7ffbc29205385f4e71d23e53e4e383065db5e9f822cd AS builder
+FROM rust:1.100.0-slim-bookworm@sha256:7c7d4eb4d05b7781187a327809466cfddf29753f6defdc3d19a0e291951b7a37 AS builder
 # Prebuilt tool versions (single source; renovate tracks the annotated ARGs).
 # New releases apply only after the 3-day minimum release age.
 ARG NEXTEST_VERSION=0.9.150 # renovate: datasource=crate depName=cargo-nextest
@@ -23,7 +23,7 @@ RUN apt-get update -qq && apt-get install -y --no-install-recommends ca-certific
     && /tools/cargo-llvm-cov llvm-cov --version \
     && rm /tmp/nextest.tar.gz /tmp/llvm-cov.tar.gz
 
-FROM rust:1.99.1-slim-bookworm@sha256:f2c004e3d2d8b547e8cf7ffbc29205385f4e71d23e53e4e383065db5e9f822cd
+FROM rust:1.100.0-slim-bookworm@sha256:7c7d4eb4d05b7781187a327809466cfddf29753f6defdc3d19a0e291951b7a37
 
 # hadolint ignore=DL3002
 USER 0

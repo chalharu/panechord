@@ -622,7 +622,7 @@ final class Tabs: NSStackView, NSTableViewDataSource, NSTableViewDelegate {
         let sidebar = NSVisualEffectView()
         sidebar.material = .sidebar
         sidebar.blendingMode = .behindWindow
-        sidebar.state = .active
+        sidebar.state = .followsWindowActiveState
         sidebar.translatesAutoresizingMaskIntoConstraints = false
         rail.addSubview(sidebar, positioned: .below, relativeTo: rail.contentView)
         NSLayoutConstraint.activate([
@@ -693,17 +693,23 @@ final class Tabs: NSStackView, NSTableViewDataSource, NSTableViewDelegate {
         syncTopBodyHeight()
     }
 
-    /// Size the Tabs to its content: tall content grows the document and
-    /// scrolls (with a floor keeping the Tabs at least viewport-tall so
-    /// the footer siblings never overlap it), while short content takes
-    /// its natural height like the other backends. Deliberately no
-    /// stretch-to-fill for Top/Bottom tabs: forcing short tab bodies to
-    /// the viewport height leaves a blank band between the body and the
-    /// footer siblings. Vertical (Left/Right) tabs always fill: the rail
+    /// Size the Tabs to its content: Top/Bottom tall content grows the
+    /// document and scrolls via the parent Scroll (with a floor keeping
+    /// the Tabs at least viewport-tall so the footer siblings never
+    /// overlap it), while short Top/Bottom content takes its natural
+    /// height like the other backends. Deliberately no stretch-to-fill
+    /// for Top/Bottom tabs: forcing short tab bodies to the viewport
+    /// height leaves a blank band between the body and the footer
+    /// siblings. Vertical (Left/Right) tabs always fill exactly: the rail
     /// is a Finder-style sidebar that must stretch to the window height,
     /// and the body fills alongside it (content stays top-aligned, so no
     /// inter-view blank band); without this the Tabs collapses to content
     /// height, the rail clips to a few rows, and the footer rides up.
+    /// Exact (not just floor) pins the dialog footer: tall vertical
+    /// content must scroll inside its own Scroll/ItemsControl viewport
+    /// (input, notifications, system) instead of growing the document
+    /// and pushing Save/Cancel out of the window, mirroring the bounded
+    /// roots on the tao/gtk backends.
     /// Returns whether anything changed.
     @discardableResult
     func updateFloor() -> Bool {
@@ -734,13 +740,38 @@ final class Tabs: NSStackView, NSTableViewDataSource, NSTableViewDelegate {
             content += header.fittingSize.height
         }
         guard content >= 0 else { return false }
-        // Vertical (Left/Right) tabs always fill the viewport: the rail is
-        // a sidebar that must stretch to the window height. Top/Bottom tabs
-        // keep the short-content natural height to avoid a blank band.
+        // Vertical (Left/Right) tabs always fill the viewport exactly: the
+        // rail is a sidebar that must stretch to the window height. Exact
+        // (not just floor) pins the footer siblings: tall vertical content
+        // scrolls inside its own Scroll viewport instead of growing the
+        // document and pushing Save/Cancel below the fold. Top/Bottom tabs
+        // keep the short-content natural height to avoid a blank band, and
+        // tall Top/Bottom content grows inside its parent Scroll.
         let verticalTabs = orientation == .horizontal
-        if content >= fill || verticalTabs {
-            // Tall content (or any vertical-tab content): floor only; the
-            // exact height must stay off or it fights the natural size.
+        if verticalTabs {
+            if let floor = floorConstraint, floor.isActive {
+                floor.isActive = false
+            }
+            if let exact = exactHeight {
+                if exact.constant != -footer {
+                    exact.constant = -footer
+                    if !exact.isActive { exact.isActive = true }
+                    return true
+                }
+                if !exact.isActive {
+                    exact.isActive = true
+                    return true
+                }
+            } else {
+                let exact = heightAnchor.constraint(equalTo: clip.heightAnchor)
+                exact.constant = -footer
+                exact.isActive = true
+                exactHeight = exact
+                return true
+            }
+        } else if content >= fill {
+            // Tall Top/Bottom content (inside a parent Scroll): floor only;
+            // the exact height must stay off or it fights the natural size.
             if let exact = exactHeight, exact.isActive {
                 exact.isActive = false
             }
@@ -1119,8 +1150,39 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
         }
     }
 
-    /// Floor viewport-filling tables (no explicit height) to the visible clip
-    /// minus their stack siblings: without it gravity sizes the scroll view
+    /// Outer Sidebar footer for a viewport-filling Scroll/Table inside it:
+    /// the dialog footer siblings (status, Save/Cancel) that follow the
+    /// outer Sidebar frame in its parent stack. Inner Scrolls size from
+    /// the window clip minus their immediate parent siblings; without
+    /// subtracting this outer footer they overshoot the tab body by the
+    /// footer height and push Save/Cancel below the fold. Returns 0 when
+    /// the node is not inside a horizontal (Sidebar) Tabs.
+    func sidebarOuterFooter(for id: String) -> CGFloat {
+        var current: String? = id
+        while let key = current, let parentId = parents[key] {
+            if let tabs = nodes[parentId] as? Tabs, tabs.orientation == .horizontal,
+               let tabsFrame = frames[parentId],
+               let container = tabsFrame.superview as? NSStackView,
+               let index = container.arrangedSubviews.firstIndex(of: tabsFrame)
+            {
+                var footer: CGFloat = 40
+                if index + 1 < container.arrangedSubviews.count {
+                    for sibling in container.arrangedSubviews[(index + 1)...] {
+                        footer += max(sibling.frame.height, max(0, sibling.fittingSize.height)) + container.spacing
+                    }
+                }
+                return footer
+            }
+            current = parentId
+        }
+        return 0
+    }
+
+    /// Size viewport-filling tables (no explicit height) to the visible clip
+    /// minus their stack siblings and any outer Sidebar footer: exact (not
+    /// just floor) so tall content scrolls inside instead of growing the
+    /// document and pushing the footer out, mirroring the bounded roots on
+    /// the tao/gtk backends. Without it gravity sizes the scroll view
     /// by fitting (zero), collapsing the grid and letting following siblings
     /// ride up over the header. Mirrors Tabs.updateFloor.
     @discardableResult
@@ -1150,6 +1212,7 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
         // Padding lives on the wrapper frame (child insets), not the stack.
         let insets = frames[parentId]?.edgeInsets ?? NSEdgeInsetsZero
         siblings += insets.top + insets.bottom + 8
+        siblings += sidebarOuterFooter(for: id)
         let want = max(0, clip.bounds.height - siblings)
         if let floor = table.floorConstraint {
             if floor.constant != want {
@@ -1162,7 +1225,7 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
                 return true
             }
         } else {
-            let floor = frame.heightAnchor.constraint(greaterThanOrEqualToConstant: want)
+            let floor = frame.heightAnchor.constraint(equalToConstant: want)
             floor.isActive = true
             table.floorConstraint = floor
             return true
@@ -1170,8 +1233,12 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
         return false
     }
 
-    /// Floor viewport-filling scrolls (no explicit height) to the visible
-    /// clip minus their stack siblings: without it gravity sizes the scroll
+    /// Size viewport-filling scrolls (no explicit height) to the visible
+    /// clip minus their stack siblings and any outer Sidebar footer: exact
+    /// (not just floor) so tall settings content (per-console binding lists)
+    /// scrolls inside instead of growing the document and pushing
+    /// Save/Cancel below the fold, mirroring the bounded roots on the
+    /// tao/gtk backends. Without it gravity sizes the scroll
     /// view by fitting (zero), collapsing its frame so scrolled content
     /// (e.g. PPU images) never paints. Mirrors updateTableFloor.
     @discardableResult
@@ -1197,6 +1264,7 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
         }
         let insets = frames[parentId]?.edgeInsets ?? NSEdgeInsetsZero
         siblings += insets.top + insets.bottom + 8
+        siblings += sidebarOuterFooter(for: id)
         let want = max(0, clip.bounds.height - siblings)
         if let floor = scroll.floorConstraint {
             if floor.constant != want {
@@ -1209,7 +1277,7 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
                 return true
             }
         } else {
-            let floor = frame.heightAnchor.constraint(greaterThanOrEqualToConstant: want)
+            let floor = frame.heightAnchor.constraint(equalToConstant: want)
             floor.isActive = true
             scroll.floorConstraint = floor
             return true

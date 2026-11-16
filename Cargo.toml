@@ -14,6 +14,7 @@ members = [
 resolver = "3"
 
 [package]
+authors.workspace = true
 categories = ["gui"]
 description = "Declarative Rust UI with shared state and native backends"
 edition.workspace = true
@@ -48,9 +49,7 @@ strip = "debuginfo"
 
 [workspace.package]
 authors = ["chalharu"]
-description = "Declarative Rust UI with shared state and native backends"
 edition = "2024"
-homepage = "https://github.com/chalharu/panechord"
 license = "MPL-2.0"
 repository = "https://github.com/chalharu/panechord"
 rust-version = "1.95"

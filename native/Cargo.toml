@@ -1,4 +1,5 @@
 [package]
+authors.workspace = true
 categories = ["gui"]
 description = "Platform-default Panechord backend selection"
 edition.workspace = true

@@ -1,4 +1,5 @@
 [package]
+authors.workspace = true
 categories = ["gui"]
 description = "Sandboxed file-library screen for Panechord"
 edition.workspace = true

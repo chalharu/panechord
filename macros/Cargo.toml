@@ -1,4 +1,5 @@
 [package]
+authors.workspace = true
 categories = ["gui"]
 description = "Declarative view!, owned_view! and commands macros for Panechord"
 edition.workspace = true

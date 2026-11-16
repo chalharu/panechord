@@ -1,4 +1,5 @@
 [package]
+authors.workspace = true
 build = "build.rs"
 categories = ["gui"]
 description = "AppKit backend for Panechord declarative UI"
@@ -10,14 +11,12 @@ repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
-[dependencies]
+[target.'cfg(target_os = "macos")'.dependencies]
 futures.workspace = true
+objc2.workspace = true
 panechord-runtime.workspace = true
 raw-window-handle.workspace = true
 serde_json.workspace = true
 
-[target.'cfg(target_os = "macos")'.dependencies]
-objc2.workspace = true
-
-[dev-dependencies]
+[target.'cfg(target_os = "macos")'.dev-dependencies]
 futures-timer.workspace = true

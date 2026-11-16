@@ -1,4 +1,5 @@
 [package]
+authors.workspace = true
 categories = ["gui"]
 description = "Control gallery and smoke demo for Panechord"
 edition.workspace = true

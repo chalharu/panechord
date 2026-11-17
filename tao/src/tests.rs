@@ -2477,3 +2477,100 @@ fn pointer_hover_updates_position_through_plain_node_id() {
     assert_eq!(pointer.snapshot(), Some(hovered));
     view.close();
 }
+
+/// Vertical tabs keep short pages top-aligned across selection switches
+/// with a retained iced tree (the driver rebuilds the element but reuses
+/// the tree, like the real event loop). The body fills the bounded window
+/// while a short page keeps its natural height; the first row must stay
+/// at the body's top, never sink to its bottom.
+/// Regression guard for the AppKit twin of this layout (macos Tabs pins
+/// page content to the top gravity area for the same reason).
+#[test]
+fn vertical_tabs_keep_short_pages_top_aligned_across_switches() {
+    use iced::{
+        Size,
+        advanced::{layout::Limits, widget::Tree},
+    };
+    use panechord_runtime::TabPosition;
+    let harness = Harness::new();
+    let model = harness.store(String::from("general"));
+    let view = View::new(Binding::constant("Settings".into()));
+    let tab = view.tab(
+        &view.root(),
+        "pages",
+        model.bind(Clone::clone, Some(|state, value| *state = value)),
+    );
+    let general = view.tab_page(
+        &tab,
+        "general",
+        Binding::constant("General".into()),
+        "general",
+    );
+    for index in 0..4 {
+        view.label(
+            &general,
+            &format!("grow_{index}"),
+            Binding::constant(format!("general row {index}")),
+        );
+    }
+    let tall = view.tab_page(&tab, "tall", Binding::constant("Tall".into()), "tall");
+    for index in 0..30 {
+        view.label(
+            &tall,
+            &format!("trow_{index}"),
+            Binding::constant(format!("tall row {index}")),
+        );
+    }
+    let short = view.tab_page(&tab, "short", Binding::constant("Short".into()), "short");
+    view.label(&short, "only", Binding::constant("only row".into()));
+    view.finish_tab(&tab).unwrap();
+    view.tab_position("pages", TabPosition::Left).unwrap();
+    view.label(&view.root(), "status", Binding::constant("status".into()));
+    view.button(
+        &view.root(),
+        "apply",
+        Binding::constant("Apply".into()),
+        model.command(|_| true, |_, ()| {}, Binding::constant(())),
+    );
+    let renderer = iced_tiny_skia::Renderer::new(iced::Font::default(), iced::Pixels(16.0));
+    let limits = Limits::new(Size::ZERO, Size::new(660.0, 520.0));
+    let mut tree: Option<Tree> = None;
+    for selected in [
+        "general", "tall", "short", "tall", "general", "short", "general", "tall",
+    ] {
+        view.select("pages", selected).unwrap();
+        let mut element = view.root().0.element();
+        let frame = match tree.as_mut() {
+            None => {
+                let mut fresh = Tree::new(element.as_widget());
+                let frame = element
+                    .as_widget_mut()
+                    .layout(&mut fresh, &renderer, &limits);
+                tree = Some(fresh);
+                frame
+            }
+            Some(retained) => {
+                element.as_widget().diff(retained);
+                element.as_widget_mut().layout(retained, &renderer, &limits)
+            }
+        };
+        // Root panel -> [tabs frame, status, apply]; the tabs frame wraps
+        // the Left row of [rail, body].
+        let row = &frame.children()[0].children()[0].children()[0];
+        assert_eq!(row.children().len(), 2, "left tabs row keeps rail+body");
+        let body = row.children()[1].bounds();
+        // Descend through single-child wrappers to the first content leaf.
+        let mut cursor = &row.children()[1];
+        while cursor.children().len() == 1 {
+            cursor = &cursor.children()[0];
+        }
+        let first = cursor.bounds();
+        assert!(
+            first.y < body.height / 2.0,
+            "short page content must stay top-aligned after switching to {selected}: first_y={} body_h={}",
+            first.y,
+            body.height
+        );
+    }
+    view.close();
+}

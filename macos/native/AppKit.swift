@@ -1527,6 +1527,14 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
             dialogs[id] = panel
         } else if let tab = tab {
             let item = NSTabViewItem(identifier: id)
+            // Pin the page content to the top gravity area: the tab body
+            // fills the Tabs height (a Left/Right rail must stretch with
+            // the window, and updateFloor pins vertical Tabs exactly), so
+            // a short page would otherwise settle in the frame's default
+            // gravity area and read bottom-aligned. The tao/gtk backends
+            // top-align short bodies the same way.
+            frame.removeView(view)
+            frame.addView(view, in: .top)
             item.view = frame
             item.label = id
             applying = true

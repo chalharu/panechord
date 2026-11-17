@@ -55,7 +55,7 @@ env:
   # minimum release age.
   NEXTEST_VERSION: "0.9.150" # renovate: datasource=crate depName=cargo-nextest
   LLVM_COV_VERSION: "0.9.1" # renovate: datasource=crate depName=cargo-llvm-cov
-  RUST_TOOLCHAIN: "1.99.1" # renovate: datasource=github-releases depName=rust-lang/rust
+  RUST_TOOLCHAIN: "1.100.0" # renovate: datasource=github-releases depName=rust-lang/rust
 jobs:
   prepare-image:
     name: Prepare image

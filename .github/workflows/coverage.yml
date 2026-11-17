@@ -50,12 +50,24 @@ env:
   CARGO_INCREMENTAL: "0"
   CARGO_PROFILE_TEST_DEBUG: "0"
   CARGO_TERM_COLOR: always
+  # Workaround for https://github.com/taiki-e/cargo-llvm-cov/issues/520:
+  # Cargo 1.100 stabilized the build-dir layout v2 (rust-lang/cargo#15010),
+  # so test binaries move from target/<profile>/deps/ to
+  # target/<profile>/build/<pkg>/<hash>/out/. cargo-nextest archives no
+  # longer contain the sibling fingerprint/ dirs that cargo-llvm-cov 0.9.1
+  # uses for object discovery, and `cargo llvm-cov report
+  # --nextest-archive-file` fails with "failed to collect object files".
+  # Tests themselves pass; only coverage collection breaks (Windows/macOS
+  # legs). Opt out of the new layout until upstream ships a fix.
+  # Temporary and undocumented; remove once cargo-llvm-cov handles archives
+  # without fingerprint dirs.
+  __CARGO_TEMPORARY_BUILD_DIR_NEW_LAYOUT_OPT_OUT: "1"
   # Single source for prebuilt CI tool versions. Renovate tracks the
   # annotated lines below; new releases apply only after the 3-day
   # minimum release age.
   NEXTEST_VERSION: "0.9.150" # renovate: datasource=crate depName=cargo-nextest
   LLVM_COV_VERSION: "0.9.1" # renovate: datasource=crate depName=cargo-llvm-cov
-  RUST_TOOLCHAIN: "1.99.1" # renovate: datasource=github-releases depName=rust-lang/rust
+  RUST_TOOLCHAIN: "1.100.0" # renovate: datasource=github-releases depName=rust-lang/rust
 jobs:
   prepare-image:
     name: Prepare image

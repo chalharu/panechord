@@ -680,10 +680,21 @@ final class Tabs: NSStackView, NSTableViewDataSource, NSTableViewDelegate {
     /// converges): an exact height would steal the stack surplus that
     /// belongs to the body, stretching the header instead and leaving
     /// blank bands above and below the segments.
+    /// Fitting height of the selected page's content. An NSTabView item
+    /// view fills the body, so its own fitting size can read zero (or the
+    /// stretched body) even when the page node inside has natural content.
+    /// Read the page node instead: tab page content is top-aligned by
+    /// constraints, never stretched by the body.
+    var selectedPageContentHeight: CGFloat? {
+        guard let page = body.selectedTabViewItem?.view else { return nil }
+        let content = page.subviews.first ?? page
+        return content.fittingSize.height
+    }
+
     func syncTopBodyHeight() {
         guard let height = topBodyHeight, height.isActive,
               let page = body.selectedTabViewItem?.view else { return }
-        let fitting = page.fittingSize.height
+        let fitting = selectedPageContentHeight ?? page.fittingSize.height
         if fitting.isFinite, fitting >= 0, height.constant != fitting {
             height.constant = fitting
         }
@@ -733,7 +744,7 @@ final class Tabs: NSStackView, NSTableViewDataSource, NSTableViewDelegate {
         // Content truth is the selected page's fitting: the NSTabView body
         // reports no intrinsic height, and our own height constraints would
         // pollute a whole-Tabs fitting read.
-        var content = body.selectedTabViewItem?.view?.fittingSize.height ?? -1
+        var content = selectedPageContentHeight ?? body.selectedTabViewItem?.view?.fittingSize.height ?? -1
         if content >= 0, orientation == .vertical {
             content = max(content, list.fittingSize.height)
         } else if content >= 0 {
@@ -1527,6 +1538,21 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
             dialogs[id] = panel
         } else if let tab = tab {
             let item = NSTabViewItem(identifier: id)
+            // Top-align page content with constraints rather than gravity
+            // areas. The tab item view fills the body, and gravity-based
+            // placement lets a tall body stretch a short page: the first
+            // nested stack then takes the surplus and later rows ride the
+            // bottom (e.g. the settings App page). Pin the top/leading
+            // edges only; width comes from linkContent and the page keeps
+            // its intrinsic height unless its kind fills by contract.
+            frame.removeArrangedSubview(view)
+            view.removeFromSuperview()
+            frame.addSubview(view)
+            view.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                view.topAnchor.constraint(equalTo: frame.topAnchor),
+                view.leadingAnchor.constraint(equalTo: frame.leadingAnchor),
+            ])
             item.view = frame
             item.label = id
             applying = true

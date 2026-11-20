@@ -105,6 +105,6 @@ serde-saphyr = { version = "=2.1.1" }
 serde_json = { version = "=1.0.154" }
 serde_path_to_error = { version = "=0.1.20" }
 syn = { features = ["extra-traits", "full", "visit-mut"], version = "=3.0.10" }
-tao = { version = "=0.37.2" }
+tao = { version = "=0.37.3" }
 window_clipboard = { version = "=0.5.1" }
 windows-sys = { version = "=0.61.2" }

@@ -1000,9 +1000,9 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
     var contentHeights: [String: NSLayoutConstraint] = [:]
     var menus: [String: NSMenu] = [:]
     var menuItems: [String: NSMenuItem] = [:]
-    /// Whether the view installed a real application menu (replacing the
-    /// Host stub). Hosts without one never touch the shared menubar, so a
-    /// secondary window keeps showing the main window's menus.
+    /// Whether the view installed an application menu (the "app" menu at
+    /// the head of the bar). Hosts without any menu never touch the shared
+    /// menubar, so a secondary window keeps showing the main window's menus.
     var ownsAppMenu = false
     var tabItems: [String: NSTabViewItem] = [:]
     var dialogs: [String: NSPanel] = [:]
@@ -1066,16 +1066,11 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
         nodes["__root"] = root
         frames["__root"] = root
         NSApp.delegate = ApplicationDelegate.shared
-        let app = NSMenuItem()
-        let appMenu = NSMenu(title: "Panechord")
-        app.submenu = appMenu
-        bar.addItem(app)
-        let about = NSMenuItem(title: "About Panechord", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
-        appMenu.addItem(about)
-        appMenu.addItem(.separator())
-        let quit = NSMenuItem(title: "Quit Panechord", action: #selector(ApplicationDelegate.quitRequested), keyEquivalent: "q")
-        quit.target = ApplicationDelegate.shared
-        appMenu.addItem(quit)
+        // No stub application menu: like the tao/muda backend, the first
+        // installed menu occupies the application-menu slot (macOS renders
+        // mainMenu.items[0] under the app name), so an app without an
+        // "app" menu shows its first menu (e.g. File) there instead of a
+        // "About Panechord / Quit Panechord" stub.
         inputMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
             guard let self, !self.closed, event.window === self.window else { return event }
             let pressed: Bool
@@ -1121,9 +1116,7 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
         ApplicationDelegate.shared.active = self
         // Windows that installed any menu own the shared menubar while key.
         // Hosts without menus (dialogs, secondary windows) never touch it,
-        // so they keep showing the main window's menus. The "app" menu is
-        // just the HIG stub replacement; a main window without one (File,
-        // States, ...) still needs its bar installed.
+        // so they keep showing the main window's menus.
         if ownsAppMenu || !menus.isEmpty { NSApp.mainMenu = bar }
         // Reconcile tab floors now that the window is displayed and sibling
         // fitting sizes are valid (in-flight layout passes can deadlock on
@@ -2539,13 +2532,11 @@ public func menu(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<UI
         submenu.autoenablesItems = false
         let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         parent.submenu = submenu
-        if id == "app", let stub = value.bar.items.first {
-            // The view owns the HIG application menu (About/Preferences/Quit
-            // with real labels and shortcuts): it replaces the Host stub so
-            // AppKit shows a single application menu. Hosts without an "app"
-            // menu keep the stub.
+        if id == "app" {
+            // The view owns the application menu (About/Preferences/Quit
+            // with real labels and shortcuts): like the tao/muda backend,
+            // it heads the bar at the application-menu slot.
             value.bar.insertItem(parent, at: 0)
-            value.bar.removeItem(stub)
             value.ownsAppMenu = true
         } else {
             value.bar.addItem(parent)

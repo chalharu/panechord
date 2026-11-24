@@ -49,15 +49,29 @@ mod native {
         view.typed_menu(
             "file",
             Binding::constant("File".into()),
-            Binding::constant(vec![MenuItem {
-                id: "update".into(),
-                label: "Update".into(),
-                argument: name,
-                shortcut: Some("Primary+U".into()),
-                role: panechord_runtime::MenuRole::Normal,
-                enabled: true,
-                visible: true,
-            }]),
+            Binding::constant(vec![
+                MenuItem {
+                    id: "update".into(),
+                    label: "Update".into(),
+                    argument: name,
+                    shortcut: Some("Primary+U".into()),
+                    role: panechord_runtime::MenuRole::Normal,
+                    enabled: true,
+                    visible: true,
+                },
+                // Real apps own their quit path (nerust's File menu carries
+                // a Quit item); there is no stub application menu to absorb
+                // Primary+Q, mirroring the tao/muda backend.
+                MenuItem {
+                    id: "quit".into(),
+                    label: "Quit".into(),
+                    argument: "quit".into(),
+                    shortcut: Some("Primary+Q".into()),
+                    role: panechord_runtime::MenuRole::Quit,
+                    enabled: true,
+                    visible: true,
+                },
+            ]),
             Rc::new(move |value| {
                 let _ = writer.update(move |state| *state = value);
                 true

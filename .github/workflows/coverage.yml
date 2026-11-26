@@ -156,6 +156,8 @@ jobs:
             --no-default-features --features backend-tao -- -D warnings
       - name: YAML rustc wrapper tests
         run: python3 scripts/test-yaml-rustc.py
+      - name: Swift coverage converter tests
+        run: python3 scripts/test-swift-coverage.py
   archive-linux:
     name: Build Linux archive
     needs: prepare-image

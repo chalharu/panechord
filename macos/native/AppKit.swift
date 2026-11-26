@@ -64,7 +64,8 @@ final class PickTable: NSTableView {
     override func mouseDown(with event: NSEvent) {
         if control?.selectionPresent == true, let control {
             let point = convert(event.locationInWindow, from: nil)
-            let row = row(at: point), column = column(at: point)
+            let row = row(at: point)
+            let column = column(at: point)
             if row >= 0, column >= 0,
                let cell = view(atColumn: column, row: row, makeIfNecessary: false) as? SelectableTableCell {
                 control.pick(cell)
@@ -2149,6 +2150,31 @@ public func action(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<
     return 0
 }
 
+@MainActor
+func clearNaturalDims(_ picture: PointerImage, id: String, host value: Host) {
+    // Identity-based detach without nested closures (Sonar swift:S3087):
+    // `removeAll(where:)` + `contains(where:)` would nest two closures
+    // inside the caller's `autoreleasepool`, exceeding the allowed depth.
+    for constraint in picture.naturalDims { constraint.isActive = false }
+    if var dims = value.dimensions[id] {
+        var kept: [NSLayoutConstraint] = []
+        kept.reserveCapacity(dims.count)
+        for old in dims {
+            var stale = false
+            for fresh in picture.naturalDims {
+                if fresh === old {
+                    stale = true
+                    break
+                }
+            }
+            if !stale { kept.append(old) }
+        }
+        dims = kept
+        value.dimensions[id] = dims
+    }
+    picture.naturalDims = []
+}
+
 @_cdecl("w3_image") @MainActor
 public func image(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<UInt8>?, _ idCount: Int,
                   _ pixels: UnsafePointer<UInt8>?, _ length: Int, _ width: UInt32, _ height: UInt32) -> Int32 {
@@ -2163,12 +2189,7 @@ public func image(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<U
                 picture.updateSourceSize(0, 0)
                 let value = host(pointer)
                 let id = string(idBytes, idCount)
-                for constraint in picture.naturalDims { constraint.isActive = false }
-                if var dims = value.dimensions[id] {
-                    dims.removeAll { old in picture.naturalDims.contains { $0 === old } }
-                    value.dimensions[id] = dims
-                }
-                picture.naturalDims = []
+                clearNaturalDims(picture, id: id, host: value)
             }
             return 1
         }
@@ -2195,12 +2216,7 @@ public func image(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<U
             let value = host(pointer)
             let id = string(idBytes, idCount)
             let scale = max(1, value.window.backingScaleFactor)
-            for constraint in picture.naturalDims { constraint.isActive = false }
-            if var dims = value.dimensions[id] {
-                dims.removeAll { old in picture.naturalDims.contains { $0 === old } }
-                value.dimensions[id] = dims
-            }
-            picture.naturalDims = []
+            clearNaturalDims(picture, id: id, host: value)
             var added: [NSLayoutConstraint] = []
             func natural(_ anchor: NSLayoutDimension, _ constant: CGFloat) {
                 let constraint = anchor.constraint(equalToConstant: constant)

@@ -1,9 +1,14 @@
 //! Isolated GTK3/Tao/X11 regressions. Never load GTK4 in this process.
-use super::*;
+use super::{
+    Arc, ControlFlow, Desktop, Event, EventLoopBuilder, Instant, Message, Native, Paint, Proxy, Rc,
+    RefCell, Scheduler, State, View, WindowEvent, dispatch, mouse,
+};
+use gtk::prelude::*;
 use iced::advanced::Clipboard as _;
 use panechord_runtime::{Binding, Store};
 use std::time::Duration;
-use tao::platform::unix::EventLoopBuilderExtUnix;
+use tao::platform::run_return::EventLoopExtRunReturn;
+use tao::platform::unix::{EventLoopBuilderExtUnix, WindowExtUnix};
 
 #[test]
 #[ignore = "requires X11 display, xdotool/XTest and an isolated GTK3 process"]

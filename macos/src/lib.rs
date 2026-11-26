@@ -1731,7 +1731,7 @@ impl View {
                 std::fs::write(&golden_path, format!("{json}\n")).unwrap();
             }
         }
-        if finished.get() {
+        if passed.get() {
             Ok(())
         } else {
             Err(format!(

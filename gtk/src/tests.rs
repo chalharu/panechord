@@ -1549,7 +1549,21 @@ fn native_layout_golden_exact() {
         },
     );
     for (i, text) in ["a", "b", "c"].into_iter().enumerate() {
-        view.label(&grid, &format!("g{i}"), Binding::constant(text.into()));
+        let id = format!("g{i}");
+        view.label(&grid, &id, Binding::constant(text.into()));
+        // Pin monospace (DejaVu Sans Mono on Linux CI and local installs)
+        // so the golden tracks panechord regressions, not whichever
+        // proportional fallback fontconfig resolves on the machine.
+        view.style(
+            &id,
+            Style {
+                text: Some(panechord_runtime::TextStyle {
+                    role: panechord_runtime::TextRole::Code,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        );
     }
     view.present();
     settle();

@@ -805,6 +805,9 @@ jobs:
             --lcov --output-path coverage/raw.info
           sh scripts/lcov-workspace.sh coverage/raw.info coverage/lcov-macos.info
           rm coverage/raw.info
+      - name: Layout golden (AppKit window-relative exact)
+        run: |
+          cargo run --locked -p panechord-macos --example layout_golden
       - name: Upload coverage report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

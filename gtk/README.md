@@ -227,5 +227,5 @@ font/theme/GTK updates that move geometry fail here and re-baseline with
 OS-observed AT-SPI2 tree against the same golden (window-relative normalized,
 exit 2 when the AT-SPI bus is unavailable — never a silent skip). The macOS
 counterpart is the test-bridge-only `View::dump_layout_json`
-(`PANECHORD_TEST_BRIDGE=1`, never shipped in release builds) plus
+(`test-bridge` feature, never shipped in release builds) plus
 `scripts/e2e-ax.applescript` (System Events, interactive desktop).

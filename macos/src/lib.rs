@@ -115,9 +115,9 @@ unsafe extern "C" {
         order_len: usize,
     ) -> i32;
     fn w3_frame_height(host: *mut c_void, id: *const u8, id_len: usize) -> f64;
-    /// Test bridge only (PANECHORD_TEST_BRIDGE=1): excluded from release
+    /// Test bridge only (`test-bridge` feature): excluded from release
     /// and distribution builds by construction.
-    #[cfg(panechord_test_bridge)]
+    #[cfg(feature = "test-bridge")]
     fn w3_dump_layout(host: *mut c_void, output: *mut u8, capacity: usize) -> isize;
     fn w3_rows(
         host: *mut c_void,
@@ -1639,9 +1639,9 @@ impl View {
     }
     /// Window-relative layout snapshot for exact golden comparison.
     /// Same `[{id,kind,x,y,width,height}]` shape as the GTK backend.
-    /// Test bridge only: available when built with PANECHORD_TEST_BRIDGE=1,
+    /// Test bridge only: available with the `test-bridge` feature,
     /// never in release or distribution builds.
-    #[cfg(panechord_test_bridge)]
+    #[cfg(feature = "test-bridge")]
     pub fn dump_layout_json(&self) -> Result<String, String> {
         if self.0.lifecycle.is_closed() {
             return Err("view is closed".into());

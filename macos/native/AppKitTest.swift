@@ -1,5 +1,5 @@
 // Test-only layout bridge. Compiled into libPanechordAppKit.dylib only when
-// PANECHORD_TEST_BRIDGE=1 (see macos/build.rs); release/distribution builds
+// `test-bridge` feature (see macos/build.rs); release/distribution builds
 // never contain it. Same module as AppKit.swift, so `host`/`string` and the
 // container classes resolve without extra FFI.
 import AppKit

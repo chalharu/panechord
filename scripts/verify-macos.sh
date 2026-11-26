@@ -37,7 +37,7 @@ printf '%s\n' "$output" | grep -q '^DIALOG3 PASS readonly hidden-parent close-re
 output=$(cargo run --locked -p panechord-demo --no-default-features --features backend-macos -- --smoke)
 printf '%s\n' "$output"
 printf '%s\n' "$output" | grep -q '^PROTOTYPE2 PASS templates=item+content virtualization=1000 conversions=checked validation=async menu=dynamic saves=2 closed=true$'
-output=$(PANECHORD_TEST_BRIDGE=1 cargo run --locked -p panechord-macos --example layout_golden)
+output=$(cargo run --locked -p panechord-macos --features test-bridge --example layout_golden)
 printf '%s\n' "$output"
 printf '%s\n' "$output" | grep -q '^MACOS3 PASS layout-golden window-relative exact$'
 output=$(cargo run --locked -p panechord-macos --example multiwindow)

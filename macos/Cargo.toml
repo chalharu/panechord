@@ -20,3 +20,8 @@ serde_json.workspace = true
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 futures-timer.workspace = true
+
+[features]
+## Test-only AppKit bridge (layout dump for golden tests). Opt-in: release
+## and distribution builds never contain these symbols.
+test-bridge = []

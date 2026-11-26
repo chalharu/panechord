@@ -27,7 +27,7 @@ fn main() -> Result<(), String> {
         "layout full",
         792,
         760,
-        "layout_full.json",
+        "macos/tests/golden/layout_full.json",
         "MACOS3 PASS layout-full-golden window-relative exact",
         |view, executor| {
             let _corpus = test_corpus::build_full_corpus(view, executor);

@@ -24,7 +24,7 @@ fn main() -> Result<(), String> {
         "layout golden",
         660,
         400,
-        "layout_exact.json",
+        "tests/golden/layout_exact.json",
         "MACOS3 PASS layout-golden window-relative exact",
         |view: &View, _executor: &Rc<dyn panechord_runtime::Executor>| {
             let grid = view.layout(

@@ -283,7 +283,7 @@ jobs:
             -E 'package(panechord-gtk) or package(panechord-library)'
           cargo llvm-cov report \
             --nextest-archive-file artifacts/linux-gtk.tar.zst \
-            -p panechord-gtk -p panechord-library \
+            -p panechord-gtk -p panechord-library -p panechord-runtime \
             --lcov --output-path coverage/raw-gtk.info
           rm -rf target/llvm-cov-target
           mkdir -p target/llvm-cov-target

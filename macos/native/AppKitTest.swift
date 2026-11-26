@@ -19,9 +19,29 @@ public func dumpLayout(_ pointer: UnsafeMutableRawPointer,
         guard id != "__root" else { continue }
         guard let frame = value.frames[id], frame.superview != nil, !frame.isHidden else { continue }
         let rect = frame.convert(frame.bounds, to: content)
-        // Declared role from w3_add/w3_add_grid: never sniff AppKit classes
-        // (subclassing and edit state would mislabel controls).
-        let role = value.roles[id] ?? "widget"
+        // Declared kind from w3_add/w3_add_grid (`value.kinds`): never sniff
+        // AppKit classes, so subclassing and edit state cannot mislabel.
+        // -1 is the grid container (separate w3_add_grid entry point).
+        let role: String
+        switch value.kinds[id] ?? -100 {
+        case 0, 1, 11, 12: role = "stack"
+        case 2: role = "label"
+        case 3: role = "entry"
+        case 4: role = "button"
+        case 6, 7: role = "check"
+        case 8: role = "slider"
+        case 9: role = "combo"
+        case 10: role = "tab"
+        case 13, 23: role = "image"
+        case 15: role = "scroll"
+        case 16: role = "separator"
+        case 17: role = "stack" // GTK mounts tables in a plain Box; keep kinds comparable
+        case 18: role = "meter"
+        case 21: role = "flex"
+        case 22: role = "absolute"
+        case -1: role = "grid"
+        default: role = "widget"
+        }
         let safe = id
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")

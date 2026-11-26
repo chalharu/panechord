@@ -52,8 +52,10 @@ public func dumpLayout(_ pointer: UnsafeMutableRawPointer,
         let safe = id
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
-        let x = Int(rect.origin.x.rounded()), y = Int(rect.origin.y.rounded())
-        let w = Int(rect.size.width.rounded()), h = Int(rect.size.height.rounded())
+        let x = Int(rect.origin.x.rounded())
+        let y = Int(rect.origin.y.rounded())
+        let w = Int(rect.size.width.rounded())
+        let h = Int(rect.size.height.rounded())
         parts.append("{\"id\":\"\(safe)\",\"kind\":\"\(role)\",\"x\":\(x),\"y\":\(y),\"width\":\(w),\"height\":\(h)}")
     }
     let json = "[" + parts.joined(separator: ",") + "]"

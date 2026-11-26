@@ -5,19 +5,25 @@ Compares the OS-observed accessible tree against the in-process
 `dump_layout` golden (`gtk/tests/golden/layout_exact.json`).
 
 Window position under the WM is not deterministic, so screen extents from
-AT-SPI are normalized to window-relative before exact comparison. IDs and
-roles must match exactly; geometry must match exactly after normalization.
-Font/theme/GTK updates that move geometry must fail here and re-baseline
-the golden explicitly (UPDATE_GOLDEN=1 on the golden test).
+AT-SPI are normalized to window-relative before exact comparison. IDs must
+match exactly; geometry must match exactly after normalization. Font/theme/
+GTK updates that move geometry must fail here and re-baseline the golden
+explicitly (UPDATE_GOLDEN=1 on the golden test).
 
 Requires an isolated Xvfb + dbus session + at-spi2-registryd and
 python3-pyatspi. Missing AT-SPI support is an explicit failure (exit 2),
 never a silent skip.
 """
+
 import json
 import os
-import subprocess
 import sys
+
+try:
+    import pyatspi
+except ImportError:
+    pyatspi = None
+
 
 GOLDEN = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -33,69 +39,100 @@ def load_golden():
         return json.loads(handle.read())
 
 
-def try_atspi_snapshot(window_title="layout golden"):
-    if not os.environ.get("AT_SPI_BUS_ADDRESS"):
-        print(
-            "AT-SPI2 bus unavailable (AT_SPI_BUS_ADDRESS unset): run under "
-            "dbus-run-session with at-spi2-registryd on an isolated Xvfb; "
-            "no silent skip, wire this script into CI explicitly",
-            file=sys.stderr,
-        )
-        return None
+def _role_name(node):
     try:
-        import pyatspi  # type: ignore
-    except ImportError:
-        print(
-            "AT-SPI2 probe unavailable: install at-spi2-core + python3-pyatspi "
-            "and run under dbus-run-session with at-spi2-registryd",
-            file=sys.stderr,
-        )
+        return node.get_role_name()
+    except Exception as error:  # noqa: BLE001 - AT-SPI raises varied runtime errors
+        print(f"AT-SPI role failed: {error}", file=sys.stderr)
         return None
-    registry = pyatspi.Registry()
-    desktop = registry.getDesktop(0)
-    for app in desktop:
-        for window in app:
-            try:
-                name = window.get_name()
-            except Exception:
-                continue
-            if window_title in (name or ""):
-                return dump_window(window)
-    print(f"AT-SPI2 window not found: {window_title!r}", file=sys.stderr)
-    return None
+
+
+def _node_name(node):
+    try:
+        return node.get_name() or ""
+    except Exception as error:  # noqa: BLE001 - AT-SPI raises varied runtime errors
+        print(f"AT-SPI name failed: {error}", file=sys.stderr)
+        return None
+
+
+def _extents(node):
+    try:
+        return node.get_extents(pyatspi.DESKTOP_COORDS)
+    except Exception as error:  # noqa: BLE001 - AT-SPI raises varied runtime errors
+        print(f"AT-SPI extents failed: {error}", file=sys.stderr)
+        return None
+
+
+def _children(node):
+    try:
+        count = node.childCount
+    except Exception as error:  # noqa: BLE001 - AT-SPI raises varied runtime errors
+        print(f"AT-SPI childCount failed: {error}", file=sys.stderr)
+        return
+    for index in range(count):
+        try:
+            yield node.getChildAtIndex(index)
+        except Exception as error:  # noqa: BLE001 - AT-SPI raises varied runtime errors
+            print(f"AT-SPI child failed: {error}", file=sys.stderr)
+
+
+def _window_name(window):
+    try:
+        return window.get_name()
+    except Exception as error:  # noqa: BLE001 - AT-SPI raises varied runtime errors
+        print(f"AT-SPI window name failed: {error}", file=sys.stderr)
+        return None
 
 
 def dump_window(window):
-    try:
-        origin = window.get_extents(pyatspi.DESKTOP_COORDS)
-    except Exception as error:
-        print(f"AT-SPI2 extents failed: {error}", file=sys.stderr)
+    origin = _extents(window)
+    if origin is None:
         return None
     entries = []
 
     def visit(node):
-        try:
-            role = node.get_role_name()
-            name = node.get_name() or ""
-            ext = node.get_extents(pyatspi.DESKTOP_COORDS)
-        except Exception:
+        name = _node_name(node)
+        role = _role_name(node)
+        ext = _extents(node)
+        if name is None or role is None or ext is None:
             return
         entries.append(
             {
                 "id": name,
                 "kind": role,
-                "x": int(round(ext.x - origin.x)),
-                "y": int(round(ext.y - origin.y)),
-                "width": int(round(ext.width)),
-                "height": int(round(ext.height)),
+                "x": round(ext.x - origin.x),
+                "y": round(ext.y - origin.y),
+                "width": round(ext.width),
+                "height": round(ext.height),
             }
         )
-        for i in range(node.childCount):
-            visit(node.getChildAtIndex(i))
+        for child in _children(node):
+            visit(child)
 
     visit(window)
     entries.sort(key=lambda entry: entry["id"])
     return entries
+
+
+def try_atspi_snapshot(window_title="layout golden"):
+    if pyatspi is None or not os.environ.get("AT_SPI_BUS_ADDRESS"):
+        print(
+            "AT-SPI2 bus unavailable (need at-spi2-registryd + python3-pyatspi "
+            "under dbus-run-session on an isolated Xvfb); no silent skip, "
+            "wire this script into CI explicitly",
+            file=sys.stderr,
+        )
+        return None
+    desktop = pyatspi.Registry().getDesktop(0)
+    for app in desktop:
+        for window in app:
+            name = _window_name(window)
+            if name is None:
+                continue
+            if window_title in (name or ""):
+                return dump_window(window)
+    print(f"AT-SPI2 window not found: {window_title!r}", file=sys.stderr)
+    return None
 
 
 def main():
@@ -113,9 +150,13 @@ def main():
     missing = sorted(set(golden_by_id) - set(observed_by_id))
     extra = sorted(set(observed_by_id) - set(golden_by_id))
     if missing or extra:
-        print(f"E2E ATSPI FAIL: missing={missing} extra={extra}", file=sys.stderr)
+        print(
+            f"E2E ATSPI FAIL: missing={missing} extra={extra}",
+            file=sys.stderr,
+        )
         return 1
-    for control_id, expected in sorted(golden_by_id.items()):
+    for control_id in sorted(golden_by_id):
+        expected = golden_by_id[control_id]
         observed = observed_by_id[control_id]
         if observed != expected:
             print(

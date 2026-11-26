@@ -27,6 +27,15 @@ fn main() -> Result<(), String> {
     panechord_macos::set_initial_window_size(660, 400);
     let passed = Rc::new(Cell::new(false));
     let finished = passed.clone();
+    // Blocking file IO stays in synchronous code: nothing inside the async
+    // task touches the filesystem.
+    let golden_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("golden")
+        .join("layout_exact.json");
+    let expected = std::fs::read_to_string(&golden_path).ok();
+    let dumped = Rc::new(std::cell::RefCell::new(None::<String>));
+    let written = dumped.clone();
     let result = panechord_macos::run_host(move |host| {
         let session = Session::new();
         host.attach(session.clone())?;
@@ -67,21 +76,14 @@ fn main() -> Result<(), String> {
             let first = owner.dump_layout_json().expect("layout must be mapped");
             let second = owner.dump_layout_json().expect("layout must be stable");
             assert_eq!(first, second, "dump_layout must be deterministic");
-            let golden_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("tests")
-                .join("golden")
-                .join("layout_exact.json");
-            if std::env::var("UPDATE_GOLDEN").as_deref() == Ok("1") {
-                std::fs::create_dir_all(golden_path.parent().unwrap()).unwrap();
-                std::fs::write(&golden_path, format!("{first}\n")).unwrap();
-            } else if let Ok(expected) = std::fs::read_to_string(&golden_path) {
-                assert_eq!(
+            written.borrow_mut().replace(first.clone());
+            match &expected {
+                Some(text) => assert_eq!(
                     first,
-                    expected.trim(),
+                    text.trim(),
                     "layout drift: OSX_GOLDEN_ACTUAL={first}"
-                );
-            } else {
-                panic!("missing golden; OSX_GOLDEN_ACTUAL={first}");
+                ),
+                None => panic!("missing golden; OSX_GOLDEN_ACTUAL={first}"),
             }
             println!("MACOS3 PASS layout-golden window-relative exact");
             owner.close();
@@ -91,6 +93,16 @@ fn main() -> Result<(), String> {
         Ok(())
     });
     result?;
+    if std::env::var("UPDATE_GOLDEN").as_deref() == Ok("1") {
+        if let Some(json) = dumped.borrow().clone() {
+            let golden_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests")
+                .join("golden")
+                .join("layout_exact.json");
+            std::fs::create_dir_all(golden_path.parent().unwrap()).unwrap();
+            std::fs::write(&golden_path, format!("{json}\n")).unwrap();
+        }
+    }
     if passed.get() {
         Ok(())
     } else {

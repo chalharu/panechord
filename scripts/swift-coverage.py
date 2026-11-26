@@ -4,14 +4,15 @@
 Usage: swift-coverage.py <llvm-cov-export.json> <swift-generic.xml>
 
 Only files under `macos/native/` are emitted with workspace-relative paths,
-so absolute runner paths never leak into the report. Each source line seen in
-the export segments is emitted once: covered when any segment starting on
-that line executed at least once. `AppKitTest.swift` may appear here, but
-`sonar.coverage.exclusions` already drops the test-only bridge.
+so absolute runner paths never leak into the report. Each executable line
+seen in the export segments is emitted once: covered when any counted
+segment starting on that line executed at least once.
 """
 
 import json
 import sys
+
+NATIVE_PREFIX = "macos/native/"
 
 
 def main():
@@ -19,29 +20,30 @@ def main():
         raise SystemExit("usage: swift-coverage.py <llvm-cov-export.json> <swift-generic.xml>")
     with open(sys.argv[1], encoding="utf-8") as handle:
         export = json.load(handle)
+    if not isinstance(export, dict):
+        raise SystemExit("invalid llvm-cov export: top-level value must be an object")
 
     lines = {}
-    for group in export.get("data", []):
-        for entry in group.get("files", []):
-            filename = entry.get("filename", "")
-            marker = "macos/native/"
-            index = filename.replace("\\", "/").find(marker)
+    for group in export.get("data") or []:
+        for entry in group.get("files") or []:
+            normalized = (entry.get("filename") or "").replace("\\", "/")
+            index = normalized.find(NATIVE_PREFIX)
             if index < 0:
                 continue
-            relative = filename.replace("\\", "/")[index:]
-            covered = lines.setdefault(relative, {})
-            for segment in entry.get("segments", []):
-                if len(segment) < 3:
+            per_line = lines.setdefault(normalized[index:], {})
+            for segment in entry.get("segments") or []:
+                # Segment layout: [line, column, count, hasCount, ...].
+                # Entries without a count (whitespace, comments, skipped
+                # regions) must not count as uncovered lines.
+                if len(segment) < 5 or not segment[3]:
                     continue
                 line, count = segment[0], segment[2]
-                if not isinstance(line, int) or line < 1:
-                    continue
-                if not isinstance(count, int):
+                if type(line) is not int or line < 1 or type(count) is not int:
                     continue
                 if count > 0:
-                    covered[line] = True
+                    per_line[line] = True
                 else:
-                    covered.setdefault(line, False)
+                    per_line.setdefault(line, False)
 
     with open(sys.argv[2], "w", encoding="utf-8", newline="\n") as out:
         out.write('<?xml version="1.0" encoding="UTF-8"?>\n<coverage version="1">\n')

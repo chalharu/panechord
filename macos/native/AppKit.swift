@@ -2152,24 +2152,13 @@ public func action(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<
 
 @MainActor
 func clearNaturalDims(_ picture: PointerImage, id: String, host value: Host) {
-    // Identity-based detach without nested closures (Sonar swift:S3087):
-    // `removeAll(where:)` + `contains(where:)` would nest two closures
-    // inside the caller's `autoreleasepool`, exceeding the allowed depth.
+    // Identity-based detach with a single closure level (Sonar swift:S3087):
+    // `removeAll(where:)` + `contains(where:)` nested two closures inside
+    // the caller's `autoreleasepool`, exceeding the allowed depth.
     for constraint in picture.naturalDims { constraint.isActive = false }
+    let stale = Set(picture.naturalDims.map(ObjectIdentifier.init))
     if var dims = value.dimensions[id] {
-        var kept: [NSLayoutConstraint] = []
-        kept.reserveCapacity(dims.count)
-        for old in dims {
-            var stale = false
-            for fresh in picture.naturalDims {
-                if fresh === old {
-                    stale = true
-                    break
-                }
-            }
-            if !stale { kept.append(old) }
-        }
-        dims = kept
+        dims.removeAll { stale.contains(ObjectIdentifier($0)) }
         value.dimensions[id] = dims
     }
     picture.naturalDims = []

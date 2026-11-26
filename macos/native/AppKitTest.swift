@@ -19,46 +19,9 @@ public func dumpLayout(_ pointer: UnsafeMutableRawPointer,
         guard id != "__root" else { continue }
         guard let frame = value.frames[id], frame.superview != nil, !frame.isHidden else { continue }
         let rect = frame.convert(frame.bounds, to: content)
-        let node = value.nodes[id]
-        let role: String
-        if node is NSTextField {
-            role = (node as? NSTextField)?.isEditable == true ? "entry" : "label"
-        } else if node is NSPopUpButton {
-            // NSPopUpButton subclasses NSButton: check it first.
-            role = "combo"
-        } else if node is NSButton {
-            // Checkbox/radio mounts register in booleanButtons; plain
-            // buttons do not.
-            role = value.booleanButtons.contains(id) ? "check" : "button"
-        } else if node is NSSlider {
-            role = "slider"
-        } else if node is Tabs {
-            role = "tab"
-        } else if node is Rows {
-            role = "list"
-        } else if node is TableControl {
-            // GTK mounts tables in a plain Box ("stack"); report the same
-            // so per-control goldens stay comparable across backends.
-            role = "stack"
-        } else if node is Scrolling {
-            role = "scroll"
-        } else if node is GridContainer {
-            role = "grid"
-        } else if node is FlexContainer {
-            role = "flex"
-        } else if node is AbsoluteContainer {
-            role = "absolute"
-        } else if node is PointerImage {
-            role = "image"
-        } else if node is NSProgressIndicator {
-            role = "meter"
-        } else if node is NSBox {
-            role = "separator"
-        } else if node is NSStackView {
-            role = "stack"
-        } else {
-            role = "widget"
-        }
+        // Declared role from w3_add/w3_add_grid: never sniff AppKit classes
+        // (subclassing and edit state would mislabel controls).
+        let role = value.roles[id] ?? "widget"
         let safe = id
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")

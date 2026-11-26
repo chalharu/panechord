@@ -994,6 +994,11 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
     var enablement: [String: Bool] = [:]
     var capabilities: [String: Bool] = [:]
     var frames: [String: NSStackView] = [:]
+    /// Panechord-declared role per control id (mirrors the `kind` argument
+    /// of `w3_add`/`w3_add_grid`). The test-only layout dump reads this
+    /// instead of sniffing AppKit classes, so subclassing (NSPopUpButton)
+    /// and state (editable vs readonly) cannot mislabel controls.
+    var roles: [String: String] = [:]
     var dimensions: [String: [NSLayoutConstraint]] = [:]
     var spacers: [String: NSView] = [:]
     var contentWidths: [String: NSLayoutConstraint] = [:]
@@ -1659,6 +1664,7 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
             }
             enablement.removeValue(forKey: id)
             capabilities.removeValue(forKey: id)
+            roles.removeValue(forKey: id)
             if let node = nodes.removeValue(forKey: id) { focusable.removeAll { $0 === node } }
         }
         keyLoop()
@@ -1926,6 +1932,26 @@ public func add(_ pointer: UnsafeMutableRawPointer, _ parentBytes: UnsafePointer
         rows.changed = { [weak value] start in value?.emit(id, String(start), kind: 2) }
         view = rows
     }
+    let role: String
+    switch kind {
+    case 0, 1, 11, 12: role = "stack"
+    case 2: role = "label"
+    case 3: role = "entry"
+    case 4: role = "button"
+    case 6, 7: role = "check"
+    case 8: role = "slider"
+    case 9: role = "combo"
+    case 10: role = "tab"
+    case 13, 23: role = "image"
+    case 15: role = "scroll"
+    case 16: role = "separator"
+    case 17: role = "stack" // GTK mounts tables in a plain Box; keep kinds comparable
+    case 18: role = "meter"
+    case 21: role = "flex"
+    case 22: role = "absolute"
+    default: role = "list"
+    }
+    value.roles[id] = role
     value.attach(view, parent: string(parentBytes, parentCount), id: id, floating: kind == 12)
 }
 
@@ -1937,6 +1963,7 @@ public func addGrid(_ pointer: UnsafeMutableRawPointer, _ parentBytes: UnsafePoi
     let grid = GridContainer()
     grid.columns = max(1, Int(columns))
     grid.gap = CGFloat(gap)
+    value.roles[id] = "grid"
     value.attach(grid, parent: string(parentBytes, parentCount), id: id)
 }
 

@@ -15,6 +15,11 @@ gtk4.workspace = true
 panechord-runtime.workspace = true
 raw-window-handle.workspace = true
 
+[dev-dependencies]
+# Shared golden corpus builder: only compiled for tests/examples, never
+# for the release library.
+panechord-runtime = { workspace = true, features = ["test-corpus"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2.workspace = true
 objc2-app-kit.workspace = true

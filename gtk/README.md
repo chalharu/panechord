@@ -232,3 +232,16 @@ exit 2 when the AT-SPI bus is unavailable — never a silent skip). The macOS
 counterpart is the test-bridge-only `View::dump_layout_json`
 (`test-bridge` feature, never shipped in release builds) plus
 `scripts/e2e-ax.applescript` (System Events, interactive desktop).
+
+`tests::native_layout_full_golden_exact` extends the same approach to every
+layout and inline control plus nesting (grid spans, nested stacks, tab pages,
+list rows, content, table, footer) against the per-backend
+`gtk/tests/golden/layout_full.json` (the macOS mirror lives in
+`macos/tests/golden/`). Native widgets differ by design, so full goldens are
+per-backend and canonical to the CI image — run them via `verify-docker.sh`
+locally. The corpus itself is shared through
+`panechord_runtime::test_corpus`, so construction parity is enforced by
+construction. Dialog windows are excluded (separate top-level windows covered
+by the dialog contract tests) and menus have no layout footprint.
+`tests::native_layout_kind_matrix_and_dump_errors` covers every reported kind
+and the closed-view error path without asserting geometry.

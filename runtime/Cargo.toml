@@ -13,3 +13,8 @@ version.workspace = true
 futures.workspace = true
 futures-timer.workspace = true
 raw-window-handle.workspace = true
+
+[features]
+## Shared exact-layout corpus builder for the backend golden tests.
+## Opt-in so release builds never contain it.
+test-corpus = []

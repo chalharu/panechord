@@ -183,7 +183,11 @@ fn main() -> Result<(), String> {
         );
         view.label(&grid, "f_label", Binding::constant("full".into()));
         view.style("f_label", code_style(None, Some(H)));
-        view.entry(&grid, "f_entry", model.bind(|s| s.entry_text.clone(), None));
+        view.entry(
+            &grid,
+            "f_entry",
+            model.bind(|s| s.entry_text.clone(), Some(|s, v| s.entry_text = v)),
+        );
         view.style("f_entry", code_style(None, Some(H)));
         let go = || {
             model.command(
@@ -198,21 +202,21 @@ fn main() -> Result<(), String> {
             &grid,
             "f_check",
             Binding::constant("Check".into()),
-            model.bind(|s| s.flag, None),
+            model.bind(|s| s.flag, Some(|s, v| s.flag = v)),
         );
         view.style("f_check", code_style(None, Some(H)));
         view.radio(
             &grid,
             "f_radio",
             Binding::constant("Pick".into()),
-            model.bind(|s| s.picked.clone(), None),
+            model.bind(|s| s.picked.clone(), Some(|s, v| s.picked = v)),
             "a",
         );
         view.style("f_radio", code_style(None, Some(H)));
         view.slider(
             &grid,
             "f_slider",
-            model.bind(|s| s.level, None),
+            model.bind(|s| s.level, Some(|s, v| s.level = v)),
             SliderRange {
                 min: 0.0,
                 max: 100.0,
@@ -248,7 +252,7 @@ fn main() -> Result<(), String> {
             &grid,
             "f_combo",
             model.bind(|s| s.combo_items.clone(), None),
-            model.bind(|s| s.combo_sel.clone(), None),
+            model.bind(|s| s.combo_sel.clone(), Some(|s, v| s.combo_sel = v)),
         );
         view.style(
             "f_combo",
@@ -271,7 +275,11 @@ fn main() -> Result<(), String> {
         view.style("x_label", code_style(Some(140.0), Some(H)));
         view.button(&flex, "x_button", Binding::constant("X".into()), go());
         view.style("x_button", code_style(Some(140.0), Some(H)));
-        view.entry(&flex, "x_entry", Binding::constant("fx".into()));
+        view.entry(
+            &flex,
+            "x_entry",
+            model.bind(|s| s.entry_text.clone(), Some(|s, v| s.entry_text = v)),
+        );
         view.style("x_entry", code_style(Some(160.0), Some(H)));
         let abs = view.layout(&root, "f_abs", Layout::Absolute);
         view.label(&abs, "a_label", Binding::constant("abs".into()));
@@ -335,13 +343,21 @@ fn main() -> Result<(), String> {
         );
         view.label(&tgrid, "t1_label", Binding::constant("t1".into()));
         view.style("t1_label", code_style(None, Some(H)));
-        view.entry(&tgrid, "t2_entry", Binding::constant("t2".into()));
+        view.entry(
+            &tgrid,
+            "t2_entry",
+            model.bind(|s| s.entry_text.clone(), Some(|s, v| s.entry_text = v)),
+        );
         view.style("t2_entry", code_style(None, Some(H)));
         view.finish_tab(&tabs).unwrap();
         let scr = view.try_scroll(&root, "f_scr", false).unwrap();
         view.label(&scr, "s_label", Binding::constant("scr".into()));
         view.style("s_label", code_style(None, Some(H)));
-        view.entry(&scr, "s_entry", Binding::constant("se".into()));
+        view.entry(
+            &scr,
+            "s_entry",
+            model.bind(|s| s.entry_text.clone(), Some(|s, v| s.entry_text = v)),
+        );
         view.style("s_entry", code_style(None, Some(H)));
         view.items(
             &root,

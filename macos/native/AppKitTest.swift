@@ -23,12 +23,18 @@ public func dumpLayout(_ pointer: UnsafeMutableRawPointer,
         let role: String
         if node is NSTextField {
             role = (node as? NSTextField)?.isEditable == true ? "entry" : "label"
-        } else if node is NSButton {
-            role = "button"
+        } else if node is NSPopUpButton {
+            // NSPopUpButton subclasses NSButton: check it first.
+            role = "combo"
+        } else if let button = node as? NSButton {
+            switch button.buttonType {
+            case .switch, .radio:
+                role = "check"
+            default:
+                role = "button"
+            }
         } else if node is NSSlider {
             role = "slider"
-        } else if node is NSPopUpButton {
-            role = "combo"
         } else if node is Tabs {
             role = "tab"
         } else if node is Rows {

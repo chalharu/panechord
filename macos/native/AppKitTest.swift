@@ -28,6 +28,7 @@ public func dumpLayout(_ pointer: UnsafeMutableRawPointer,
         case 2: role = "label"
         case 3: role = "entry"
         case 4: role = "button"
+        case 5: role = "list"
         case 6, 7: role = "check"
         case 8: role = "slider"
         case 9: role = "combo"

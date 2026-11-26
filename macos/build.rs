@@ -2,6 +2,9 @@ use std::{env, path::PathBuf, process::Command};
 
 fn main() {
     println!("cargo:rerun-if-changed=native/AppKit.swift");
+    println!("cargo:rerun-if-changed=native/AppKitTest.swift");
+    println!("cargo:rerun-if-env-changed=PANECHORD_TEST_BRIDGE");
+    println!("cargo::rustc-check-cfg=cfg(panechord_test_bridge)");
     if env::var("CARGO_CFG_TARGET_OS").unwrap() != "macos" {
         return;
     }
@@ -19,6 +22,16 @@ fn main() {
     };
     let minimum = env::var("MACOSX_DEPLOYMENT_TARGET").unwrap_or_else(|_| "11.0".into());
     println!("cargo:rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET");
+    // Test-only bridge (layout dump for golden tests): release and
+    // distribution builds never contain these symbols.
+    let test_bridge = env::var("PANECHORD_TEST_BRIDGE").as_deref() == Ok("1");
+    if test_bridge {
+        println!("cargo:rustc-cfg=panechord_test_bridge");
+    }
+    let mut sources = vec!["native/AppKit.swift"];
+    if test_bridge {
+        sources.push("native/AppKitTest.swift");
+    }
     let result = Command::new("xcrun")
         .args([
             "swiftc",
@@ -33,7 +46,8 @@ fn main() {
         .arg(format!("{arch}-apple-macosx{minimum}"))
         .args(["-Xlinker", "-install_name", "-Xlinker"])
         .arg("@rpath/libPanechordAppKit.dylib")
-        .args(["native/AppKit.swift", "-o"])
+        .args(sources)
+        .args(["-o"])
         .arg(&library)
         .status()
         .expect("Xcode Command Line Tools with Swift are required");

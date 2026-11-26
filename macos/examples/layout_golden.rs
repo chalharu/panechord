@@ -3,11 +3,20 @@ fn main() {
     eprintln!("AppKit layout golden requires macOS");
 }
 
+/// Test bridge only: rebuild with PANECHORD_TEST_BRIDGE=1 (set by
+/// verify-macos.sh and the CI golden step). The dump symbols never ship
+/// in release or distribution builds by construction.
+#[cfg(all(target_os = "macos", not(panechord_test_bridge)))]
+fn main() {
+    eprintln!("layout golden requires PANECHORD_TEST_BRIDGE=1");
+    std::process::exit(2);
+}
+
 /// Fixed-corpus window-relative layout golden: 3 equal tracks with a
 /// divisible gap, monospace labels (SF Mono via the Code role) so the
 /// golden tracks panechord regressions, not system font resolution.
 /// Same shape as the GTK `native_layout_golden_exact` JSON.
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", panechord_test_bridge))]
 fn main() -> Result<(), String> {
     use panechord_macos::View;
     use panechord_runtime::{

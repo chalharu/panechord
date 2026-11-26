@@ -221,10 +221,11 @@ fractional-DPI/Windows/macOS validation.
 
 `tests::native_layout_golden_exact` asserts exact window-relative geometry via
 `View::dump_layout_json` against `tests/golden/layout_exact.json` (3 equal
-tracks, divisible gap). IDs and geometry must match exactly; font/theme/GTK
-updates that move geometry fail here and re-baseline with `UPDATE_GOLDEN=1`
-explicitly. `scripts/e2e-atspi.py` cross-checks the OS-observed AT-SPI2 tree
-against the same golden (window-relative normalized, exit 2 when the
-AT-SPI bus is unavailable — never a silent skip). The macOS counterpart is
-`View::dump_layout_json` over `w3_dump_layout` plus
+tracks, divisible gap, monospace labels). IDs and geometry must match exactly;
+font/theme/GTK updates that move geometry fail here and re-baseline with
+`UPDATE_GOLDEN=1` explicitly. `scripts/e2e-atspi.py` cross-checks the
+OS-observed AT-SPI2 tree against the same golden (window-relative normalized,
+exit 2 when the AT-SPI bus is unavailable — never a silent skip). The macOS
+counterpart is the test-bridge-only `View::dump_layout_json`
+(`PANECHORD_TEST_BRIDGE=1`, never shipped in release builds) plus
 `scripts/e2e-ax.applescript` (System Events, interactive desktop).

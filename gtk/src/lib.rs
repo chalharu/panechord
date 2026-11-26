@@ -1825,6 +1825,9 @@ fn layout_kind(node: &Node) -> String {
     if widget.downcast_ref::<gtk4::ProgressBar>().is_some() {
         return "meter".into();
     }
+    if widget.downcast_ref::<gtk4::DropDown>().is_some() {
+        return "combo".into();
+    }
     if widget.downcast_ref::<gtk4::Scale>().is_some() {
         return "slider".into();
     }

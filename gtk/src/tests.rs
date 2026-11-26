@@ -1594,6 +1594,148 @@ fn native_layout_golden_exact() {
     view.close();
 }
 
+#[test]
+fn native_layout_kind_matrix_and_dump_errors() {
+    gtk4::init().expect("native_layout_kind_matrix requires Xvfb");
+    // Exercise every `layout_kind` branch plus the dump error paths.
+    // Geometry is deliberately unasserted here (the golden test owns exact
+    // geometry); only kinds and structure are checked.
+    let host = GtkHost::attach();
+    let model = Store::new(
+        (
+            false,
+            "a".to_owned(),
+            42.0_f64,
+            vec![panechord_runtime::Choice {
+                id: "a".into(),
+                label: "Choice a".into(),
+            }],
+            Some(
+                panechord_runtime::ImageFrame::new(1, 1, std::sync::Arc::new([255, 0, 0, 255]))
+                    .unwrap(),
+            ),
+        ),
+        host.executor(),
+    );
+    let view = View::new(Binding::constant("kind matrix".into()));
+    view.native_window().set_default_size(640, 480);
+    let root = view.root();
+    view.label(&root, "k_label", Binding::constant("L".into()));
+    view.entry(&root, "k_entry", Binding::constant(String::new()));
+    let command = model.command(
+        |_| true,
+        |_, _: String| {},
+        Binding::constant("go".to_owned()),
+    );
+    view.button(&root, "k_button", Binding::constant("Go".into()), command);
+    view.checkbox(
+        &root,
+        "k_check",
+        Binding::constant("Check".into()),
+        Binding::constant(true),
+    );
+    view.radio(
+        &root,
+        "k_radio",
+        Binding::constant("Pick".into()),
+        Binding::constant("a".to_owned()),
+        "a",
+    );
+    view.slider(
+        &root,
+        "k_slider",
+        Binding::constant(42.0),
+        panechord_runtime::SliderRange {
+            min: 0.0,
+            max: 100.0,
+            step: 1.0,
+        },
+    );
+    view.combo(
+        &root,
+        "k_combo",
+        model.bind(|s| s.3.clone(), None),
+        model.bind(|s| s.1.clone(), None),
+    );
+    view.meter(&root, "k_meter", Binding::constant(0.5));
+    view.image(&root, "k_image", model.bind(|s| s.4.clone(), None));
+    view.separator(&root, "k_separator", false);
+    view.layout(
+        &root,
+        "k_stack",
+        Layout::Stack {
+            horizontal: false,
+            gap: 0.0,
+        },
+    );
+    view.layout(
+        &root,
+        "k_grid",
+        Layout::Grid {
+            columns: 2,
+            gap: 0.0,
+        },
+    );
+    view.layout(&root, "k_flex", Layout::Flex { gap: 0.0 });
+    view.layout(&root, "k_absolute", Layout::Absolute);
+    view.try_scroll(&root, "k_scroll", false).unwrap();
+    view.tab(&root, "k_tab", Binding::constant(String::new()));
+    let noop = || model.command(|_| true, |_, ()| {}, Binding::constant(()));
+    view.dialog_footer(
+        &root,
+        "k_footer",
+        panechord_runtime::DialogFooter {
+            accept: panechord_runtime::FooterButton {
+                text: Binding::constant("Save".into()),
+                command: noop(),
+            },
+            cancel: panechord_runtime::FooterButton {
+                text: Binding::constant("Cancel".into()),
+                command: noop(),
+            },
+            destructive: false,
+        },
+    );
+    view.present();
+    settle();
+    let kinds: std::collections::HashMap<_, _> = view
+        .dump_layout()
+        .expect("layout must be mapped")
+        .into_iter()
+        .map(|entry| (entry.id, entry.kind))
+        .collect();
+    for (id, kind) in [
+        ("k_label", "label"),
+        ("k_entry", "entry"),
+        ("k_button", "button"),
+        ("k_check", "check"),
+        ("k_radio", "check"),
+        ("k_slider", "slider"),
+        ("k_combo", "combo"),
+        ("k_meter", "meter"),
+        ("k_image", "image"),
+        ("k_separator", "separator"),
+        ("k_stack", "stack"),
+        ("k_grid", "grid"),
+        ("k_flex", "flex"),
+        ("k_absolute", "absolute"),
+        ("k_scroll", "scroll"),
+        ("k_tab", "tab"),
+        ("k_footer/accept", "button"),
+        ("k_footer/cancel", "button"),
+    ] {
+        assert_eq!(
+            kinds.get(id).map(String::as_str),
+            Some(kind),
+            "kind of {id}"
+        );
+    }
+    // Closed views cannot be dumped.
+    view.close();
+    assert!(view.dump_layout().is_err());
+    assert!(view.dump_layout_json().is_err());
+}
+
 // Drive real native sources, not a blocking futures executor. The watchdog is
 // only a failure bound; test sequencing uses phases, oneshots and task reaping.
 fn drive_until(done: impl Fn() -> bool) {

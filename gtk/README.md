@@ -218,3 +218,13 @@ with `GDK_SCALE=1` and `GDK_SCALE=2` under Xvfb (large enough physical screen),
 `GDK_BACKEND=x11 GSK_RENDERER=cairo G_DEBUG=fatal-criticals`. These are logical
 geometry regressions at integer scale factors, not screenshot/pixel identity or
 fractional-DPI/Windows/macOS validation.
+
+`tests::native_layout_golden_exact` asserts exact window-relative geometry via
+`View::dump_layout_json` against `tests/golden/layout_exact.json` (3 equal
+tracks, divisible gap). IDs and geometry must match exactly; font/theme/GTK
+updates that move geometry fail here and re-baseline with `UPDATE_GOLDEN=1`
+explicitly. `scripts/e2e-atspi.py` cross-checks the OS-observed AT-SPI2 tree
+against the same golden (window-relative normalized, exit 2 when the
+AT-SPI bus is unavailable — never a silent skip). The macOS counterpart is
+`View::dump_layout_json` over `w3_dump_layout` plus
+`scripts/e2e-ax.applescript` (System Events, interactive desktop).

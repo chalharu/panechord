@@ -81,7 +81,8 @@ section_gtk() {
         native_entry_incremental_edits_and_readonly native_close_requests_weak_and_reentrant \
         native_close_ready_subscription_retains_model_without_view_cycle \
         native_close_request_handler_precedes_coordinator_and_menu_falls_back \
-        native_canonical_shortcut_semantics native_grid_equal_columns_geometry_and_spans; do
+        native_canonical_shortcut_semantics native_grid_equal_columns_geometry_and_spans \
+        native_layout_golden_exact; do
         native_test -p panechord-gtk --lib "tests::$name" -- --exact --test-threads=1
     done
     GDK_SCALE=2 native_test -p panechord-gtk --lib \

@@ -1532,6 +1532,49 @@ fn native_grid_equal_columns_geometry_and_spans() {
     view.close();
 }
 
+#[test]
+fn native_layout_golden_exact() {
+    gtk4::init().expect("native_layout_golden_exact requires Xvfb");
+    // Fixed corpus for exact window-relative comparison: 3 equal tracks with
+    // a divisible gap so integer rounding cannot hide regressions. Font or
+    // theme changes must fail here and re-baseline the golden explicitly.
+    let view = View::new(Binding::constant("layout golden".into()));
+    view.native_window().set_default_size(660, 400);
+    let grid = view.layout(
+        &view.root(),
+        "grid",
+        Layout::Grid {
+            columns: 3,
+            gap: 6.0,
+        },
+    );
+    for (i, text) in ["a", "b", "c"].into_iter().enumerate() {
+        view.label(&grid, &format!("g{i}"), Binding::constant(text.into()));
+    }
+    view.present();
+    settle();
+    let first = view.dump_layout_json().expect("layout must be mapped");
+    let second = view.dump_layout_json().expect("layout must be stable");
+    assert_eq!(first, second, "dump_layout must be deterministic");
+    let golden_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("golden")
+        .join("layout_exact.json");
+    if std::env::var("UPDATE_GOLDEN").as_deref() == Ok("1") {
+        std::fs::create_dir_all(golden_path.parent().unwrap()).unwrap();
+        std::fs::write(&golden_path, format!("{first}\n")).unwrap();
+    } else {
+        let expected = std::fs::read_to_string(&golden_path)
+            .unwrap_or_else(|_| panic!("missing golden {}", golden_path.display()));
+        assert_eq!(
+            first,
+            expected.trim(),
+            "layout drift: re-run with UPDATE_GOLDEN=1 to re-baseline explicitly"
+        );
+    }
+    view.close();
+}
+
 // Drive real native sources, not a blocking futures executor. The watchdog is
 // only a failure bound; test sequencing uses phases, oneshots and task reaping.
 fn drive_until(done: impl Fn() -> bool) {

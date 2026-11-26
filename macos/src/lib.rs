@@ -115,6 +115,7 @@ unsafe extern "C" {
         order_len: usize,
     ) -> i32;
     fn w3_frame_height(host: *mut c_void, id: *const u8, id_len: usize) -> f64;
+    fn w3_dump_layout(host: *mut c_void, output: *mut u8, capacity: usize) -> isize;
     fn w3_rows(
         host: *mut c_void,
         id: *const u8,
@@ -1632,6 +1633,24 @@ impl View {
             );
         }
         String::from_utf8(buffer).ok()
+    }
+    /// Window-relative layout snapshot for exact golden comparison.
+    /// Same `[{id,kind,x,y,width,height}]` shape as the GTK backend.
+    pub fn dump_layout_json(&self) -> Result<String, String> {
+        if self.0.lifecycle.is_closed() {
+            return Err("view is closed".into());
+        }
+        let size = unsafe { w3_dump_layout(self.0.native.get(), std::ptr::null_mut(), 0) };
+        if size <= 0 {
+            return Err("native layout dump failed".into());
+        }
+        let mut buffer = vec![0; size as usize];
+        let written =
+            unsafe { w3_dump_layout(self.0.native.get(), buffer.as_mut_ptr(), buffer.len()) };
+        if written != size {
+            return Err("native layout dump changed".into());
+        }
+        String::from_utf8(buffer).map_err(|_| "native layout dump was not UTF-8".into())
     }
     fn action(&self, id: &str, value: &str, kind: i32) -> Result<(), String> {
         if self.0.lifecycle.is_closed() {

@@ -55,12 +55,8 @@ fn main() -> Result<(), String> {
                 );
                 futures_timer::Delay::new(std::time::Duration::from_millis(8)).await;
             }
-            let first = owner
-                .dump_layout_json()
-                .expect("layout must be mapped");
-            let second = owner
-                .dump_layout_json()
-                .expect("layout must be stable");
+            let first = owner.dump_layout_json().expect("layout must be mapped");
+            let second = owner.dump_layout_json().expect("layout must be stable");
             assert_eq!(first, second, "dump_layout must be deterministic");
             let golden_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("tests")

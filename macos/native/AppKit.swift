@@ -2479,8 +2479,10 @@ public func dumpLayout(_ pointer: UnsafeMutableRawPointer,
           _ output: UnsafeMutablePointer<UInt8>?, _ capacity: Int) -> Int {
     let value = host(pointer)
     value.window.contentView?.layoutSubtreeIfNeeded()
-    guard let content = value.window.contentView else { return 0 }
-    var items: [[String: Any]] = []
+    guard content != nil else { return 0 }
+    // Same field order as the GTK backend (`id,kind,x,y,width,height`)
+    // so goldens stay diffable across backends.
+    var parts: [String] = []
     for id in value.frames.keys.sorted() {
         guard let frame = value.frames[id], frame.superview != nil, !frame.isHidden else { continue }
         let rect = frame.convert(frame.bounds, to: content)
@@ -2517,11 +2519,15 @@ public func dumpLayout(_ pointer: UnsafeMutableRawPointer,
         } else {
             role = "widget"
         }
-        items.append(["id": id, "kind": role,
-            "x": Int(rect.origin.x.rounded()), "y": Int(rect.origin.y.rounded()),
-            "width": Int(rect.size.width.rounded()), "height": Int(rect.size.height.rounded())])
+        let safe = id
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let x = Int(rect.origin.x.rounded()), y = Int(rect.origin.y.rounded())
+        let w = Int(rect.size.width.rounded()), h = Int(rect.size.height.rounded())
+        parts.append("{\"id\":\"\(safe)\",\"kind\":\"\(role)\",\"x\":\(x),\"y\":\(y),\"width\":\(w),\"height\":\(h)}")
     }
-    guard let data = try? JSONSerialization.data(withJSONObject: items, options: [.sortedKeys]) else { return 0 }
+    let json = "[" + parts.joined(separator: ",") + "]"
+    guard let data = json.data(using: .utf8) else { return 0 }
     if let output = output, capacity >= data.count {
         data.withUnsafeBytes { source in
             if let base = source.baseAddress { output.update(from: base.assumingMemoryBound(to: UInt8.self), count: data.count) }

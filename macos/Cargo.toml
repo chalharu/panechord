@@ -13,6 +13,7 @@ version.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 futures.workspace = true
+futures-timer = { workspace = true, optional = true }
 objc2.workspace = true
 panechord-runtime.workspace = true
 raw-window-handle.workspace = true
@@ -25,6 +26,7 @@ futures-timer.workspace = true
 panechord-runtime = { workspace = true, features = ["test-corpus"] }
 
 [features]
-## Test-only AppKit bridge (layout dump for golden tests). Opt-in: release
-## and distribution builds never contain these symbols.
-test-bridge = []
+## Test-only AppKit bridge (layout dump for golden tests). Opt-in so
+## release and distribution builds never contain these symbols. Enables
+## the shared harness's timer.
+test-bridge = ["dep:futures-timer"]

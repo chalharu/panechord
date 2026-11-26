@@ -1733,7 +1733,15 @@ impl View {
             let mut collected = Vec::with_capacity(nodes.len());
             for (id, node) in nodes.iter() {
                 if id != "__root" {
-                    collected.push((id.clone(), node.frame.clone(), layout_kind(node)));
+                    // Lists mount a ScrolledWindow like plain scrolls; tell
+                    // them apart via the list registry so both backends
+                    // report "list" for ItemsControl containers.
+                    let kind = if self.0.lists.borrow().contains_key(id) {
+                        "list".into()
+                    } else {
+                        layout_kind(node)
+                    };
+                    collected.push((id.clone(), node.frame.clone(), kind));
                 }
             }
             // Dialog footer buttons live outside `nodes` (single row node owns

@@ -33,6 +33,10 @@ public func dumpLayout(_ pointer: UnsafeMutableRawPointer,
             role = "tab"
         } else if node is Rows {
             role = "list"
+        } else if node is TableControl {
+            // GTK mounts tables in a plain Box ("stack"); report the same
+            // so per-control goldens stay comparable across backends.
+            role = "stack"
         } else if node is Scrolling {
             role = "scroll"
         } else if node is GridContainer {

@@ -40,6 +40,9 @@ printf '%s\n' "$output" | grep -q '^PROTOTYPE2 PASS templates=item+content virtu
 output=$(cargo run --locked -p panechord-macos --features test-bridge --example layout_golden)
 printf '%s\n' "$output"
 printf '%s\n' "$output" | grep -q '^MACOS3 PASS layout-golden window-relative exact$'
+output=$(cargo run --locked -p panechord-macos --features test-bridge --example layout_full)
+printf '%s\n' "$output"
+printf '%s\n' "$output" | grep -q '^MACOS3 PASS layout-full-golden window-relative exact$'
 output=$(cargo run --locked -p panechord-macos --example multiwindow)
 printf '%s\n' "$output"
 printf '%s\n' "$output" | grep -q '^MACOS3 PASS single-session repeated-attach foreign-attach-and-registration-rejected$'

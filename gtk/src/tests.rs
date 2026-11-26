@@ -1778,6 +1778,213 @@ fn native_layout_full_golden_exact() {
     view.close();
 }
 
+#[test]
+fn native_layout_full_contract() {
+    gtk4::init().expect("native_layout_full_contract requires Xvfb");
+    // Formula-based contract over the same shared full corpus the golden
+    // test snapshots (`panechord_runtime::test_corpus::build_full_corpus`):
+    // every assertion derives from constructor arguments (column counts,
+    // gaps, explicit placements) instead of recorded pixels, so this test
+    // proves the layout math while the golden only detects drift. Font- or
+    // theme-dependent absolute sizes are never pinned; only relations that
+    // hold by construction (equal shares, gap strides, explicit offsets,
+    // containment, disjointness) are asserted. Rounding allows +-1px.
+    let host = GtkHost::attach();
+    let view = View::new(Binding::constant("layout full contract".into()));
+    view.native_window().set_default_size(792, 760);
+    let _corpus = panechord_runtime::test_corpus::build_full_corpus(&view, &host.executor());
+    view.present();
+    settle();
+    let map: std::collections::HashMap<String, LayoutEntry> = view
+        .dump_layout()
+        .expect("layout must be mapped")
+        .into_iter()
+        .map(|entry| (entry.id.clone(), entry))
+        .collect();
+    let at = |id: &str| -> &LayoutEntry {
+        map.get(id)
+            .unwrap_or_else(|| panic!("full corpus is missing {id}"))
+    };
+    let near = |actual: i32, expected: i32, what: &str| {
+        assert!(
+            (actual - expected).abs() <= 1,
+            "{what}: actual {actual} != formula {expected}"
+        );
+    };
+
+    // Grid equal columns: cell = (width - (n-1)*gap) / n, positions stride
+    // by cell + gap. Row 0/1 placement is grid auto-flow (3 per row);
+    // row 2 is explicit (nest spans 2, combo sits in column 2).
+    let grid = at("f_grid");
+    let cell = (grid.width - 12) / 3;
+    near(
+        3 * cell + 12,
+        grid.width,
+        "grid fills its width in 3 equal tracks",
+    );
+    for (id, col) in [("f_label", 0), ("f_entry", 1), ("f_button", 2)] {
+        let item = at(id);
+        near(item.y, grid.y, "{id} sits in grid row 0");
+        near(item.x, grid.x + col * (cell + 6), "{id} grid column {col}");
+        near(item.width, cell, "{id} takes one equal share");
+    }
+    for id in ["f_check", "f_radio", "f_slider"] {
+        let item = at(id);
+        assert!(item.y > at("f_label").y, "{id} sits below grid row 0");
+        near(item.width, cell, "{id} takes one equal share");
+    }
+    near(at("f_check").x, grid.x, "row 1 starts at column 0");
+    near(
+        at("f_slider").x,
+        grid.x + 2 * (cell + 6),
+        "row 1 ends at column 2",
+    );
+    let nest = at("f_nest");
+    near(nest.x, grid.x, "spanning nest starts at column 0");
+    near(
+        nest.width,
+        2 * cell + 6,
+        "column span 2 covers 2 cells + 1 gap",
+    );
+    let combo = at("f_combo");
+    near(combo.x, grid.x + 2 * (cell + 6), "combo sits in column 2");
+    near(combo.width, cell, "combo takes one equal share");
+
+    // Nested horizontal stack: explicit 120px children stride by width + gap.
+    let (n_label, n_button) = (at("n_label"), at("n_button"));
+    near(n_label.width, 120, "nested label keeps its explicit width");
+    near(
+        n_button.width,
+        120,
+        "nested button keeps its explicit width",
+    );
+    near(
+        n_button.x - (n_label.x + n_label.width),
+        6,
+        "nested stack gap",
+    );
+    near(n_button.y, n_label.y, "nested stack shares one row");
+
+    // Flex row: FlowBox adds its own child padding, so absolute offsets are
+    // not pinned; the stride must still be uniform and ordered without
+    // overlap inside the flex container.
+    let (x_label, x_button, x_entry) = (at("x_label"), at("x_button"), at("x_entry"));
+    let flex_stride = x_button.x - x_label.x;
+    assert!(flex_stride > 0, "flex lays out left to right");
+    near(
+        x_entry.x - x_button.x,
+        flex_stride,
+        "flex stride is uniform",
+    );
+    assert!(
+        x_label.x >= at("f_flex").x
+            && x_entry.x + x_entry.width <= at("f_flex").x + at("f_flex").width + 1,
+        "flex children stay inside the flex container"
+    );
+
+    // Absolute: explicit x/y/width/height land exactly relative to the
+    // container origin.
+    let abs = at("f_abs");
+    for (id, dx) in [("a_label", 10), ("a_button", 180)] {
+        let item = at(id);
+        near(item.x - abs.x, dx, "{id} absolute x");
+        near(item.y - abs.y, 6, "{id} absolute y");
+        near(item.width, 150, "{id} absolute width");
+        near(item.height, 36, "{id} absolute height");
+    }
+
+    // Inline row stack: explicit widths stride by width + gap on one row.
+    let (m_meter, m_image, m_sep) = (at("m_meter"), at("m_image"), at("m_sep"));
+    near(m_meter.width, 170, "meter keeps its explicit width");
+    near(m_image.x - (m_meter.x + m_meter.width), 6, "row stack gap");
+    near(m_image.width, 36, "image keeps its explicit footprint");
+    near(m_sep.x - (m_image.x + m_image.width), 6, "row stack gap");
+    near(m_sep.width, 10, "separator keeps its explicit width");
+    near(m_image.y, m_meter.y, "row stack shares one row");
+    near(m_sep.y, m_meter.y, "row stack shares one row");
+
+    // List rows: uniform y stride from the viewport row height, and each
+    // row template lays out title/note/flag at width + gap offsets.
+    let (r0, r1, r2) = (
+        at("f_rows/r0/line"),
+        at("f_rows/r1/line"),
+        at("f_rows/r2/line"),
+    );
+    assert!(r1.y > r0.y, "list rows stack vertically");
+    near(r2.y - r1.y, r1.y - r0.y, "list row stride is uniform");
+    for prefix in ["f_rows/r0", "f_rows/r1", "f_rows/r2"] {
+        let line = at(&format!("{prefix}/line"));
+        let title = at(&format!("{prefix}/title"));
+        let note = at(&format!("{prefix}/note"));
+        let flag = at(&format!("{prefix}/flag"));
+        near(title.x - line.x, 0, "{prefix} title at row start");
+        near(note.x - line.x, 156, "{prefix} note after 150 + gap 6");
+        near(
+            flag.x - line.x,
+            352,
+            "{prefix} flag after 150 + 6 + 190 + 6",
+        );
+        near(title.width, 150, "{prefix} title width");
+        near(note.width, 190, "{prefix} note width");
+        near(flag.width, 100, "{prefix} flag width");
+        near(title.y, line.y, "{prefix} shares one row");
+        near(flag.y, line.y, "{prefix} shares one row");
+    }
+
+    // Scroll and table containers must be non-degenerate and contain their
+    // children (the AppKit golden records zero heights here, which this
+    // contract pins as wrong on GTK so the difference stays explicit).
+    let scr = at("f_scr");
+    assert!(scr.height > 0, "scroll container has nonzero height");
+    for id in ["s_label", "s_entry"] {
+        let item = at(id);
+        assert!(
+            item.y >= scr.y && item.y + item.height <= scr.y + scr.height + 1,
+            "{id} sits inside the scroll container"
+        );
+    }
+    let tbl = at("f_tbl");
+    assert!(tbl.height > 0, "table container has nonzero height");
+
+    // Content: the shown child stays inside the content container.
+    let (detail, shown) = (at("f_detail"), at("f_detail/c0/shown"));
+    assert!(
+        shown.x >= detail.x
+            && shown.x + shown.width <= detail.x + detail.width + 1
+            && shown.y >= detail.y
+            && shown.y + shown.height <= detail.y + detail.height + 1,
+        "content child stays inside its container"
+    );
+
+    // Footer: cancel-first order on this platform, 12px row spacing, no
+    // overlap, right-aligned inside the footer row. (The dump probe used to
+    // report the shared row Box for both buttons, which made them look
+    // perfectly overlapping; it now measures each button itself.)
+    let (foot, cancel, accept) = (at("f_foot"), at("f_foot/cancel"), at("f_foot/accept"));
+    near(cancel.y, accept.y, "footer buttons share one row");
+    near(
+        cancel.height,
+        accept.height,
+        "footer buttons share one height",
+    );
+    near(
+        accept.x - (cancel.x + cancel.width),
+        12,
+        "footer cancel-first order with 12px spacing",
+    );
+    near(
+        accept.x + accept.width,
+        foot.x + foot.width,
+        "footer buttons right-align in the footer row",
+    );
+    assert!(
+        cancel.y >= foot.y && cancel.y + cancel.height <= foot.y + foot.height + 1,
+        "footer buttons stay inside the footer row"
+    );
+
+    view.close();
+}
+
 // Drive real native sources, not a blocking futures executor. The watchdog is
 // only a failure bound; test sequencing uses phases, oneshots and task reaping.
 fn drive_until(done: impl Fn() -> bool) {

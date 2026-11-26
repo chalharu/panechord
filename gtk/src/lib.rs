@@ -1728,7 +1728,7 @@ impl View {
             return Err("view is closed".into());
         }
         let root_window = self.0.window.clone();
-        let entries: Vec<(String, gtk4::Box, String)> = {
+        let entries: Vec<(String, gtk4::Widget, String)> = {
             let nodes = self.0.nodes.borrow();
             let mut collected = Vec::with_capacity(nodes.len());
             for (id, node) in nodes.iter() {
@@ -1741,17 +1741,16 @@ impl View {
                     } else {
                         layout_kind(node)
                     };
-                    collected.push((id.clone(), node.frame.clone(), kind));
+                    collected.push((id.clone(), node.frame.clone().upcast(), kind));
                 }
             }
-            // Dialog footer buttons live outside `nodes` (single row node owns
-            // the buttons); include them so the snapshot covers the window.
+            // Dialog footer buttons live outside `nodes` (a single row node owns
+            // the buttons); include each button's own bounds so the snapshot
+            // covers the window. Reporting the shared row Box here would give
+            // both buttons identical row geometry and hide overlap
+            // regressions, so the buttons themselves are measured.
             for (id, button) in self.0.footer_buttons.borrow().iter() {
-                let frame_box = button
-                    .parent()
-                    .and_downcast::<gtk4::Box>()
-                    .unwrap_or_else(|| gtk4::Box::new(gtk4::Orientation::Vertical, 0));
-                collected.push((id.clone(), frame_box, "button".into()));
+                collected.push((id.clone(), button.clone().upcast(), "button".into()));
             }
             collected
         };

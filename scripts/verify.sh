@@ -83,7 +83,7 @@ section_gtk() {
         native_close_request_handler_precedes_coordinator_and_menu_falls_back \
         native_canonical_shortcut_semantics native_grid_equal_columns_geometry_and_spans \
         native_layout_golden_exact native_layout_kind_matrix_and_dump_errors \
-        native_layout_full_golden_exact; do
+        native_layout_full_golden_exact native_layout_full_contract; do
         native_test -p panechord-gtk --lib "tests::$name" -- --exact --test-threads=1
     done
     GDK_SCALE=2 native_test -p panechord-gtk --lib \

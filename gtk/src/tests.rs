@@ -1570,7 +1570,12 @@ fn native_layout_golden_exact() {
     let first = view.dump_layout_json().expect("layout must be mapped");
     let second = view.dump_layout_json().expect("layout must be stable");
     assert_eq!(first, second, "dump_layout must be deterministic");
+    // The golden is shared cross-backend (workspace tests/golden/): both
+    // backends build the same fixed corpus, so a shared file enforces the
+    // layouts-are-identical contract instead of drifting per backend.
     let golden_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
         .join("tests")
         .join("golden")
         .join("layout_exact.json");

@@ -220,8 +220,11 @@ geometry regressions at integer scale factors, not screenshot/pixel identity or
 fractional-DPI/Windows/macOS validation.
 
 `tests::native_layout_golden_exact` asserts exact window-relative geometry via
-`View::dump_layout_json` against `tests/golden/layout_exact.json` (3 equal
-tracks, divisible gap, monospace labels). IDs and geometry must match exactly;
+the test-only `View::dump_layout_json` (`#[cfg(test)]`, never shipped in
+release builds) against the shared cross-backend `tests/golden/layout_exact.json`
+(3 equal tracks, divisible gap, monospace labels). Both backends build the same
+corpus, so one file enforces the layouts-are-identical contract. IDs, kinds and
+geometry must match exactly;
 font/theme/GTK updates that move geometry fail here and re-baseline with
 `UPDATE_GOLDEN=1` explicitly. `scripts/e2e-atspi.py` cross-checks the
 OS-observed AT-SPI2 tree against the same golden (window-relative normalized,

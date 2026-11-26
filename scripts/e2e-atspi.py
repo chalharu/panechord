@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """AT-SPI2 out-of-process cross-check for the GTK layout golden.
 
-Compares the OS-observed accessible tree against the in-process
-`dump_layout` golden (`gtk/tests/golden/layout_exact.json`).
+Compares the OS-observed accessible tree against the shared cross-backend
+`dump_layout` golden (`tests/golden/layout_exact.json`).
 
 Window position under the WM is not deterministic, so screen extents from
 AT-SPI are normalized to window-relative before exact comparison. IDs must
@@ -27,7 +27,6 @@ except ImportError:
 
 GOLDEN = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "gtk",
     "tests",
     "golden",
     "layout_exact.json",

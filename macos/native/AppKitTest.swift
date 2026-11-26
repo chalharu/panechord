@@ -11,9 +11,12 @@ public func dumpLayout(_ pointer: UnsafeMutableRawPointer,
     value.window.contentView?.layoutSubtreeIfNeeded()
     guard let content = value.window.contentView else { return 0 }
     // Same field order as the GTK backend (`id,kind,x,y,width,height`)
-    // so goldens stay diffable across backends.
+    // so goldens stay diffable across backends. `__root` is excluded: its
+    // geometry is backend-defined window chrome (content-sized here, window
+    // fill on GTK), so only the corpus itself is cross-backend comparable.
     var parts: [String] = []
     for id in value.frames.keys.sorted() {
+        guard id != "__root" else { continue }
         guard let frame = value.frames[id], frame.superview != nil, !frame.isHidden else { continue }
         let rect = frame.convert(frame.bounds, to: content)
         let node = value.nodes[id]

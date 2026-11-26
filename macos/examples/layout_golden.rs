@@ -29,7 +29,12 @@ fn main() -> Result<(), String> {
     let finished = passed.clone();
     // Blocking file IO stays in synchronous code: nothing inside the async
     // task touches the filesystem.
+    // The golden is shared cross-backend (workspace tests/golden/): both
+    // backends build the same fixed corpus, so a shared file enforces the
+    // layouts-are-identical contract instead of drifting per backend.
     let golden_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("backend crates sit one level below the workspace root")
         .join("tests")
         .join("golden")
         .join("layout_exact.json");
@@ -95,7 +100,10 @@ fn main() -> Result<(), String> {
     result?;
     if std::env::var("UPDATE_GOLDEN").as_deref() == Ok("1") {
         if let Some(json) = dumped.borrow().clone() {
+            // Shared cross-backend golden: see the note at `golden_path`.
             let golden_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .expect("backend crates sit one level below the workspace root")
                 .join("tests")
                 .join("golden")
                 .join("layout_exact.json");

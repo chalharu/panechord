@@ -1713,10 +1713,16 @@ impl View {
 
     /// Window-relative layout snapshot for exact golden comparison.
     ///
+    /// Test-only probe (`#[cfg(test)]`): never shipped in release builds.
     /// Every mounted control reports its wrapper frame bounds relative to
     /// the native window, in logical pixels rounded to integers. Entries are
     /// sorted by ID so the output is deterministic. Fails when the view is
     /// closed or any frame is not yet mapped (call after `present` + settle).
+    /// `__root` is excluded: root-frame geometry is backend-defined window
+    /// chrome (GTK fills the window for inner scrolling, AppKit sizes to
+    /// content under the outer document scroll), so only the corpus itself
+    /// is cross-backend comparable.
+    #[cfg(test)]
     pub fn dump_layout(&self) -> Result<Vec<LayoutEntry>, String> {
         if self.0.lifecycle.is_closed() {
             return Err("view is closed".into());
@@ -1726,7 +1732,9 @@ impl View {
             let nodes = self.0.nodes.borrow();
             let mut collected = Vec::with_capacity(nodes.len());
             for (id, node) in nodes.iter() {
-                collected.push((id.clone(), node.frame.clone(), layout_kind(node)));
+                if id != "__root" {
+                    collected.push((id.clone(), node.frame.clone(), layout_kind(node)));
+                }
             }
             // Dialog footer buttons live outside `nodes` (single row node owns
             // the buttons); include them so the snapshot covers the window.
@@ -1759,6 +1767,8 @@ impl View {
 
     /// Deterministic JSON rendering of [`View::dump_layout`]. Manual
     /// formatting avoids a new serde dependency on the backend.
+    /// Test-only probe (`#[cfg(test)]`): never shipped in release builds.
+    #[cfg(test)]
     pub fn dump_layout_json(&self) -> Result<String, String> {
         let entries = self.dump_layout()?;
         let mut json = String::from("[");
@@ -1782,6 +1792,8 @@ impl View {
 }
 
 /// One row of [`View::dump_layout`]: wrapper-frame bounds window-relative.
+/// Test-only probe (`#[cfg(test)]`): never shipped in release builds.
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LayoutEntry {
     pub id: String,
@@ -1792,6 +1804,7 @@ pub struct LayoutEntry {
     pub height: i32,
 }
 
+#[cfg(test)]
 fn layout_kind(node: &Node) -> String {
     let widget = &node.widget;
     if widget.downcast_ref::<gtk4::Entry>().is_some() {
@@ -1818,6 +1831,12 @@ fn layout_kind(node: &Node) -> String {
     if widget.downcast_ref::<gtk4::Grid>().is_some() {
         return "grid".into();
     }
+    // Stack layouts mount Box containers: same "stack" kind the AppKit
+    // backend reports for its NSStackView frames, so the cross-backend
+    // golden stays shared.
+    if widget.downcast_ref::<gtk4::Box>().is_some() {
+        return "stack".into();
+    }
     if widget.downcast_ref::<gtk4::FlowBox>().is_some() {
         return "flex".into();
     }
@@ -1838,6 +1857,7 @@ fn layout_kind(node: &Node) -> String {
     "widget".into()
 }
 
+#[cfg(test)]
 fn escape_json(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
 }

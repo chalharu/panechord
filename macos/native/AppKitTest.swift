@@ -2,6 +2,8 @@
 // PANECHORD_TEST_BRIDGE=1 (see macos/build.rs); release/distribution builds
 // never contain it. Same module as AppKit.swift, so `host`/`string` and the
 // container classes resolve without extra FFI.
+import AppKit
+
 @_cdecl("w3_dump_layout") @MainActor
 public func dumpLayout(_ pointer: UnsafeMutableRawPointer,
           _ output: UnsafeMutablePointer<UInt8>?, _ capacity: Int) -> Int {

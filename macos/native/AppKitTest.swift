@@ -26,13 +26,10 @@ public func dumpLayout(_ pointer: UnsafeMutableRawPointer,
         } else if node is NSPopUpButton {
             // NSPopUpButton subclasses NSButton: check it first.
             role = "combo"
-        } else if let button = node as? NSButton {
-            switch button.buttonType {
-            case .switch, .radio:
-                role = "check"
-            default:
-                role = "button"
-            }
+        } else if node is NSButton {
+            // Checkbox/radio mounts register in booleanButtons; plain
+            // buttons do not.
+            role = value.booleanButtons.contains(id) ? "check" : "button"
         } else if node is NSSlider {
             role = "slider"
         } else if node is Tabs {

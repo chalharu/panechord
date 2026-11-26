@@ -25,6 +25,9 @@ mod shortcut;
 mod store;
 mod view;
 
+#[cfg(feature = "test-corpus")]
+pub mod test_corpus;
+
 pub use blocking::{BlockingPool, TaskError};
 pub use controls::{
     Choice, DialogFooter, FooterButton, ImageFrame, SliderRange, TabPosition, Table, TableCell,

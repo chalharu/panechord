@@ -1710,6 +1710,166 @@ impl View {
             .downcast_ref::<gtk4::Button>()
             .and_then(|button| button.label().map(Into::into))
     }
+
+    /// Window-relative layout snapshot for exact golden comparison.
+    ///
+    /// Test-only probe (`#[cfg(test)]`): never shipped in release builds.
+    /// Every mounted control reports its wrapper frame bounds relative to
+    /// the native window, in logical pixels rounded to integers. Entries are
+    /// sorted by ID so the output is deterministic. Fails when the view is
+    /// closed or any frame is not yet mapped (call after `present` + settle).
+    /// `__root` is excluded: root-frame geometry is backend-defined window
+    /// chrome (GTK fills the window for inner scrolling, AppKit sizes to
+    /// content under the outer document scroll), so only the corpus itself
+    /// is cross-backend comparable.
+    #[cfg(test)]
+    pub fn dump_layout(&self) -> Result<Vec<LayoutEntry>, String> {
+        if self.0.lifecycle.is_closed() {
+            return Err("view is closed".into());
+        }
+        let root_window = self.0.window.clone();
+        let entries: Vec<(String, gtk4::Widget, String)> = {
+            let nodes = self.0.nodes.borrow();
+            let mut collected = Vec::with_capacity(nodes.len());
+            for (id, node) in nodes.iter() {
+                if id != "__root" {
+                    // Lists mount a ScrolledWindow like plain scrolls; tell
+                    // them apart via the list registry so both backends
+                    // report "list" for ItemsControl containers.
+                    let kind = if self.0.lists.borrow().contains_key(id) {
+                        "list".into()
+                    } else {
+                        layout_kind(node)
+                    };
+                    collected.push((id.clone(), node.frame.clone().upcast(), kind));
+                }
+            }
+            // Dialog footer buttons live outside `nodes` (a single row node owns
+            // the buttons); include each button's own bounds so the snapshot
+            // covers the window. Reporting the shared row Box here would give
+            // both buttons identical row geometry and hide overlap
+            // regressions, so the buttons themselves are measured.
+            for (id, button) in self.0.footer_buttons.borrow().iter() {
+                collected.push((id.clone(), button.clone().upcast(), "button".into()));
+            }
+            collected
+        };
+        let mut out = Vec::with_capacity(entries.len());
+        for (id, frame, kind) in &entries {
+            let rect = frame
+                .compute_bounds(&root_window)
+                .ok_or_else(|| format!("unmapped control: {id}"))?;
+            out.push(LayoutEntry {
+                id: id.clone(),
+                kind: kind.clone(),
+                x: rect.x().round() as i32,
+                y: rect.y().round() as i32,
+                width: rect.width().round() as i32,
+                height: rect.height().round() as i32,
+            });
+        }
+        out.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(out)
+    }
+
+    /// Deterministic JSON rendering of [`View::dump_layout`]. Manual
+    /// formatting avoids a new serde dependency on the backend.
+    /// Test-only probe (`#[cfg(test)]`): never shipped in release builds.
+    #[cfg(test)]
+    pub fn dump_layout_json(&self) -> Result<String, String> {
+        let entries = self.dump_layout()?;
+        let mut json = String::from("[");
+        for (index, entry) in entries.iter().enumerate() {
+            if index > 0 {
+                json.push(',');
+            }
+            json.push_str(&format!(
+                "{{\"id\":\"{}\",\"kind\":\"{}\",\"x\":{},\"y\":{},\"width\":{},\"height\":{}}}",
+                escape_json(&entry.id),
+                escape_json(&entry.kind),
+                entry.x,
+                entry.y,
+                entry.width,
+                entry.height
+            ));
+        }
+        json.push(']');
+        Ok(json)
+    }
+}
+
+/// One row of [`View::dump_layout`]: wrapper-frame bounds window-relative.
+/// Test-only probe (`#[cfg(test)]`): never shipped in release builds.
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LayoutEntry {
+    pub id: String,
+    pub kind: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
+#[cfg(test)]
+fn layout_kind(node: &Node) -> String {
+    let widget = &node.widget;
+    if widget.downcast_ref::<gtk4::Entry>().is_some() {
+        return "entry".into();
+    }
+    if widget.downcast_ref::<gtk4::CheckButton>().is_some() {
+        return "check".into();
+    }
+    if widget.downcast_ref::<gtk4::Button>().is_some() {
+        return "button".into();
+    }
+    if widget.downcast_ref::<gtk4::Label>().is_some() {
+        return "label".into();
+    }
+    if widget.downcast_ref::<gtk4::Picture>().is_some() {
+        return "image".into();
+    }
+    if widget.downcast_ref::<gtk4::ProgressBar>().is_some() {
+        return "meter".into();
+    }
+    if widget.downcast_ref::<gtk4::DropDown>().is_some() {
+        return "combo".into();
+    }
+    if widget.downcast_ref::<gtk4::Scale>().is_some() {
+        return "slider".into();
+    }
+    if widget.downcast_ref::<gtk4::Grid>().is_some() {
+        return "grid".into();
+    }
+    // Stack layouts mount Box containers: same "stack" kind the AppKit
+    // backend reports for its NSStackView frames, so the cross-backend
+    // golden stays shared.
+    if widget.downcast_ref::<gtk4::Box>().is_some() {
+        return "stack".into();
+    }
+    if widget.downcast_ref::<gtk4::FlowBox>().is_some() {
+        return "flex".into();
+    }
+    if widget.downcast_ref::<gtk4::Fixed>().is_some() {
+        return "absolute".into();
+    }
+    if widget.downcast_ref::<gtk4::ScrolledWindow>().is_some() {
+        return "scroll".into();
+    }
+    if widget.downcast_ref::<gtk4::Notebook>().is_some()
+        || widget.downcast_ref::<gtk4::Stack>().is_some()
+    {
+        return "tab".into();
+    }
+    if widget.downcast_ref::<gtk4::Separator>().is_some() {
+        return "separator".into();
+    }
+    "widget".into()
+}
+
+#[cfg(test)]
+fn escape_json(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 // Only the shared grammar is accepted; anything else is an invalid shortcut.

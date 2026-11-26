@@ -283,7 +283,7 @@ jobs:
             -E 'package(panechord-gtk) or package(panechord-library)'
           cargo llvm-cov report \
             --nextest-archive-file artifacts/linux-gtk.tar.zst \
-            -p panechord-gtk -p panechord-library \
+            -p panechord-gtk -p panechord-library -p panechord-runtime \
             --lcov --output-path coverage/raw-gtk.info
           rm -rf target/llvm-cov-target
           mkdir -p target/llvm-cov-target
@@ -805,6 +805,14 @@ jobs:
             --lcov --output-path coverage/raw.info
           sh scripts/lcov-workspace.sh coverage/raw.info coverage/lcov-macos.info
           rm coverage/raw.info
+      - name: Layout golden (AppKit window-relative exact)
+        run: |
+          cargo run --locked -p panechord-macos --features test-bridge --example layout_golden
+      - name: Layout full golden (all controls, AppKit window-relative exact)
+        run: |
+          output=$(cargo run --locked -p panechord-macos --features test-bridge --example layout_full)
+          printf '%s\n' "$output"
+          printf '%s\n' "$output" | grep -q '^MACOS3 PASS layout-full-golden window-relative exact$'
       - name: Upload coverage report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

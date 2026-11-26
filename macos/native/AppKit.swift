@@ -994,6 +994,10 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
     var enablement: [String: Bool] = [:]
     var capabilities: [String: Bool] = [:]
     var frames: [String: NSStackView] = [:]
+    /// Panechord-declared kind per control id (mirrors the `kind` argument
+    /// of `w3_add`/`w3_add_grid`). The test-only dump maps these numbers to
+    /// role strings; recording the raw kind keeps release diffs minimal.
+    var kinds: [String: Int32] = [:]
     var dimensions: [String: [NSLayoutConstraint]] = [:]
     var spacers: [String: NSView] = [:]
     var contentWidths: [String: NSLayoutConstraint] = [:]
@@ -1659,6 +1663,7 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
             }
             enablement.removeValue(forKey: id)
             capabilities.removeValue(forKey: id)
+            kinds.removeValue(forKey: id)
             if let node = nodes.removeValue(forKey: id) { focusable.removeAll { $0 === node } }
         }
         keyLoop()
@@ -1926,6 +1931,7 @@ public func add(_ pointer: UnsafeMutableRawPointer, _ parentBytes: UnsafePointer
         rows.changed = { [weak value] start in value?.emit(id, String(start), kind: 2) }
         view = rows
     }
+    value.kinds[id] = kind
     value.attach(view, parent: string(parentBytes, parentCount), id: id, floating: kind == 12)
 }
 
@@ -1937,6 +1943,7 @@ public func addGrid(_ pointer: UnsafeMutableRawPointer, _ parentBytes: UnsafePoi
     let grid = GridContainer()
     grid.columns = max(1, Int(columns))
     grid.gap = CGFloat(gap)
+    value.kinds[id] = -1
     value.attach(grid, parent: string(parentBytes, parentCount), id: id)
 }
 

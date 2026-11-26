@@ -218,3 +218,30 @@ with `GDK_SCALE=1` and `GDK_SCALE=2` under Xvfb (large enough physical screen),
 `GDK_BACKEND=x11 GSK_RENDERER=cairo G_DEBUG=fatal-criticals`. These are logical
 geometry regressions at integer scale factors, not screenshot/pixel identity or
 fractional-DPI/Windows/macOS validation.
+
+`tests::native_layout_golden_exact` asserts exact window-relative geometry via
+the test-only `View::dump_layout_json` (`#[cfg(test)]`, never shipped in
+release builds) against the shared cross-backend `tests/golden/layout_exact.json`
+(3 equal tracks, divisible gap, monospace labels). Both backends build the same
+corpus, so one file enforces the layouts-are-identical contract. IDs, kinds and
+geometry must match exactly;
+font/theme/GTK updates that move geometry fail here and re-baseline with
+`UPDATE_GOLDEN=1` explicitly. `scripts/e2e-atspi.py` cross-checks the
+OS-observed AT-SPI2 tree against the same golden (window-relative normalized,
+exit 2 when the AT-SPI bus is unavailable — never a silent skip). The macOS
+counterpart is the test-bridge-only `View::dump_layout_json`
+(`test-bridge` feature, never shipped in release builds) plus
+`scripts/e2e-ax.applescript` (System Events, interactive desktop).
+
+`tests::native_layout_full_golden_exact` extends the same approach to every
+layout and inline control plus nesting (grid spans, nested stacks, tab pages,
+list rows, content, table, footer) against the per-backend
+`gtk/tests/golden/layout_full.json` (the macOS mirror lives in
+`macos/tests/golden/`). Native widgets differ by design, so full goldens are
+per-backend and canonical to the CI image — run them via `verify-docker.sh`
+locally. The corpus itself is shared through
+`panechord_runtime::test_corpus`, so construction parity is enforced by
+construction. Dialog windows are excluded (separate top-level windows covered
+by the dialog contract tests) and menus have no layout footprint.
+`tests::native_layout_kind_matrix_and_dump_errors` covers every reported kind
+and the closed-view error path without asserting geometry.

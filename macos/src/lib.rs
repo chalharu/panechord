@@ -115,6 +115,10 @@ unsafe extern "C" {
         order_len: usize,
     ) -> i32;
     fn w3_frame_height(host: *mut c_void, id: *const u8, id_len: usize) -> f64;
+    /// Test bridge only (`test-bridge` feature): excluded from release
+    /// and distribution builds by construction.
+    #[cfg(feature = "test-bridge")]
+    fn w3_dump_layout(host: *mut c_void, output: *mut u8, capacity: usize) -> isize;
     fn w3_rows(
         host: *mut c_void,
         id: *const u8,
@@ -1633,6 +1637,27 @@ impl View {
         }
         String::from_utf8(buffer).ok()
     }
+    /// Window-relative layout snapshot for exact golden comparison.
+    /// Same `[{id,kind,x,y,width,height}]` shape as the GTK backend.
+    /// Test bridge only: available with the `test-bridge` feature,
+    /// never in release or distribution builds.
+    #[cfg(feature = "test-bridge")]
+    pub fn dump_layout_json(&self) -> Result<String, String> {
+        if self.0.lifecycle.is_closed() {
+            return Err("view is closed".into());
+        }
+        let size = unsafe { w3_dump_layout(self.0.native.get(), std::ptr::null_mut(), 0) };
+        if size <= 0 {
+            return Err("native layout dump failed".into());
+        }
+        let mut buffer = vec![0; size as usize];
+        let written =
+            unsafe { w3_dump_layout(self.0.native.get(), buffer.as_mut_ptr(), buffer.len()) };
+        if written != size {
+            return Err("native layout dump changed".into());
+        }
+        String::from_utf8(buffer).map_err(|_| "native layout dump was not UTF-8".into())
+    }
     fn action(&self, id: &str, value: &str, kind: i32) -> Result<(), String> {
         if self.0.lifecycle.is_closed() {
             return Err("view is closed".into());
@@ -1868,6 +1893,90 @@ impl panechord_runtime::WindowHost<View> for MacHost {
         hooks: WindowHooks,
     ) -> Result<(), String> {
         MacHost::register_view_with_hooks(self, session, id, view, hooks)
+    }
+}
+
+/// Test-only golden harness (`test-bridge` feature): presents one corpus
+/// view, dumps window-relative layout, and compares it against a golden
+/// file. Never shipped in release builds. `build` constructs the corpus;
+/// its return value is retained until the view closes. `golden_path` is
+/// relative to the workspace root: shared goldens live in `tests/golden/`,
+/// per-backend goldens next to their backend.
+#[cfg(feature = "test-bridge")]
+pub fn run_layout_golden<C>(
+    title: &str,
+    width: u32,
+    height: u32,
+    golden_path: &str,
+    pass_marker: &str,
+    build: impl FnOnce(&View, &Rc<dyn Executor>) -> C,
+) -> Result<(), String> {
+    use panechord_runtime::WindowHost as _;
+    set_initial_window_size(width, height);
+    let passed = Rc::new(Cell::new(false));
+    let finished = passed.clone();
+    // Blocking file IO stays in synchronous code: nothing inside the async
+    // task touches the filesystem.
+    let golden_file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("backend crates sit one level below the workspace root")
+        .join(golden_path);
+    let expected = std::fs::read_to_string(&golden_file).ok();
+    let dumped = Rc::new(RefCell::new(None::<String>));
+    let written = dumped.clone();
+    let marker = pass_marker.to_owned();
+    let result = run_host(move |host| {
+        let session = Session::new();
+        host.attach(session.clone())?;
+        let executor = host.executor();
+        let view = View::new(Binding::constant(title.into()));
+        let _corpus = build(&view, &executor);
+        let owner = view.clone();
+        executor.spawn(Box::pin(async move {
+            let activated = Instant::now();
+            while !owner.is_key_window() {
+                assert!(
+                    activated.elapsed() < std::time::Duration::from_secs(10),
+                    "native window did not become active"
+                );
+                futures_timer::Delay::new(std::time::Duration::from_millis(8)).await;
+            }
+            let first = owner.dump_layout_json().expect("layout must be mapped");
+            let second = owner.dump_layout_json().expect("layout must be stable");
+            assert_eq!(first, second, "dump_layout must be deterministic");
+            written.borrow_mut().replace(first.clone());
+            match &expected {
+                Some(text) => assert_eq!(
+                    first,
+                    text.trim(),
+                    "layout drift: OSX_GOLDEN_ACTUAL={first}"
+                ),
+                None => panic!("missing golden; OSX_GOLDEN_ACTUAL={first}"),
+            }
+            println!("{marker}");
+            owner.close();
+            finished.set(true);
+        }));
+        host.register_view(&session, "main", &view)?;
+        Ok(())
+    });
+    result?;
+    if std::env::var("UPDATE_GOLDEN").as_deref() == Ok("1") {
+        if let Some(json) = dumped.borrow().clone() {
+            let golden_file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .expect("backend crates sit one level below the workspace root")
+                .join(golden_path);
+            std::fs::create_dir_all(golden_file.parent().unwrap()).unwrap();
+            std::fs::write(&golden_file, format!("{json}\n")).unwrap();
+        }
+    }
+    if passed.get() {
+        Ok(())
+    } else {
+        Err(format!(
+            "macOS layout golden did not complete: {golden_path:?}"
+        ))
     }
 }
 

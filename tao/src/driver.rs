@@ -1534,12 +1534,12 @@ pub(super) fn run(
         MENU_PROXY.lock().unwrap().replace(proxy.clone());
         let _bridge = MenuBridge;
         MENU_INIT.call_once(|| {
-            muda::MenuEvent::set_event_handler(Some(|event: muda::MenuEvent| {
+            let _ = muda::MenuEvent::set_event_handler(Some(Arc::new(|event: muda::MenuEvent| {
                 let proxy = MENU_PROXY.lock().unwrap().clone();
                 if let Some(proxy) = proxy {
                     proxy.send(Native::Menu(event.id));
                 }
-            }))
+            })));
         });
         let status = event_loop.run_return(|event, target, flow| {
             drive_event(&host, target, &proxy, &executor, &mut state, event, flow);

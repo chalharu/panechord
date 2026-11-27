@@ -164,6 +164,15 @@ jobs:
           python3 -m coverage run --source=scripts scripts/test-swift-coverage.py
           python3 -m coverage xml -o coverage/python-cobertura.xml \
             --include='scripts/swift-coverage.py,scripts/test-swift-coverage.py'
+      - name: Upload Python coverage report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          # Named lcov-* so the SonarCloud scan's download pattern picks
+          # it up alongside the Rust/Swift reports.
+          name: lcov-python
+          path: coverage/*.xml
+          retention-days: 1 \
+            --include='scripts/swift-coverage.py,scripts/test-swift-coverage.py'
   archive-linux:
     name: Build Linux archive
     needs: prepare-image

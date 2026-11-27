@@ -17,6 +17,7 @@ mod native {
             view.label(&body, "title", Binding::constant("smoke".into()));
             view.style("title", Style::default());
             view.image(&body, "pic", Binding::constant(None));
+            view.try_style("pic", Style::default())?;
             let pixels: Arc<[u8]> = Arc::from([255, 0, 0, 255]);
             let frame = ImageFrame::new(1, 1, pixels).map_err(str::to_owned)?;
             view.image(&body, "pic", Binding::constant(Some(frame)));

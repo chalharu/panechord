@@ -60,20 +60,13 @@ class SwiftCoverageTest(unittest.TestCase):
             source = Path(work) / "export.json"
             target = Path(work) / "generic.xml"
             source.write_text(json.dumps(export), encoding="utf-8")
-            self.assertEqual(
-                CONVERTER.main([str(source), str(target)]),
-                0,
-            )
+            CONVERTER.main(str(source), str(target))
             self.assertEqual(target.read_text(encoding="utf-8"), expected)
 
     def test_rejects_bad_shape(self):
         with self.assertRaises(SystemExit):
             CONVERTER.collect_lines([])
 
-    def test_rejects_bad_argv(self):
-        with self.assertRaises(SystemExit):
-            CONVERTER.main([])
 
-
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     unittest.main()

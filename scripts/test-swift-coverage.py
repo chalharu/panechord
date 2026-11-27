@@ -32,6 +32,7 @@ class SwiftCoverageTest(unittest.TestCase):
                                 # Malformed segments are skipped too.
                                 [],
                                 ["a", 1, 2, True],
+                                ["b", 1, 2, True, True],
                             ],
                         },
                         {
@@ -69,6 +70,13 @@ class SwiftCoverageTest(unittest.TestCase):
     def test_rejects_bad_shape(self):
         with self.assertRaises(SystemExit):
             CONVERTER.collect_lines([])
+
+    def test_rejects_non_object_export(self):
+        with tempfile.TemporaryDirectory() as work:
+            source = Path(work) / "export.json"
+            source.write_text("[1, 2]", encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                CONVERTER.load_export(str(source))
 
 
 if __name__ == "__main__":  # pragma: no cover

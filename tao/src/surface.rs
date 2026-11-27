@@ -14,7 +14,7 @@ struct Surface {
     /// layer while the readback path never presents, breaking window
     /// composition. Master presented via swap, so it never hit this.
     #[cfg(target_os = "macos")]
-    gl_host: std::cell::OnceCell<objc2::rc::Retained<objc2_app_kit::NSView>>,
+    gl_host: panechord_runtime::MacosGlHost,
 }
 
 impl HasDisplayHandle for Surface {
@@ -46,37 +46,7 @@ impl HasWindowHandle for Surface {
             .ok_or(HandleError::Unavailable)?;
             let ns_window = view.window().ok_or(HandleError::Unavailable)?;
             let content = ns_window.contentView().ok_or(HandleError::Unavailable)?;
-            let mtm = objc2::MainThreadMarker::new().ok_or(HandleError::Unavailable)?;
-            let host = self.gl_host.get_or_init(|| {
-                let view = objc2_app_kit::NSView::new(mtm);
-                view.setHidden(true);
-                view
-            });
-            let reparent = unsafe { host.superview() }
-                .map(|parent| {
-                    !std::ptr::eq(
-                        objc2::rc::Retained::as_ptr(&parent).cast::<std::ffi::c_void>(),
-                        objc2::rc::Retained::as_ptr(&content).cast::<std::ffi::c_void>(),
-                    )
-                })
-                .unwrap_or(true);
-            if reparent {
-                host.removeFromSuperview();
-                host.setFrame(content.bounds());
-                host.setAutoresizingMask(
-                    objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable
-                        | objc2_app_kit::NSAutoresizingMaskOptions::ViewHeightSizable,
-                );
-                content.addSubview(host);
-            }
-            let pointer =
-                std::ptr::NonNull::new(objc2::rc::Retained::as_ptr(host).cast_mut().cast())
-                    .ok_or(HandleError::Unavailable)?;
-            Ok(unsafe {
-                WindowHandle::borrow_raw(raw_window_handle::RawWindowHandle::AppKit(
-                    raw_window_handle::AppKitWindowHandle::new(pointer),
-                ))
-            })
+            self.gl_host.handle(&content)
         }
     }
 }
@@ -127,7 +97,7 @@ impl View {
             callback(Rc::new(Surface {
                 window,
                 #[cfg(target_os = "macos")]
-                gl_host: std::cell::OnceCell::new(),
+                gl_host: panechord_runtime::MacosGlHost::new(),
             }))
         })
     }

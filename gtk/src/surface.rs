@@ -30,7 +30,7 @@ struct Surface {
     /// its own composition. Owned here so the borrowed handle outlives
     /// the call.
     #[cfg(target_os = "macos")]
-    gl_host: std::cell::OnceCell<objc2::rc::Retained<objc2_app_kit::NSView>>,
+    gl_host: panechord_runtime::MacosGlHost,
 }
 
 #[cfg(target_os = "macos")]
@@ -175,39 +175,7 @@ impl HasWindowHandle for Surface {
             // lives on this hidden subview instead; the toolkit view keeps
             // only its own composition. No per-widget NSView exists on
             // the macOS backend (widgets share the surface view).
-            let mtm = objc2::MainThreadMarker::new().ok_or(HandleError::Unavailable)?;
-            let host = self.gl_host.get_or_init(|| {
-                let view = objc2_app_kit::NSView::new(mtm);
-                view.setHidden(true);
-                view
-            });
-            // Re-parent when GDK recreates the native surface underneath us
-            // (the old direct-render path re-resolved handles each tick).
-            let reparent = unsafe { host.superview() }
-                .map(|parent| {
-                    !std::ptr::eq(
-                        objc2::rc::Retained::as_ptr(&parent).cast::<std::ffi::c_void>(),
-                        objc2::rc::Retained::as_ptr(&content).cast::<std::ffi::c_void>(),
-                    )
-                })
-                .unwrap_or(true);
-            if reparent {
-                host.removeFromSuperview();
-                host.setFrame(content.bounds());
-                host.setAutoresizingMask(
-                    objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable
-                        | objc2_app_kit::NSAutoresizingMaskOptions::ViewHeightSizable,
-                );
-                content.addSubview(host);
-            }
-            let pointer =
-                std::ptr::NonNull::new(objc2::rc::Retained::as_ptr(host).cast_mut().cast())
-                    .ok_or(HandleError::Unavailable)?;
-            Ok(unsafe {
-                WindowHandle::borrow_raw(raw_window_handle::RawWindowHandle::AppKit(
-                    raw_window_handle::AppKitWindowHandle::new(pointer),
-                ))
-            })
+            self.gl_host.handle(&content)
         }
         #[cfg(target_os = "windows")]
         {
@@ -377,7 +345,7 @@ impl View {
         callback(Rc::new(Surface {
             window: self.0.window.clone(),
             #[cfg(target_os = "macos")]
-            gl_host: std::cell::OnceCell::new(),
+            gl_host: panechord_runtime::MacosGlHost::new(),
         }))
     }
 

@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """Unit tests for scripts/swift-coverage.py (run in CI lint leg on Linux)."""
 
+import importlib.util
 import json
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+SPEC = importlib.util.spec_from_file_location(
+    "swift_coverage", Path(__file__).resolve().parent / "swift-coverage.py"
+)
+CONVERTER = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(CONVERTER)
 
 
 class SwiftCoverageTest(unittest.TestCase):
@@ -56,19 +60,19 @@ class SwiftCoverageTest(unittest.TestCase):
             source = Path(work) / "export.json"
             target = Path(work) / "generic.xml"
             source.write_text(json.dumps(export), encoding="utf-8")
-            subprocess.run(
-                ["python3", str(ROOT / "swift-coverage.py"), str(source), str(target)],
-                check=True,
+            self.assertEqual(
+                CONVERTER.main([str(source), str(target)]),
+                0,
             )
             self.assertEqual(target.read_text(encoding="utf-8"), expected)
 
+    def test_rejects_bad_shape(self):
+        with self.assertRaises(SystemExit):
+            CONVERTER.collect_lines([])
+
     def test_rejects_bad_argv(self):
-        proc = subprocess.run(
-            ["python3", str(ROOT / "swift-coverage.py")],
-            capture_output=True,
-            check=False,
-        )
-        self.assertNotEqual(proc.returncode, 0)
+        with self.assertRaises(SystemExit):
+            CONVERTER.main([])
 
 
 if __name__ == "__main__":

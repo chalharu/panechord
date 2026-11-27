@@ -6,7 +6,12 @@
 //! layer's: previously `Shortcut::to_muda*` lived in `panechord-runtime`, so
 //! the shared crate depended on backend vocabulary (DIP violation).
 
-use panechord_runtime::{Shortcut, ShortcutTarget};
+use panechord_runtime::{Shortcut, ShortcutKey, ShortcutTarget};
+
+/// Canonical key -> muda `Code` name. Backend-owned copy; the left column
+/// must stay exactly [`panechord_runtime::CANONICAL_SPECIAL_KEYS`]
+/// (pinned by `special_keys_track_the_canonical_list`), the runtime only
+/// validates canonical names during parsing.
 
 /// Canonical key -> muda `Code` name. Backend-owned copy; the runtime only
 /// validates canonical names during parsing.
@@ -29,38 +34,25 @@ const KEYS: &[(&str, &str)] = &[
     ("Down", "ArrowDown"),
 ];
 
-fn resolved(shortcut: &Shortcut, target: ShortcutTarget) -> u8 {
-    let modifiers = shortcut.modifiers();
-    (modifiers & !1)
-        | if modifiers & 1 == 0 {
-            0
-        } else if target == ShortcutTarget::MacOS {
-            4
-        } else {
-            2
-        }
-}
-
 /// Lower a parsed shortcut to a muda accelerator string for an explicit target.
 pub fn to_muda_for(shortcut: &Shortcut, target: ShortcutTarget) -> String {
-    let mods = resolved(shortcut, target);
+    let mods = shortcut.resolved_modifiers(target);
     let mut parts = Vec::new();
     for (bit, name) in [(2, "Ctrl"), (4, "Cmd"), (8, "Alt"), (16, "Shift")] {
         if mods & bit != 0 {
             parts.push(name.to_owned());
         }
     }
-    parts.push(
-        if let Some((_, muda)) = KEYS.iter().find(|(key, _)| *key == shortcut.key()) {
-            (*muda).into()
-        } else if shortcut.key().len() == 1 && shortcut.key().as_bytes()[0].is_ascii_alphabetic() {
-            format!("Key{}", shortcut.key())
-        } else if shortcut.key().len() == 1 {
-            format!("Digit{}", shortcut.key())
-        } else {
-            shortcut.key().to_owned()
-        },
-    );
+    parts.push(match shortcut.key_kind() {
+        ShortcutKey::Special(name) => KEYS
+            .iter()
+            .find(|(key, _)| *key == name)
+            .map(|(_, muda)| (*muda).to_owned())
+            .unwrap_or_else(|| name.to_owned()),
+        ShortcutKey::Letter(letter) => format!("Key{letter}"),
+        ShortcutKey::Digit(digit) => format!("Digit{digit}"),
+        ShortcutKey::Function(function) => function.to_owned(),
+    });
     parts.join("+")
 }
 
@@ -111,7 +103,15 @@ mod tests {
     }
 
     #[test]
-    fn supported_keys_convert() {
+    fn special_keys_track_the_canonical_list() {
+        use panechord_runtime::CANONICAL_SPECIAL_KEYS;
+        assert_eq!(KEYS.len(), CANONICAL_SPECIAL_KEYS.len());
+        for name in CANONICAL_SPECIAL_KEYS {
+            assert!(
+                KEYS.iter().any(|(key, _)| key == name),
+                "{name} must have a muda Code"
+            );
+        }
         for (name, muda) in KEYS {
             let shortcut = Shortcut::parse(name).unwrap();
             assert_eq!(to_muda(&shortcut), *muda);

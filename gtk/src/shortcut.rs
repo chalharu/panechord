@@ -6,7 +6,12 @@
 //! layer's: previously `Shortcut::to_gtk*` lived in `panechord-runtime`, so
 //! the shared crate depended on backend vocabulary (DIP violation).
 
-use panechord_runtime::{Shortcut, ShortcutTarget};
+use panechord_runtime::{Shortcut, ShortcutKey, ShortcutTarget};
+
+/// Canonical key -> GTK keyval name. Backend-owned copy; the left column
+/// must stay exactly [`panechord_runtime::CANONICAL_SPECIAL_KEYS`]
+/// (pinned by `special_keys_track_the_canonical_list`), the runtime only
+/// validates canonical names during parsing.
 
 /// Canonical key -> GTK keyval name. Backend-owned copy; the runtime only
 /// validates canonical names during parsing.
@@ -29,33 +34,25 @@ const KEYS: &[(&str, &str)] = &[
     ("Down", "Down"),
 ];
 
-fn resolved(shortcut: &Shortcut, target: ShortcutTarget) -> u8 {
-    let modifiers = shortcut.modifiers();
-    (modifiers & !1)
-        | if modifiers & 1 == 0 {
-            0
-        } else if target == ShortcutTarget::MacOS {
-            4
-        } else {
-            2
-        }
-}
-
 /// Lower a parsed shortcut to a GTK trigger string for an explicit target.
 pub fn to_gtk_for(shortcut: &Shortcut, target: ShortcutTarget) -> String {
-    let mods = resolved(shortcut, target);
+    let mods = shortcut.resolved_modifiers(target);
     let mut out = String::new();
     for (bit, name) in [(2, "Control"), (4, "Meta"), (8, "Alt"), (16, "Shift")] {
         if mods & bit != 0 {
             out.push_str(&format!("<{name}>"));
         }
     }
-    if let Some((_, gtk)) = KEYS.iter().find(|(key, _)| *key == shortcut.key()) {
-        out.push_str(gtk);
-    } else if shortcut.key().len() == 1 {
-        out.push_str(&shortcut.key().to_ascii_lowercase());
-    } else {
-        out.push_str(shortcut.key());
+    match shortcut.key_kind() {
+        ShortcutKey::Special(name) => out.push_str(
+            KEYS.iter()
+                .find(|(key, _)| *key == name)
+                .map(|(_, gtk)| *gtk)
+                .unwrap_or(name),
+        ),
+        ShortcutKey::Letter(letter) => out.push(letter.to_ascii_lowercase()),
+        ShortcutKey::Digit(digit) => out.push(digit),
+        ShortcutKey::Function(function) => out.push_str(function),
     }
     out
 }
@@ -95,7 +92,15 @@ mod tests {
     }
 
     #[test]
-    fn supported_keys_convert() {
+    fn special_keys_track_the_canonical_list() {
+        use panechord_runtime::CANONICAL_SPECIAL_KEYS;
+        assert_eq!(KEYS.len(), CANONICAL_SPECIAL_KEYS.len());
+        for name in CANONICAL_SPECIAL_KEYS {
+            assert!(
+                KEYS.iter().any(|(key, _)| key == name),
+                "{name} must have a GTK keyval"
+            );
+        }
         for (name, gtk) in KEYS {
             let shortcut = Shortcut::parse(name).unwrap();
             assert_eq!(to_gtk(&shortcut), *gtk);

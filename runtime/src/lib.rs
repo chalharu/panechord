@@ -34,7 +34,7 @@ pub use session::{
     Session, ShutdownCoordinator, ShutdownFailure, ShutdownOutcome, ShutdownPhase, UiHost,
     WindowHooks, run_async,
 };
-pub use shortcut::{Shortcut, ShortcutError, ShortcutTarget};
+pub use shortcut::{CANONICAL_SPECIAL_KEYS, Shortcut, ShortcutError, ShortcutKey, ShortcutTarget};
 pub use store::{
     Binding, Command, Executor, Limits, Policy, Store, StoreOwner, Subscription, WriteError,
     ignore_write, validation,

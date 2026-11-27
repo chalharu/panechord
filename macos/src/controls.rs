@@ -1,7 +1,14 @@
-use super::*;
+use super::{Parent, View, w3_image, w3_menu_tree, w3_reorder, w3_set_min_size, w3_slider_value};
 pub(super) type TabState = (Binding<String>, Vec<Choice>);
 pub(super) type SliderAction = Rc<dyn Fn(f64) -> Result<(), String>>;
-use panechord_runtime::{Choice, ImageFrame, MenuRole, SliderRange, validate_choices};
+use panechord_runtime::{
+    Binding, Choice, ImageFrame, Keyed, Layout, MenuRole, Shortcut, SliderRange, Store, Style,
+    validate_choices,
+};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 type Template<T> = Rc<dyn Fn(&View, &Parent, &str, Store<T>)>;
 
 impl View {

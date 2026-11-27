@@ -19,7 +19,14 @@ fn main() {
     };
     let minimum = env::var("MACOSX_DEPLOYMENT_TARGET").unwrap_or_else(|_| "11.0".into());
     println!("cargo:rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET");
-    let result = Command::new("xcrun")
+    println!("cargo:rerun-if-env-changed=PANECHORD_SWIFT_COVERAGE");
+    // Swift coverage (SonarCloud): with PANECHORD_SWIFT_COVERAGE=1 the bridge
+    // emits LLVM profraw via LLVM_PROFILE_FILE (see scripts/swift-coverage.py).
+    // Keep such runs on a dedicated directory: Apple's Swift emits raw profile
+    // v10, current Rust expects v11. Unset keeps the plain optimized bridge.
+    let swift_coverage = env::var("PANECHORD_SWIFT_COVERAGE").as_deref() == Ok("1");
+    let mut command = Command::new("xcrun");
+    command
         .args([
             "swiftc",
             "-swift-version",
@@ -30,7 +37,11 @@ fn main() {
             "PanechordAppKit",
             "-target",
         ])
-        .arg(format!("{arch}-apple-macosx{minimum}"))
+        .arg(format!("{arch}-apple-macosx{minimum}"));
+    if swift_coverage {
+        command.args(["-profile-generate", "-profile-coverage-mapping"]);
+    }
+    let result = command
         .args(["-Xlinker", "-install_name", "-Xlinker"])
         .arg("@rpath/libPanechordAppKit.dylib")
         .args(["native/AppKit.swift", "-o"])

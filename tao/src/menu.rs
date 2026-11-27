@@ -1,7 +1,13 @@
 use super::shortcut::to_muda;
-use super::*;
+use super::{Inner, Kind, View};
+
 use muda::{IsMenuItem, PredefinedMenuItem, accelerator::Accelerator};
-use panechord_runtime::{MenuItem, MenuNode, MenuRole, Shortcut, visible_tree};
+use panechord_runtime::{Binding, MenuItem, MenuNode, MenuRole, Shortcut, visible_tree};
+use std::{
+    cell::RefCell,
+    collections::HashSet,
+    rc::{Rc, Weak},
+};
 
 #[derive(Clone)]
 pub(super) struct Action {
@@ -535,7 +541,12 @@ impl View {
 }
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{
+        Accelerator, MenuItem, MenuRole, RefCell, parse_shortcut, replace_snapshot, validate,
+        vetoed_quit,
+    };
+    use std::cell::Cell;
+
     #[test]
     fn canonical_shortcuts_match_native_modifier_and_key_semantics() {
         use muda::accelerator::{Code, Modifiers};

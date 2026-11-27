@@ -29,6 +29,9 @@ class SwiftCoverageTest(unittest.TestCase):
                                 # Skipped region: no count, must not
                                 # count as an uncovered line.
                                 [12, 1, 0, False, False, False],
+                                # Malformed segments are skipped too.
+                                [],
+                                ["a", 1, 2, True],
                             ],
                         },
                         {

@@ -171,8 +171,7 @@ jobs:
           # it up alongside the Rust/Swift reports.
           name: lcov-python
           path: coverage/*.xml
-          retention-days: 1 \
-            --include='scripts/swift-coverage.py,scripts/test-swift-coverage.py'
+          retention-days: 1
   archive-linux:
     name: Build Linux archive
     needs: prepare-image

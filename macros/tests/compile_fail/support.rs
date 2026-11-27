@@ -91,10 +91,6 @@ pub mod fake {
         pub dispatch: BTreeMap<String, Rc<dyn Fn(String) -> bool>>,
         pub tokens: Vec<Subscription>,
         pub close: Option<Rc<dyn Fn()>>,
-        /// Last label text, mirroring the original single-string fixture:
-        /// `label()` overwrites it, `entry()`/`button()` only record into
-        /// `texts`. The `pass` fixture asserts the exact executable output.
-        pub output: String,
     }
 
     #[derive(Clone, Default)]
@@ -134,19 +130,24 @@ pub mod fake {
             self.0.borrow_mut().styles.insert(id.into(), value);
         }
         pub fn label(&self, _: &Parent, id: &str, text: Binding<String>) {
-            let rendered = text.get();
-            assert!(self.0.borrow_mut().texts.insert(id.into(), text).is_none());
-            self.0.borrow_mut().output = rendered;
-        }
-        pub fn entry(&self, _: &Parent, id: &str, text: Binding<String>) {
             assert!(self.0.borrow_mut().texts.insert(id.into(), text).is_none());
         }
-        pub fn button(&self, _: &Parent, id: &str, text: Binding<String>, command: Command) {
-            assert!(self.0.borrow_mut().texts.insert(id.into(), text).is_none());
+        pub fn entry(&self, p: &Parent, id: &str, text: Binding<String>) {
+            self.label(p, id, text);
+        }
+        pub fn button(&self, p: &Parent, id: &str, text: Binding<String>, command: Command) {
+            self.label(p, id, text);
             self.0.borrow_mut().commands.insert(id.into(), command);
         }
+        /// The `pass` fixture asserts the exact executable output: it is the
+        /// text recorded under the `label` id.
         pub fn output(&self) -> String {
-            self.0.borrow().output.clone()
+            self.0
+                .borrow()
+                .texts
+                .get("label")
+                .map(|text| text.get())
+                .unwrap_or_default()
         }
         pub fn meter(&self, _: &Parent, id: &str, value: Binding<f64>) {
             self.0.borrow_mut().values.insert(id.into(), value);

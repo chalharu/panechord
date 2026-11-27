@@ -132,11 +132,8 @@ impl Shortcut {
     /// this instead of re-implementing the single-char/`F<n>` branches;
     /// the `Special` payload is one of [`CANONICAL_SPECIAL_KEYS`].
     pub fn key_kind(&self) -> ShortcutKey<'_> {
-        if let Some(name) = CANONICAL_SPECIAL_KEYS
-            .iter()
-            .find(|name| **name == self.key)
-        {
-            ShortcutKey::Special(name)
+        if CANONICAL_SPECIAL_KEYS.contains(&self.key.as_str()) {
+            ShortcutKey::Special(&self.key)
         } else if self.key.len() == 1 {
             let byte = self.key.as_bytes()[0];
             if byte.is_ascii_alphabetic() {
@@ -190,7 +187,6 @@ mod tests {
     }
     #[test]
     fn resolution_and_key_kinds_are_portable() {
-        use crate::ShortcutKey;
         let shortcut = Shortcut::parse("Primary+S").unwrap();
         assert_eq!(
             shortcut.resolved_modifiers(ShortcutTarget::MacOS),

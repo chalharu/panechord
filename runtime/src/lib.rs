@@ -201,18 +201,13 @@ impl<T: Clone + 'static> RepeatDriver<T> {
                     evict_one(format!("{key}/{}", item.key));
                 }
             }
-            let mut mounted = true;
             for item in &items {
                 if is_closed() {
-                    mounted = false;
-                    break;
+                    return;
                 }
                 if !previous.iter().any(|candidate| candidate == item) {
                     mount_one(format!("{key}/{}", item.key), item.clone());
                 }
-            }
-            if !mounted {
-                return;
             }
             if !reorder_all(
                 items

@@ -12,7 +12,6 @@
 #ifndef PANECHORD_W3_TYPES_H
 #define PANECHORD_W3_TYPES_H
 
-#include <stddef.h>
 #include <stdint.h>
 
 /* Grid/Absolute placement for one view id. The id itself stays a
@@ -44,16 +43,9 @@ typedef struct W3StyleParams {
     int32_t blue;
 } W3StyleParams;
 
-#ifdef __cplusplus
-static_assert(sizeof(W3PlaceParams) == 32, "W3PlaceParams layout changed");
-static_assert(sizeof(W3StyleParams) == 80, "W3StyleParams layout changed");
-static_assert(alignof(W3PlaceParams) == 8, "W3PlaceParams alignment changed");
-static_assert(alignof(W3StyleParams) == 8, "W3StyleParams alignment changed");
-#else
 _Static_assert(sizeof(W3PlaceParams) == 32, "W3PlaceParams layout changed");
 _Static_assert(sizeof(W3StyleParams) == 80, "W3StyleParams layout changed");
 _Static_assert(_Alignof(W3PlaceParams) == 8, "W3PlaceParams alignment changed");
 _Static_assert(_Alignof(W3StyleParams) == 8, "W3StyleParams alignment changed");
-#endif
 
 #endif /* PANECHORD_W3_TYPES_H */

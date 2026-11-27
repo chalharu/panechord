@@ -47,6 +47,46 @@ use std::{
 
 type Callback = unsafe extern "C" fn(*mut c_void, i32, *const u8, usize, *const u8, usize);
 
+/// Packed placement payload for `w3_place`.
+///
+/// Canonical layout lives in `native/w3_types.h`; the field order here
+/// must match it exactly (doubles last). Size and field offsets are
+/// pinned by `ffi_param_blocks_match_c_header` below.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct W3PlaceParams {
+    pub row: i32,
+    pub column: i32,
+    pub row_span: i32,
+    pub column_span: i32,
+    pub x: f64,
+    pub y: f64,
+}
+
+/// Packed style payload for `w3_style`.
+///
+/// Canonical layout lives in `native/w3_types.h`; the field order here
+/// must match it exactly (`text_scale` rides with the doubles so the
+/// 32-bit tail stays densely packed). Size and field offsets are pinned
+/// by `ffi_param_blocks_match_c_header` below.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct W3StyleParams {
+    pub top: f64,
+    pub right: f64,
+    pub bottom: f64,
+    pub left: f64,
+    pub width: f64,
+    pub height: f64,
+    pub text_scale: f64,
+    pub horizontal: i32,
+    pub vertical: i32,
+    pub text_role: i32,
+    pub red: i32,
+    pub green: i32,
+    pub blue: i32,
+}
+
 unsafe extern "C" {
     fn w3_create(callback: Callback, context: *mut c_void) -> *mut c_void;
     fn w3_destroy(host: *mut c_void);
@@ -88,24 +128,7 @@ unsafe extern "C" {
         text_len: usize,
         kind: i32,
     ) -> i32;
-    fn w3_style(
-        host: *mut c_void,
-        id: *const u8,
-        id_len: usize,
-        top: f64,
-        right: f64,
-        bottom: f64,
-        left: f64,
-        width: f64,
-        height: f64,
-        horizontal_alignment: i32,
-        vertical_alignment: i32,
-        text_role: i32,
-        text_scale: f64,
-        red: i32,
-        green: i32,
-        blue: i32,
-    );
+    fn w3_style(host: *mut c_void, id: *const u8, id_len: usize, params: *const W3StyleParams);
     fn w3_remove(host: *mut c_void, id: *const u8, id_len: usize);
     fn w3_reorder(
         host: *mut c_void,
@@ -167,17 +190,7 @@ unsafe extern "C" {
         columns: u32,
         gap: f64,
     );
-    fn w3_place(
-        host: *mut c_void,
-        id: *const u8,
-        id_len: usize,
-        row: i32,
-        column: i32,
-        row_span: i32,
-        column_span: i32,
-        x: f64,
-        y: f64,
-    );
+    fn w3_place(host: *mut c_void, id: *const u8, id_len: usize, params: *const W3PlaceParams);
 }
 
 #[derive(Clone)]
@@ -1061,25 +1074,23 @@ impl View {
             Some(panechord_runtime::Alignment::End) => 3,
             Some(panechord_runtime::Alignment::Stretch) => 4,
         };
+        let style_params = W3StyleParams {
+            top: f64::from(padding.top + margin.top),
+            right: f64::from(padding.right + margin.right),
+            bottom: f64::from(padding.bottom + margin.bottom),
+            left: f64::from(padding.left + margin.left),
+            width: f64::from(placement.width.unwrap_or(-1.0)),
+            height: f64::from(placement.height.unwrap_or(-1.0)),
+            text_scale: f64::from(text.scale),
+            horizontal: alignment(style.horizontal_alignment),
+            vertical: alignment(style.vertical_alignment),
+            text_role,
+            red: colour[0],
+            green: colour[1],
+            blue: colour[2],
+        };
         unsafe {
-            w3_style(
-                self.0.native.get(),
-                id.as_ptr(),
-                id.len(),
-                f64::from(padding.top + margin.top),
-                f64::from(padding.right + margin.right),
-                f64::from(padding.bottom + margin.bottom),
-                f64::from(padding.left + margin.left),
-                f64::from(placement.width.unwrap_or(-1.0)),
-                f64::from(placement.height.unwrap_or(-1.0)),
-                alignment(style.horizontal_alignment),
-                alignment(style.vertical_alignment),
-                text_role,
-                f64::from(text.scale),
-                colour[0],
-                colour[1],
-                colour[2],
-            );
+            w3_style(self.0.native.get(), id.as_ptr(), id.len(), &style_params);
         }
         // Forward explicit geometry to the native container. Grid children
         // left at the default cell flow in declaration order through the
@@ -1097,33 +1108,31 @@ impl View {
                     .clamp(1, 4096)
                     .min(cols - column)
                     .max(1);
+                let place_params = W3PlaceParams {
+                    row,
+                    column,
+                    row_span,
+                    column_span,
+                    x: 0.0,
+                    y: 0.0,
+                };
                 unsafe {
-                    w3_place(
-                        self.0.native.get(),
-                        id.as_ptr(),
-                        id.len(),
-                        row,
-                        column,
-                        row_span,
-                        column_span,
-                        0.0,
-                        0.0,
-                    );
+                    w3_place(self.0.native.get(), id.as_ptr(), id.len(), &place_params);
                 }
             }
-            Layout::Absolute => unsafe {
-                w3_place(
-                    self.0.native.get(),
-                    id.as_ptr(),
-                    id.len(),
-                    0,
-                    0,
-                    1,
-                    1,
-                    f64::from(placement.x),
-                    f64::from(placement.y),
-                );
-            },
+            Layout::Absolute => {
+                let place_params = W3PlaceParams {
+                    row: 0,
+                    column: 0,
+                    row_span: 1,
+                    column_span: 1,
+                    x: f64::from(placement.x),
+                    y: f64::from(placement.y),
+                };
+                unsafe {
+                    w3_place(self.0.native.get(), id.as_ptr(), id.len(), &place_params);
+                }
+            }
             _ => {}
         }
         Ok(())
@@ -1948,6 +1957,25 @@ pub fn run_host(make: impl FnOnce(Rc<MacHost>) -> Result<(), String>) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ffi_param_blocks_match_c_header() {
+        // Canonical layout lives in `native/w3_types.h` (checked in C by
+        // `_Static_assert`, in Swift by `MemoryLayout` assertions on the
+        // macOS leg). Any field reorder must update all three sides.
+        assert_eq!(std::mem::size_of::<W3PlaceParams>(), 32);
+        assert_eq!(std::mem::size_of::<W3StyleParams>(), 80);
+        assert_eq!(std::mem::align_of::<W3PlaceParams>(), 8);
+        assert_eq!(std::mem::align_of::<W3StyleParams>(), 8);
+        assert_eq!(std::mem::offset_of!(W3PlaceParams, row), 0);
+        assert_eq!(std::mem::offset_of!(W3PlaceParams, column_span), 12);
+        assert_eq!(std::mem::offset_of!(W3PlaceParams, x), 16);
+        assert_eq!(std::mem::offset_of!(W3PlaceParams, y), 24);
+        assert_eq!(std::mem::offset_of!(W3StyleParams, top), 0);
+        assert_eq!(std::mem::offset_of!(W3StyleParams, text_scale), 48);
+        assert_eq!(std::mem::offset_of!(W3StyleParams, horizontal), 56);
+        assert_eq!(std::mem::offset_of!(W3StyleParams, blue), 76);
+    }
 
     #[test]
     fn host_rejects_foreign_sessions_without_changing_lifecycle() {

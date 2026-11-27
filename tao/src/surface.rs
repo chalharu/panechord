@@ -14,7 +14,7 @@ struct Surface {
     /// layer while the readback path never presents, breaking window
     /// composition. Master presented via swap, so it never hit this.
     #[cfg(target_os = "macos")]
-    gl_host: panechord_runtime::MacosGlHost,
+    gl_host: panechord_surface_macos::MacosGlHost,
 }
 
 impl HasDisplayHandle for Surface {
@@ -97,7 +97,7 @@ impl View {
             callback(Rc::new(Surface {
                 window,
                 #[cfg(target_os = "macos")]
-                gl_host: panechord_runtime::MacosGlHost::new(),
+                gl_host: panechord_surface_macos::MacosGlHost::new(),
             }))
         })
     }

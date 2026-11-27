@@ -7,6 +7,11 @@
 //! the borrowed handle outlives the call. Shared by both backends so the
 //! re-parent dance (toolkits recreate the native surface on resize/show)
 //! exists exactly once.
+//!
+//! This lives in its own leaf crate — not in `panechord-runtime` — so the
+//! shared-state core never depends on a platform SDK. Only the macOS
+//! surface paths of the backends depend on this crate.
+#![cfg(target_os = "macos")]
 use std::cell::OnceCell;
 
 use objc2::rc::Retained;

@@ -6,14 +6,10 @@
 //! RefCell borrows. Executors may poll immediately inside `spawn`.
 mod key;
 mod lifecycle;
-#[cfg(target_os = "macos")]
-mod macos_surface;
 mod window;
 pub use backend::Backend;
 pub use key::KeyCode;
 pub use lifecycle::{Lifecycle, RequestGuard, panic_message};
-#[cfg(target_os = "macos")]
-pub use macos_surface::MacosGlHost;
 pub use view::{
     AutomationView, ButtonView, DialogView, LayoutView, ListView, MediaView, MenuView, SelectView,
     TabView, TableView, Template, TextView, View, ViewCore, WeakViewHandle,

@@ -24,6 +24,7 @@ window_clipboard.workspace = true
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2.workspace = true
 objc2-app-kit.workspace = true
+panechord-surface-macos.workspace = true
 
 [target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd", target_os = "dragonfly"))'.dependencies]
 gtk.workspace = true

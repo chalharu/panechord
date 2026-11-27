@@ -1,0 +1,15 @@
+[package]
+authors.workspace = true
+categories = ["gui"]
+description = "Shared macOS GL drawable host for the Panechord GTK and Tao backends"
+edition.workspace = true
+license.workspace = true
+name = "panechord-surface-macos"
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+objc2-app-kit.workspace = true
+raw-window-handle.workspace = true

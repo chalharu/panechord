@@ -9,6 +9,7 @@ members = [
   "markup",
   "native",
   "runtime",
+  "surface-macos",
   "tao",
 ]
 resolver = "3"
@@ -93,6 +94,7 @@ panechord-macros = { path = "macros" }
 panechord-markup = { path = "markup" }
 panechord-native = { path = "native" }
 panechord-runtime = { path = "runtime" }
+panechord-surface-macos = { path = "surface-macos" }
 panechord-tao = { path = "tao" }
 proc-macro-crate = { version = "=3.5.0" }
 proc-macro2 = { version = "=1.0.107" }

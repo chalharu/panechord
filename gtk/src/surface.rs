@@ -30,7 +30,7 @@ struct Surface {
     /// its own composition. Owned here so the borrowed handle outlives
     /// the call.
     #[cfg(target_os = "macos")]
-    gl_host: panechord_runtime::MacosGlHost,
+    gl_host: panechord_surface_macos::MacosGlHost,
 }
 
 #[cfg(target_os = "macos")]
@@ -345,7 +345,7 @@ impl View {
         callback(Rc::new(Surface {
             window: self.0.window.clone(),
             #[cfg(target_os = "macos")]
-            gl_host: panechord_runtime::MacosGlHost::new(),
+            gl_host: panechord_surface_macos::MacosGlHost::new(),
         }))
     }
 

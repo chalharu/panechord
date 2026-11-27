@@ -144,100 +144,46 @@ impl View {
             },
         );
         let node = container.0.clone();
-        let current = Rc::new(RefCell::new(Vec::<Keyed<T>>::new()));
-        let pending = Rc::new(RefCell::new(None));
-        let busy = Rc::new(Cell::new(false));
+        let driver = Rc::new(panechord_runtime::RepeatDriver::new());
         let weak = self.downgrade();
         let key = id.to_owned();
         self.bind(&node, items, move |items| {
-            pending.replace(Some(items));
-            let Some(_guard) = panechord_runtime::ReconcileGuard::enter(&busy) else {
-                return;
-            };
             let Some(view) = weak.upgrade() else { return };
-            loop {
-                let next = pending.borrow_mut().take();
-                let Some(items) = next else { break };
-                if view.0.lifecycle.is_closed() {
-                    break;
-                }
-                if let Err(error) = panechord_runtime::validate_repeat_items(&items) {
-                    view.report_error(error.into());
-                    continue;
-                }
-                let previous = current.replace(items.clone());
-                view.evict_missing(&container, &key, &previous, &items);
-                if !view.mount_new(&container, &key, &template, &previous, &items) {
-                    return;
-                }
-                if !view.reorder_to_source(&container, &key, &items) {
-                    return;
-                }
-            }
+            driver.on_items(
+                items,
+                &key,
+                || view.0.lifecycle.is_closed(),
+                |error| view.report_error(error),
+                |scope| view.evict_scope(&container, &scope),
+                |scope, row| {
+                    view.content(
+                        &container,
+                        &scope,
+                        Binding::constant(Some(row)),
+                        template.clone(),
+                    );
+                },
+                |scopes| view.reorder_scopes(&container, &scopes),
+            );
         });
     }
 
-    /// Drop rows absent from the source, retiring their scopes.
-    fn evict_missing<T: Clone>(
-        &self,
-        container: &Parent,
-        key: &str,
-        previous: &[Keyed<T>],
-        items: &[Keyed<T>],
-    ) {
-        for item in previous {
-            if !items.iter().any(|candidate| candidate == item) {
-                let scope = format!("{key}/{}", item.key);
-                let mut children = container.0.children.take();
-                let removed: Vec<_> = children.extract_if(.., |child| child.id == scope).collect();
-                container.0.children.replace(children);
-                for child in removed {
-                    child.retire();
-                }
-            }
+    /// Drop one row scope absent from the source, retiring its children.
+    fn evict_scope(&self, container: &Parent, scope: &str) {
+        let mut children = container.0.children.take();
+        let removed: Vec<_> = children.extract_if(.., |child| child.id == scope).collect();
+        container.0.children.replace(children);
+        for child in removed {
+            child.retire();
         }
-    }
-
-    /// Mount rows new to the source through the item template. False when the
-    /// view closed mid-pass.
-    fn mount_new<T: Clone + 'static>(
-        &self,
-        container: &Parent,
-        key: &str,
-        template: &Template<T>,
-        previous: &[Keyed<T>],
-        items: &[Keyed<T>],
-    ) -> bool {
-        for item in items {
-            if self.0.lifecycle.is_closed() {
-                return false;
-            }
-            if !previous.iter().any(|candidate| candidate == item) {
-                self.content(
-                    container,
-                    &format!("{key}/{}", item.key),
-                    Binding::constant(Some(item.clone())),
-                    template.clone(),
-                );
-            }
-        }
-        true
     }
 
     /// Reorder child nodes to source order. False when the view closed mid-pass.
-    fn reorder_to_source<T: Clone>(
-        &self,
-        container: &Parent,
-        key: &str,
-        items: &[Keyed<T>],
-    ) -> bool {
+    fn reorder_scopes(&self, container: &Parent, scopes: &[String]) -> bool {
         if self.0.lifecycle.is_closed() {
             return false;
         }
-        let ordered = items
-            .iter()
-            .filter_map(|item| self.find(&format!("{key}/{}", item.key)))
-            .collect();
+        let ordered = scopes.iter().filter_map(|scope| self.find(scope)).collect();
         container.0.children.replace(ordered);
         true
     }

@@ -127,6 +127,90 @@ impl Drop for ReconcileGuard<'_> {
     }
 }
 
+/// Shared `Repeat` reconciler state machine for the GTK/Tao/macOS backends.
+///
+/// Backends own only the mount primitives (layout container, subscription,
+/// native evict/mount/reorder); gap validation, pending/busy coalescing,
+/// key validation, diffing and pass control flow live here exactly once.
+/// `mount_one` receives one owned row model per new key; `reorder_all`
+/// receives the source-order scopes.
+#[doc(hidden)]
+pub struct RepeatDriver<T: Clone + 'static> {
+    current: std::cell::RefCell<Vec<Keyed<T>>>,
+    pending: std::cell::RefCell<Option<Vec<Keyed<T>>>>,
+    busy: std::cell::Cell<bool>,
+}
+
+impl<T: Clone + 'static> RepeatDriver<T> {
+    pub fn new() -> Self {
+        Self {
+            current: std::cell::RefCell::new(Vec::new()),
+            pending: std::cell::RefCell::new(None),
+            busy: std::cell::Cell::new(false),
+        }
+    }
+
+    pub fn on_items(
+        &self,
+        items: Vec<Keyed<T>>,
+        key: &str,
+        is_closed: impl Fn() -> bool,
+        report_error: impl Fn(String),
+        evict_one: impl Fn(String),
+        mount_one: impl Fn(String, Keyed<T>),
+        reorder_all: impl Fn(Vec<String>) -> bool,
+    ) {
+        self.pending.replace(Some(items));
+        let Some(_guard) = ReconcileGuard::enter(&self.busy) else {
+            return;
+        };
+        loop {
+            let next = self.pending.borrow_mut().take();
+            let Some(items) = next else { break };
+            if is_closed() {
+                break;
+            }
+            if let Err(error) = validate_repeat_items(&items) {
+                report_error(error.into());
+                continue;
+            }
+            let previous = self.current.replace(items.clone());
+            for item in &previous {
+                if !items.iter().any(|candidate| candidate == item) {
+                    evict_one(format!("{key}/{}", item.key));
+                }
+            }
+            let mut mounted = true;
+            for item in &items {
+                if is_closed() {
+                    mounted = false;
+                    break;
+                }
+                if !previous.iter().any(|candidate| candidate == item) {
+                    mount_one(format!("{key}/{}", item.key), item.clone());
+                }
+            }
+            if !mounted {
+                return;
+            }
+            if !reorder_all(
+                items
+                    .iter()
+                    .map(|item| format!("{key}/{}", item.key))
+                    .collect(),
+            ) {
+                return;
+            }
+        }
+    }
+}
+
+impl<T: Clone + 'static> Default for RepeatDriver<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub fn tab_page_changes<S: Clone + 'static>(
     previous: &[Keyed<S>],
     next: &[Keyed<S>],

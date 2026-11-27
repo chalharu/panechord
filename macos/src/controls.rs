@@ -85,23 +85,25 @@ impl View {
             driver.on_items(
                 items,
                 &key,
-                || view.0.lifecycle.is_closed(),
-                |error| view.report_error(error),
-                |scope| view.remove(&scope),
-                |scope, row| {
-                    view.content(
-                        &container,
-                        &scope,
-                        Binding::constant(Some(row)),
-                        template.clone(),
-                    );
-                },
-                |scopes| {
-                    if view.0.lifecycle.is_closed() {
-                        return false;
-                    }
-                    view.set(&key, &serde_json::to_string(&scopes).unwrap(), 16);
-                    true
+                panechord_runtime::RepeatHooks {
+                    is_closed: || view.0.lifecycle.is_closed(),
+                    report_error: |error| view.report_error(error),
+                    evict_one: |scope: String| view.remove(&scope),
+                    mount_one: |scope: String, row| {
+                        view.content(
+                            &container,
+                            &scope,
+                            Binding::constant(Some(row)),
+                            template.clone(),
+                        );
+                    },
+                    reorder_all: |scopes: Vec<String>| {
+                        if view.0.lifecycle.is_closed() {
+                            return false;
+                        }
+                        view.set(&key, &serde_json::to_string(&scopes).unwrap(), 16);
+                        true
+                    },
                 },
             );
         });

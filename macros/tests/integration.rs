@@ -88,6 +88,7 @@ fn meter(view: &fake::View, parent: &fake::Parent, id: &str, value: Binding<f64>
 // (copied verbatim into downstream fixture crates by `cargo_ui.rs`), so the
 // trait boilerplate exists exactly once.
 #[path = "compile_fail/support.rs"]
+#[allow(dead_code)] // Model/NoTasks/model()/output() serve the fixture crates, not this suite.
 mod support;
 use support::fake;
 struct Exec(futures::executor::LocalSpawner);

@@ -12,9 +12,6 @@ use panechord_runtime::{Shortcut, ShortcutKey, ShortcutTarget};
 /// must stay exactly [`panechord_runtime::CANONICAL_SPECIAL_KEYS`]
 /// (pinned by `special_keys_track_the_canonical_list`), the runtime only
 /// validates canonical names during parsing.
-
-/// Canonical key -> muda `Code` name. Backend-owned copy; the runtime only
-/// validates canonical names during parsing.
 const KEYS: &[(&str, &str)] = &[
     ("Comma", "Comma"),
     ("Enter", "Enter"),

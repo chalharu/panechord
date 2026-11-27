@@ -145,6 +145,18 @@ pub struct RepeatDriver<T: Clone + 'static> {
     busy: std::cell::Cell<bool>,
 }
 
+/// Backend mount primitives consumed by [`RepeatDriver::on_items`].
+/// Grouped so the driver entry point stays within the argument-count
+/// budget instead of taking one parameter per primitive.
+#[doc(hidden)]
+pub struct RepeatHooks<C, R, E, M, O> {
+    pub is_closed: C,
+    pub report_error: R,
+    pub evict_one: E,
+    pub mount_one: M,
+    pub reorder_all: O,
+}
+
 impl<T: Clone + 'static> RepeatDriver<T> {
     pub fn new() -> Self {
         Self {
@@ -154,16 +166,25 @@ impl<T: Clone + 'static> RepeatDriver<T> {
         }
     }
 
-    pub fn on_items(
+    pub fn on_items<C, R, E, M, O>(
         &self,
         items: Vec<Keyed<T>>,
         key: &str,
-        is_closed: impl Fn() -> bool,
-        report_error: impl Fn(String),
-        evict_one: impl Fn(String),
-        mount_one: impl Fn(String, Keyed<T>),
-        reorder_all: impl Fn(Vec<String>) -> bool,
-    ) {
+        hooks: RepeatHooks<C, R, E, M, O>,
+    ) where
+        C: Fn() -> bool,
+        R: Fn(String),
+        E: Fn(String),
+        M: Fn(String, Keyed<T>),
+        O: Fn(Vec<String>) -> bool,
+    {
+        let RepeatHooks {
+            is_closed,
+            report_error,
+            evict_one,
+            mount_one,
+            reorder_all,
+        } = hooks;
         self.pending.replace(Some(items));
         let Some(_guard) = ReconcileGuard::enter(&self.busy) else {
             return;

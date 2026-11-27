@@ -213,7 +213,7 @@ mod tests {
         );
         assert_eq!(
             Shortcut::parse("Primary+Comma").unwrap().key_kind(),
-            ShortcutKey::Special(&"Comma")
+            ShortcutKey::Special("Comma")
         );
         for name in CANONICAL_SPECIAL_KEYS {
             assert!(Shortcut::parse(name).is_ok(), "{name}");

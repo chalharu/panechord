@@ -23,12 +23,10 @@ pub(crate) type ViewportHook = Rc<dyn Fn(f32, f32)>;
 struct Surface {
     window: gtk4::Window,
     /// Private GL drawable host (macOS): binding an NSOpenGLContext to the
-    /// toolkit-owned contentView hijacks its layer, and the window loses
-    /// composition (transparent window) once the swapchain is never
-    /// presented, as since the readback switch in b4d305ea. The context
-    /// lives on this hidden subview instead; the toolkit view keeps only
-    /// its own composition. Owned here so the borrowed handle outlives
-    /// the call.
+    /// toolkit-owned contentView hijacks its layer and breaks composition
+    /// once the swapchain is never presented. The context lives on this
+    /// hidden subview instead; the toolkit view keeps only its own
+    /// composition. Owned here so the borrowed handle outlives the call.
     #[cfg(target_os = "macos")]
     gl_host: panechord_surface_macos::MacosGlHost,
 }
@@ -345,7 +343,7 @@ impl View {
         callback(Rc::new(Surface {
             window: self.0.window.clone(),
             #[cfg(target_os = "macos")]
-            gl_host: panechord_surface_macos::MacosGlHost::new(),
+            gl_host: panechord_surface_macos::MacosGlHost::default(),
         }))
     }
 

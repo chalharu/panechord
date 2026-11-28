@@ -78,8 +78,7 @@ impl<S: Clone + 'static> PartialEq for Keyed<S> {
     }
 }
 
-#[doc(hidden)]
-pub fn validate_repeat_items<T: Clone + 'static>(items: &[Keyed<T>]) -> Result<(), &'static str> {
+fn validate_repeat_items<T: Clone + 'static>(items: &[Keyed<T>]) -> Result<(), &'static str> {
     let mut keys = std::collections::HashSet::new();
     if items.len() > 256
         || items.iter().any(|item| {
@@ -141,9 +140,9 @@ pub struct RepeatDriver<T: Clone + 'static> {
     busy: std::cell::Cell<bool>,
 }
 
-/// Backend mount primitives consumed by [`RepeatDriver::on_items`].
-/// Grouped so the driver entry point stays within the argument-count
-/// budget instead of taking one parameter per primitive.
+/// The backend half of [`RepeatDriver::on_items`]: lifecycle check,
+/// error sink, and the three native mount primitives. One struct keeps
+/// the driver entry within the argument-count budget.
 #[doc(hidden)]
 pub struct RepeatHooks<C, R, E, M, O> {
     pub is_closed: C,
@@ -154,14 +153,6 @@ pub struct RepeatHooks<C, R, E, M, O> {
 }
 
 impl<T: Clone + 'static> RepeatDriver<T> {
-    pub fn new() -> Self {
-        Self {
-            current: std::cell::RefCell::new(Vec::new()),
-            pending: std::cell::RefCell::new(None),
-            busy: std::cell::Cell::new(false),
-        }
-    }
-
     pub fn on_items<C, R, E, M, O>(
         &self,
         items: Vec<Keyed<T>>,
@@ -223,7 +214,11 @@ impl<T: Clone + 'static> RepeatDriver<T> {
 
 impl<T: Clone + 'static> Default for RepeatDriver<T> {
     fn default() -> Self {
-        Self::new()
+        Self {
+            current: std::cell::RefCell::new(Vec::new()),
+            pending: std::cell::RefCell::new(None),
+            busy: std::cell::Cell::new(false),
+        }
     }
 }
 

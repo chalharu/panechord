@@ -85,9 +85,6 @@ objc2-app-kit = { default-features = false, features = [
   "objc2-core-foundation",
   "objc2-quartz-core",
 ], version = "=0.3.2" }
-objc2-foundation = { default-features = false, features = [
-  "NSString",
-], version = "=0.3.2" }
 panechord-gtk = { path = "gtk" }
 panechord-macos = { path = "macos" }
 panechord-macros = { path = "macros" }

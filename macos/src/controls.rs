@@ -79,7 +79,7 @@ impl View {
                 gap,
             },
         );
-        let driver = Rc::new(panechord_runtime::RepeatDriver::new());
+        let driver = Rc::new(panechord_runtime::RepeatDriver::default());
         let key = id.to_owned();
         self.bind(id, items, move |view, items| {
             driver.on_items(

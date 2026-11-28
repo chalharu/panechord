@@ -12,7 +12,7 @@ struct Surface {
     /// Private GL drawable host (macOS): same reason as the GTK backend —
     /// binding an NSOpenGLContext to the toolkit-owned view hijacks its
     /// layer while the readback path never presents, breaking window
-    /// composition. Master presented via swap, so it never hit this.
+    /// composition.
     #[cfg(target_os = "macos")]
     gl_host: panechord_surface_macos::MacosGlHost,
 }
@@ -97,7 +97,7 @@ impl View {
             callback(Rc::new(Surface {
                 window,
                 #[cfg(target_os = "macos")]
-                gl_host: panechord_surface_macos::MacosGlHost::new(),
+                gl_host: panechord_surface_macos::MacosGlHost::default(),
             }))
         })
     }
@@ -179,6 +179,13 @@ mod input_tests {
             (crate::NativeKeyCode::ShiftRight, KeyCode::ShiftRight),
             (crate::NativeKeyCode::F35, KeyCode::F35),
             (crate::NativeKeyCode::IntlYen, KeyCode::IntlYen),
+            // Dropped by the old hand list, now mapped through the runtime table.
+            (crate::NativeKeyCode::Fn, KeyCode::Fn),
+            // Still unmapped names fall through to Unidentified.
+            (
+                crate::NativeKeyCode::Unidentified(tao::keyboard::NativeKeyCode::Unidentified),
+                KeyCode::Unidentified,
+            ),
         ] {
             assert_eq!(View::key_code(native), common);
         }

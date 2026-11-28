@@ -102,7 +102,7 @@ impl View {
             },
         );
         let native = self.widget::<gtk4::Box>(id).unwrap();
-        let driver = Rc::new(panechord_runtime::RepeatDriver::new());
+        let driver = Rc::new(panechord_runtime::RepeatDriver::default());
         let weak = self.downgrade();
         let key = id.to_owned();
         self.keep_at(

@@ -144,7 +144,7 @@ impl View {
             },
         );
         let node = container.0.clone();
-        let driver = Rc::new(panechord_runtime::RepeatDriver::new());
+        let driver = Rc::new(panechord_runtime::RepeatDriver::default());
         let weak = self.downgrade();
         let key = id.to_owned();
         self.bind(&node, items, move |items| {

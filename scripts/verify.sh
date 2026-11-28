@@ -26,10 +26,10 @@ native_test() {
 section_lint() {
     cargo fmt -p panechord -p panechord-runtime -p panechord-markup -p panechord-macros \
         -p panechord-gtk -p panechord-tao -p panechord-macos -p panechord-demo \
-        -p panechord-library -- --check
+        -p panechord-library -p panechord-surface-macos -- --check
     cargo clippy --locked -p panechord -p panechord-runtime -p panechord-markup -p panechord-macros \
         -p panechord-gtk -p panechord-tao -p panechord-macos -p panechord-demo \
-        -p panechord-library --all-targets -- -D warnings
+        -p panechord-library -p panechord-surface-macos --all-targets -- -D warnings
     cargo clippy --locked -p panechord-demo --all-targets --no-default-features --features backend-tao -- -D warnings
     cargo clippy --locked -p panechord-library --all-targets --no-default-features --features backend-tao -- -D warnings
 }

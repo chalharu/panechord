@@ -48,10 +48,9 @@ pub fn model() -> Store<Model> {
 
 // Backend-free construction probe shared by the macro test suites.
 // `integration.rs` includes this file (`#[path] mod support`) instead of
-// keeping a second copy: the trait boilerplate below is identical, only
-// the recording interior differs, and the richer `State` version here is
-// the canonical one. Template mounting is eager for the requested initial
-// viewport; production recycling/scroll behavior belongs to backend tests.
+// keeping a second copy of the `fake` backend below. Template mounting is
+// eager for the requested initial viewport; production recycling/scroll
+// behavior belongs to backend tests.
 //
 // Resolution note: the inherent `typed_menu` below records `String`
 // menus, so generated `String`-menu code binds to it; every other
@@ -478,14 +477,12 @@ pub mod fake {
     impl MenuView for View {
         fn typed_menu<A: Clone + 'static>(
             &self,
-            _: &str,
-            _: Binding<String>,
+            id: &str,
+            title: Binding<String>,
             items: Binding<Vec<MenuItem<A>>>,
             dispatch: Rc<dyn Fn(A) -> bool>,
         ) {
-            for item in items.get() {
-                dispatch(item.argument);
-            }
+            View::typed_menu(self, id, title, items, dispatch)
         }
         fn hierarchical_menu<A: Clone + PartialEq + 'static>(
             &self,

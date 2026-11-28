@@ -1,11 +1,9 @@
 //! AppKit shortcut lowering (backend-owned).
 //!
 //! The runtime only parses the portable grammar (`Shortcut::parse`) and
-//! exposes the canonical key plus the raw modifier bitmap. Lowering that to
-//! the Swift bridge encoding is this backend's knowledge, not the shared
-//! layer's: previously `Shortcut::to_appkit`/`to_muda*` lived in
-//! `panechord-runtime`, so the shared crate depended on backend vocabulary
-//! (DIP violation).
+//! exposes the canonical key plus the raw modifier bitmap. Lowering that
+//! to the Swift bridge encoding is this backend's knowledge, not the
+//! shared layer's (DIP: the runtime never names bridge vocabulary).
 //!
 //! [`to_bridge`] produces the string the Swift bridge (`w3_shortcut`)
 //! consumes. It shares muda's textual shape because the bridge parser was
@@ -71,6 +69,10 @@ mod tests {
                 KEYS.iter().any(|(key, _)| key == name),
                 "{name} must have a bridge token"
             );
+        }
+        for (name, token) in KEYS {
+            let shortcut = Shortcut::parse(name).unwrap();
+            assert_eq!(to_bridge(&shortcut), *token);
         }
     }
 

@@ -11,9 +11,9 @@ python3 ../gui/frontends/check_frontend_policy.py
 
 cargo fmt -p panechord -p panechord-runtime -p panechord-markup -p panechord-macros \
     -p panechord-gtk -p panechord-tao -p panechord-macos -p panechord-demo \
-    -p panechord-library -- --check
+    -p panechord-library -p panechord-surface-macos -- --check
 cargo clippy --locked -p panechord -p panechord-runtime -p panechord-markup -p panechord-macros \
-    -p panechord-macos -p panechord-library \
+    -p panechord-macos -p panechord-surface-macos -p panechord-library \
     --all-targets --no-default-features --features backend-macos -- -D warnings
 cargo test --locked -p panechord-runtime -p panechord-markup -p panechord-macros \
     -p panechord-macos -p panechord-library \

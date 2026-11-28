@@ -4,9 +4,7 @@
 //! layer, and the window loses composition (transparent window) once the
 //! swapchain is never presented. The context lives on this hidden subview
 //! instead; the toolkit view keeps only its own composition. Owned here so
-//! the borrowed handle outlives the call. Shared by both backends so the
-//! re-parent dance (toolkits recreate the native surface on resize/show)
-//! exists exactly once.
+//! the borrowed handle outlives the call.
 //!
 //! This lives in its own leaf crate — not in `panechord-runtime` — so the
 //! shared-state core never depends on a platform SDK. Only the macOS
@@ -23,15 +21,9 @@ pub struct MacosGlHost {
 }
 
 impl MacosGlHost {
-    pub fn new() -> Self {
-        Self {
-            cell: OnceCell::new(),
-        }
-    }
-
     /// Stable AppKit window handle for `content`, re-parenting the private
     /// hidden host when the toolkit recreates the native surface underneath
-    /// us (the old direct-render path re-resolved handles each tick).
+    /// us.
     pub fn handle<'a>(
         &'a self,
         content: &Retained<NSView>,
@@ -69,6 +61,8 @@ impl MacosGlHost {
 
 impl Default for MacosGlHost {
     fn default() -> Self {
-        Self::new()
+        Self {
+            cell: OnceCell::new(),
+        }
     }
 }

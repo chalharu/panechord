@@ -1,10 +1,9 @@
 //! GTK-native menu shortcut rendering (backend-owned).
 //!
 //! The runtime only parses the portable grammar (`Shortcut::parse`) and
-//! exposes the canonical key plus the raw modifier bitmap. How that lowers to
-//! GTK keyval trigger strings is this backend's knowledge, not the shared
-//! layer's: previously `Shortcut::to_gtk*` lived in `panechord-runtime`, so
-//! the shared crate depended on backend vocabulary (DIP violation).
+//! exposes the canonical key plus the raw modifier bitmap. Lowering that
+//! to GTK keyval trigger strings is this backend's knowledge, not the
+//! shared layer's (DIP: the runtime never names GTK vocabulary).
 
 use panechord_runtime::{Shortcut, ShortcutKey, ShortcutTarget};
 

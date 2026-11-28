@@ -2,6 +2,8 @@ use std::{env, path::PathBuf, process::Command};
 
 fn main() {
     println!("cargo:rerun-if-changed=native/AppKit.swift");
+    println!("cargo:rerun-if-changed=native/w3_types.h");
+    println!("cargo:rerun-if-changed=native/w3_bridging.h");
     if env::var("CARGO_CFG_TARGET_OS").unwrap() != "macos" {
         return;
     }
@@ -25,6 +27,8 @@ fn main() {
     // Keep such runs on a dedicated directory: Apple's Swift emits raw profile
     // v10, current Rust expects v11. Unset keeps the plain optimized bridge.
     let swift_coverage = env::var("PANECHORD_SWIFT_COVERAGE").as_deref() == Ok("1");
+    let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    let bridging = manifest.join("native").join("w3_bridging.h");
     let mut command = Command::new("xcrun");
     command
         .args([
@@ -35,8 +39,10 @@ fn main() {
             "-emit-library",
             "-module-name",
             "PanechordAppKit",
-            "-target",
+            "-import-objc-header",
         ])
+        .arg(&bridging)
+        .args(["-target"])
         .arg(format!("{arch}-apple-macosx{minimum}"));
     if swift_coverage {
         command.args(["-profile-generate", "-profile-coverage-mapping"]);

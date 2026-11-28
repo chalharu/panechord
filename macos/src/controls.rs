@@ -79,53 +79,33 @@ impl View {
                 gap,
             },
         );
-        let current = Rc::new(RefCell::new(Vec::<Keyed<T>>::new()));
-        let pending = Rc::new(RefCell::new(None));
-        let busy = Rc::new(Cell::new(false));
+        let driver = Rc::new(panechord_runtime::RepeatDriver::default());
         let key = id.to_owned();
         self.bind(id, items, move |view, items| {
-            pending.replace(Some(items));
-            let Some(_guard) = panechord_runtime::ReconcileGuard::enter(&busy) else {
-                return;
-            };
-            loop {
-                let next = pending.borrow_mut().take();
-                let Some(items) = next else { break };
-                if view.0.lifecycle.is_closed() {
-                    break;
-                }
-                if let Err(error) = panechord_runtime::validate_repeat_items(&items) {
-                    view.report_error(error.into());
-                    continue;
-                }
-                let previous = current.replace(items.clone());
-                for item in &previous {
-                    if !items.iter().any(|candidate| candidate == item) {
-                        view.remove(&format!("{key}/{}", item.key));
-                    }
-                }
-                for item in &items {
-                    if view.0.lifecycle.is_closed() {
-                        return;
-                    }
-                    if !previous.iter().any(|candidate| candidate == item) {
+            driver.on_items(
+                items,
+                &key,
+                panechord_runtime::RepeatHooks {
+                    is_closed: || view.0.lifecycle.is_closed(),
+                    report_error: |error| view.report_error(error),
+                    evict_one: |scope: String| view.remove(&scope),
+                    mount_one: |scope: String, row| {
                         view.content(
                             &container,
-                            &format!("{key}/{}", item.key),
-                            Binding::constant(Some(item.clone())),
+                            &scope,
+                            Binding::constant(Some(row)),
                             template.clone(),
                         );
-                    }
-                }
-                if view.0.lifecycle.is_closed() {
-                    return;
-                }
-                let ordered: Vec<_> = items
-                    .iter()
-                    .map(|item| format!("{key}/{}", item.key))
-                    .collect();
-                view.set(&key, &serde_json::to_string(&ordered).unwrap(), 16);
-            }
+                    },
+                    reorder_all: |scopes: Vec<String>| {
+                        if view.0.lifecycle.is_closed() {
+                            return false;
+                        }
+                        view.set(&key, &serde_json::to_string(&scopes).unwrap(), 16);
+                        true
+                    },
+                },
+            );
         });
     }
 

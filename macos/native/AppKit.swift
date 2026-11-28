@@ -2,6 +2,17 @@ import AppKit
 
 public typealias Callback = @convention(c) (UnsafeMutableRawPointer?, Int32, UnsafePointer<UInt8>?, Int, UnsafePointer<UInt8>?, Int) -> Void
 
+/// Pins the canonical FFI layouts from `w3_types.h`. Swift imports the C
+/// structs via the bridging header, so any drift from the Rust `#[repr(C)]`
+/// mirrors (or the C header itself) fails fast here instead of corrupting
+/// style/placement payloads silently.
+func checkW3Layout() {
+    precondition(MemoryLayout<W3PlaceParams>.size == 32, "W3PlaceParams layout changed")
+    precondition(MemoryLayout<W3PlaceParams>.alignment == 8, "W3PlaceParams alignment changed")
+    precondition(MemoryLayout<W3StyleParams>.size == 80, "W3StyleParams layout changed")
+    precondition(MemoryLayout<W3StyleParams>.alignment == 8, "W3StyleParams alignment changed")
+}
+
 func string(_ bytes: UnsafePointer<UInt8>?, _ count: Int) -> String {
     guard let bytes = bytes else { return "" }
     return String(decoding: UnsafeBufferPointer(start: bytes, count: count), as: UTF8.self)
@@ -1672,6 +1683,7 @@ final class Host: NSObject, NSWindowDelegate, NSTextFieldDelegate, NSTabViewDele
 
 @_cdecl("w3_create") @MainActor
 public func create(_ callback: Callback?, _ context: UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer {
+    checkW3Layout()
     let app = NSApplication.shared
     app.setActivationPolicy(.regular)
     let value = Host()
@@ -1943,7 +1955,14 @@ public func addGrid(_ pointer: UnsafeMutableRawPointer, _ parentBytes: UnsafePoi
 
 @_cdecl("w3_place") @MainActor
 public func place(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<UInt8>?, _ idCount: Int,
-           _ row: Int32, _ column: Int32, _ rowSpan: Int32, _ columnSpan: Int32, _ x: Double, _ y: Double) {
+           _ params: UnsafePointer<W3PlaceParams>?) {
+    guard let p = params?.pointee else { return }
+    let row = p.row
+    let column = p.column
+    let rowSpan = p.row_span
+    let columnSpan = p.column_span
+    let x = p.x
+    let y = p.y
     let value = host(pointer)
     let id = string(idBytes, idCount)
     guard let parent = value.parents[id] else { return }
@@ -2238,9 +2257,21 @@ public func image(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<U
 
 @_cdecl("w3_style") @MainActor
 public func style(_ pointer: UnsafeMutableRawPointer, _ idBytes: UnsafePointer<UInt8>?, _ idCount: Int,
-           _ top: Double, _ right: Double, _ bottom: Double, _ left: Double,
-           _ width: Double, _ height: Double, _ horizontal: Int32, _ vertical: Int32,
-           _ textRole: Int32, _ textScale: Double, _ red: Int32, _ green: Int32, _ blue: Int32) {
+           _ params: UnsafePointer<W3StyleParams>?) {
+    guard let p = params?.pointee else { return }
+    let top = p.top
+    let right = p.right
+    let bottom = p.bottom
+    let left = p.left
+    let width = p.width
+    let height = p.height
+    let horizontal = p.horizontal
+    let vertical = p.vertical
+    let textRole = p.text_role
+    let textScale = p.text_scale
+    let red = p.red
+    let green = p.green
+    let blue = p.blue
     let value = host(pointer)
     let id = string(idBytes, idCount)
     guard let frame = value.frames[id] else { return }

@@ -102,97 +102,43 @@ impl View {
             },
         );
         let native = self.widget::<gtk4::Box>(id).unwrap();
-        let current = Rc::new(RefCell::new(Vec::<Keyed<T>>::new()));
-        let pending = Rc::new(RefCell::new(None));
-        let busy = Rc::new(Cell::new(false));
+        let driver = Rc::new(panechord_runtime::RepeatDriver::default());
         let weak = self.downgrade();
         let key = id.to_owned();
         self.keep_at(
             id,
             items.subscribe(Rc::new(move |items| {
-                pending.replace(Some(items));
-                let Some(_guard) = panechord_runtime::ReconcileGuard::enter(&busy) else {
-                    return;
-                };
                 let Some(view) = weak.upgrade() else { return };
-                loop {
-                    let next = pending.borrow_mut().take();
-                    let Some(items) = next else { break };
-                    if view.0.lifecycle.is_closed() {
-                        break;
-                    }
-                    if let Err(error) = panechord_runtime::validate_repeat_items(&items) {
-                        view.report_error(error.into());
-                        continue;
-                    }
-                    let previous = current.replace(items.clone());
-                    view.evict_missing(&key, &previous, &items);
-                    if !view.mount_new(&container, &key, &template, &previous, &items) {
-                        return;
-                    }
-                    if !view.reorder_to_source(&key, &native, &items) {
-                        return;
-                    }
-                }
+                driver.on_items(
+                    items,
+                    &key,
+                    panechord_runtime::RepeatHooks {
+                        is_closed: || view.0.lifecycle.is_closed(),
+                        report_error: |error| view.report_error(error),
+                        evict_one: |scope: String| view.cleanup(&scope),
+                        mount_one: |scope: String, row| {
+                            view.content(
+                                &container,
+                                &scope,
+                                Binding::constant(Some(row)),
+                                template.clone(),
+                            );
+                        },
+                        reorder_all: |scopes: Vec<String>| view.reorder_scopes(&native, &scopes),
+                    },
+                );
             })),
         );
     }
 
-    /// Drop rows absent from the source.
-    fn evict_missing<T: Clone>(&self, key: &str, previous: &[Keyed<T>], items: &[Keyed<T>]) {
-        for item in previous {
-            if !items.iter().any(|candidate| candidate == item) {
-                self.cleanup(&format!("{key}/{}", item.key));
-            }
-        }
-    }
-
-    /// Mount rows new to the source through the item template. False when the
-    /// view closed mid-pass.
-    fn mount_new<T: Clone + 'static>(
-        &self,
-        container: &Parent,
-        key: &str,
-        template: &Template<T>,
-        previous: &[Keyed<T>],
-        items: &[Keyed<T>],
-    ) -> bool {
-        for item in items {
-            if self.0.lifecycle.is_closed() {
-                return false;
-            }
-            if !previous.iter().any(|candidate| candidate == item) {
-                self.content(
-                    container,
-                    &format!("{key}/{}", item.key),
-                    Binding::constant(Some(item.clone())),
-                    template.clone(),
-                );
-            }
-        }
-        true
-    }
-
     /// Reorder native rows to source order. False when the view closed mid-pass.
-    fn reorder_to_source<T: Clone>(
-        &self,
-        key: &str,
-        native: &gtk4::Box,
-        items: &[Keyed<T>],
-    ) -> bool {
+    fn reorder_scopes(&self, native: &gtk4::Box, scopes: &[String]) -> bool {
         let mut after: Option<gtk4::Widget> = None;
-        for item in items {
+        for scope in scopes {
             if self.0.lifecycle.is_closed() {
                 return false;
             }
-            let frame = self
-                .0
-                .nodes
-                .borrow()
-                .get(&format!("{key}/{}", item.key))
-                .unwrap()
-                .frame
-                .clone();
+            let frame = self.0.nodes.borrow().get(scope).unwrap().frame.clone();
             native.reorder_child_after(&frame, after.as_ref());
             after = Some(frame.upcast());
         }
@@ -862,6 +808,31 @@ impl View {
         });
     }
 
+    /// Shared Tab/Navigation selection validator: both containers select
+    /// pages through the same `control_actions` contract, only the native
+    /// container differs.
+    fn tab_select_action(
+        selected: Binding<String>,
+        state: Rc<Tab>,
+    ) -> Rc<dyn Fn(Input) -> Result<(), String>> {
+        Rc::new(move |input| {
+            let Input::Select(value) = input else {
+                return Err("wrong control operation".into());
+            };
+            if !selected.is_writable() {
+                return Err("read-only control".into());
+            }
+            validate_choices(&state.pages.borrow(), &value).map_err(str::to_owned)?;
+            let index = state
+                .pages
+                .borrow()
+                .iter()
+                .position(|page| page.id == value)
+                .ok_or("unknown selected choice")?;
+            state.select_index(index as u32);
+            Ok(())
+        })
+    }
     pub fn tab(&self, parent: &Parent, id: &str, selected: Binding<String>) -> Parent {
         let notebook = gtk4::Notebook::new();
         notebook.set_scrollable(true);
@@ -905,26 +876,10 @@ impl View {
                 state.apply();
             }
         });
-        self.0.control_actions.borrow_mut().insert(
-            id.into(),
-            Rc::new(move |input| {
-                let Input::Select(value) = input else {
-                    return Err("wrong control operation".into());
-                };
-                if !selected.is_writable() {
-                    return Err("read-only control".into());
-                }
-                validate_choices(&state.pages.borrow(), &value).map_err(str::to_owned)?;
-                let index = state
-                    .pages
-                    .borrow()
-                    .iter()
-                    .position(|page| page.id == value)
-                    .ok_or("unknown selected choice")?;
-                state.select_index(index as u32);
-                Ok(())
-            }),
-        );
+        self.0
+            .control_actions
+            .borrow_mut()
+            .insert(id.into(), Self::tab_select_action(selected, state));
         Parent::new(&notebook, ParentKind::Notebook)
     }
     pub fn navigation(&self, parent: &Parent, id: &str, selected: Binding<String>) -> Parent {
@@ -974,26 +929,10 @@ impl View {
                 state.apply();
             }
         });
-        self.0.control_actions.borrow_mut().insert(
-            id.into(),
-            Rc::new(move |input| {
-                let Input::Select(value) = input else {
-                    return Err("wrong control operation".into());
-                };
-                if !selected.is_writable() {
-                    return Err("read-only control".into());
-                }
-                validate_choices(&state.pages.borrow(), &value).map_err(str::to_owned)?;
-                let index = state
-                    .pages
-                    .borrow()
-                    .iter()
-                    .position(|page| page.id == value)
-                    .ok_or("unknown selected choice")?;
-                state.select_index(index as u32);
-                Ok(())
-            }),
-        );
+        self.0
+            .control_actions
+            .borrow_mut()
+            .insert(id.into(), Self::tab_select_action(selected, state));
         Parent::new(&stack, ParentKind::PageStack)
     }
     pub fn tab_position(

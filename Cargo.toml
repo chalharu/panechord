@@ -9,6 +9,7 @@ members = [
   "markup",
   "native",
   "runtime",
+  "surface-macos",
   "tao",
 ]
 resolver = "3"
@@ -84,15 +85,13 @@ objc2-app-kit = { default-features = false, features = [
   "objc2-core-foundation",
   "objc2-quartz-core",
 ], version = "=0.3.2" }
-objc2-foundation = { default-features = false, features = [
-  "NSString",
-], version = "=0.3.2" }
 panechord-gtk = { path = "gtk" }
 panechord-macos = { path = "macos" }
 panechord-macros = { path = "macros" }
 panechord-markup = { path = "markup" }
 panechord-native = { path = "native" }
 panechord-runtime = { path = "runtime" }
+panechord-surface-macos = { path = "surface-macos" }
 panechord-tao = { path = "tao" }
 proc-macro-crate = { version = "=3.5.0" }
 proc-macro2 = { version = "=1.0.107" }

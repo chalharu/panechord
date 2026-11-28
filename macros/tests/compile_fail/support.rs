@@ -46,6 +46,16 @@ pub fn model() -> Store<Model> {
     )
 }
 
+// Backend-free construction probe shared by the macro test suites.
+// `integration.rs` includes this file (`#[path] mod support`) instead of
+// keeping a second copy of the `fake` backend below. Template mounting is
+// eager for the requested initial viewport; production recycling/scroll
+// behavior belongs to backend tests.
+//
+// Resolution note: the inherent `typed_menu` below records `String`
+// menus, so generated `String`-menu code binds to it; every other
+// argument type falls through to the `MenuView` trait method, which
+// dispatches (this is what the `typed-menu-ok` fixture probe relies on).
 // Only the methods emitted by these fixtures; no GTK/Tao or permissive generics.
 // The shared capability traits are implemented so the generated screen bounds
 // on abstractions (`Backend::View` + the `View` contract), exactly like a real
@@ -60,62 +70,189 @@ pub mod fake {
         Table, TableSelection, TableView, TextView, UiHost, ViewCore, Viewport, WeakViewHandle,
         WindowHooks, WindowHost,
     };
+    use std::collections::BTreeMap;
 
-    #[derive(Clone)]
+    type Template<T> = Rc<dyn Fn(&View, &Parent, &str, Store<T>)>;
+
+    #[derive(Clone, Default)]
     pub struct Parent;
-    #[derive(Clone)]
-    pub struct View(Rc<RefCell<String>>);
-    #[derive(Clone)]
-    pub struct Weak(std::rc::Weak<RefCell<String>>);
 
-    impl WeakViewHandle for Weak {
-        type View = View;
-        fn upgrade(&self) -> Option<View> {
-            self.0.upgrade().map(View)
-        }
+    #[derive(Default)]
+    pub struct State {
+        pub title: Option<Binding<String>>,
+        pub texts: BTreeMap<String, Binding<String>>,
+        pub commands: BTreeMap<String, Command>,
+        pub values: BTreeMap<String, Binding<f64>>,
+        pub viewports: BTreeMap<String, Binding<Viewport>>,
+        pub layouts: BTreeMap<String, Layout>,
+        pub styles: BTreeMap<String, Style>,
+        pub menus: BTreeMap<String, Binding<Vec<MenuItem>>>,
+        pub dispatch: BTreeMap<String, Rc<dyn Fn(String) -> bool>>,
+        pub tokens: Vec<Subscription>,
+        pub close: Option<Rc<dyn Fn()>>,
     }
+
+    #[derive(Clone, Default)]
+    pub struct View(pub Rc<RefCell<State>>);
 
     impl View {
         pub fn try_layout(
             &self,
             parent: &Parent,
             id: &str,
-            layout: Layout,
+            value: Layout,
         ) -> Result<Parent, String> {
-            Ok(self.layout(parent, id, layout))
+            Ok(self.layout(parent, id, value))
         }
         pub fn report_error(&self, error: String) {
             panic!("{error}");
         }
-        pub fn new(_: Binding<String>) -> Self {
-            Self(Rc::new(RefCell::new(String::new())))
+        pub fn new(title: Binding<String>) -> Self {
+            let v = Self::default();
+            v.0.borrow_mut().title = Some(title);
+            v
         }
         pub fn root(&self) -> Parent {
             Parent
         }
-        pub fn style(&self, _: &str, _: Style) {}
-        pub fn layout(&self, _: &Parent, _: &str, _: Layout) -> Parent {
+        pub fn layout(&self, _: &Parent, id: &str, value: Layout) -> Parent {
+            assert!(
+                self.0
+                    .borrow_mut()
+                    .layouts
+                    .insert(id.into(), value)
+                    .is_none()
+            );
             Parent
         }
-        pub fn label(&self, _: &Parent, _: &str, text: Binding<String>) {
-            *self.0.borrow_mut() = text.get();
+        pub fn style(&self, id: &str, value: Style) {
+            self.0.borrow_mut().styles.insert(id.into(), value);
         }
-        pub fn entry(&self, _: &Parent, _: &str, _: Binding<String>) {}
-        pub fn button(&self, _: &Parent, _: &str, _: Binding<String>, _: Command) {}
-        pub fn on_close(&self, _: Rc<dyn Fn()>) {}
+        pub fn label(&self, _: &Parent, id: &str, text: Binding<String>) {
+            assert!(self.0.borrow_mut().texts.insert(id.into(), text).is_none());
+        }
+        pub fn entry(&self, p: &Parent, id: &str, text: Binding<String>) {
+            self.label(p, id, text);
+        }
+        pub fn button(&self, p: &Parent, id: &str, text: Binding<String>, command: Command) {
+            self.label(p, id, text);
+            self.0.borrow_mut().commands.insert(id.into(), command);
+        }
+        /// The `pass` fixture asserts the exact executable output: it is the
+        /// text recorded under the `label` id.
+        pub fn output(&self) -> String {
+            self.0
+                .borrow()
+                .texts
+                .get("label")
+                .map(|text| text.get())
+                .unwrap_or_default()
+        }
+        pub fn meter(&self, _: &Parent, id: &str, value: Binding<f64>) {
+            self.0.borrow_mut().values.insert(id.into(), value);
+        }
+        pub fn items<T: Clone + 'static>(
+            &self,
+            p: &Parent,
+            id: &str,
+            items: Binding<Vec<Keyed<T>>>,
+            viewport: Binding<Viewport>,
+            template: Template<T>,
+        ) {
+            let vp = viewport.get();
+            self.0.borrow_mut().viewports.insert(id.into(), viewport);
+            for item in items.get().into_iter().skip(vp.start).take(vp.count) {
+                template(self, p, &format!("{id}/{}", item.key), item.model);
+            }
+        }
+        pub fn content<T: Clone + 'static>(
+            &self,
+            p: &Parent,
+            id: &str,
+            item: Binding<Option<Keyed<T>>>,
+            template: Template<T>,
+        ) {
+            if let Some(item) = item.get() {
+                template(self, p, &format!("{id}/{}", item.key), item.model);
+            }
+        }
+        pub fn tab_items<T: Clone + 'static>(
+            &self,
+            parent: &Parent,
+            id: &str,
+            items: Binding<Vec<Keyed<T>>>,
+            _: Binding<String>,
+            title: Rc<dyn Fn(Store<T>) -> Binding<String>>,
+            template: Template<T>,
+        ) -> Parent {
+            for item in items.get() {
+                let scope = format!("{id}/{}", item.key);
+                self.label(parent, &scope, title(item.model.clone()));
+                template(self, parent, &scope, item.model);
+            }
+            Parent
+        }
+        pub fn tab_position(&self, _: &str, _: TabPosition) -> Result<(), String> {
+            Ok(())
+        }
+        /// Generic over the menu argument so fixtures with `MenuItem<i32>`
+        /// (see the `typed-menu-ok` fixture probe) bind here instead of the
+        /// `MenuView` trait method. `String` menus additionally record into
+        /// `menus`/`dispatch` for the integration assertions; every argument
+        /// type dispatches live items.
         pub fn typed_menu<A: Clone + 'static>(
             &self,
-            _: &str,
-            _: Binding<String>,
-            items: Binding<Vec<panechord_runtime::MenuItem<A>>>,
+            id: &str,
+            _title: Binding<String>,
+            items: Binding<Vec<MenuItem<A>>>,
             dispatch: Rc<dyn Fn(A) -> bool>,
         ) {
+            use std::any::Any;
+            if let (Some(string_items), Some(string_dispatch)) = (
+                (&items as &dyn Any).downcast_ref::<Binding<Vec<MenuItem<String>>>>(),
+                (&dispatch as &dyn Any).downcast_ref::<Rc<dyn Fn(String) -> bool>>(),
+            ) {
+                self.0
+                    .borrow_mut()
+                    .menus
+                    .insert(id.into(), string_items.clone());
+                self.0
+                    .borrow_mut()
+                    .dispatch
+                    .insert(id.into(), string_dispatch.clone());
+            }
             for item in items.get() {
                 dispatch(item.argument);
             }
         }
-        pub fn output(&self) -> String {
-            self.0.borrow().clone()
+        pub fn keep(&self, token: Subscription) {
+            self.0.borrow_mut().tokens.push(token);
+        }
+        pub fn on_close(&self, close: Rc<dyn Fn()>) {
+            self.0.borrow_mut().close = Some(close);
+        }
+        pub fn close(&self) {
+            let close = self.0.borrow_mut().close.take();
+            let tokens = std::mem::take(&mut self.0.borrow_mut().tokens);
+            self.0.borrow_mut().dispatch.clear();
+            drop(tokens);
+            if let Some(close) = close {
+                close();
+            }
+        }
+    }
+
+    // Shared-contract implementation: the generated screen bounds on
+    // abstractions (`Backend::View` + the `View` contract), exactly like a
+    // real backend. Inherent methods above keep their shape; each trait
+    // method delegates to the inherent one where the fixture records state,
+    // and stubs the rest (never called by these fixtures).
+    #[derive(Clone)]
+    pub struct Weak(std::rc::Weak<RefCell<State>>);
+    impl WeakViewHandle for Weak {
+        type View = View;
+        fn upgrade(&self) -> Option<View> {
+            self.0.upgrade().map(View)
         }
     }
 
@@ -129,19 +266,30 @@ pub mod fake {
             View::root(self)
         }
         fn title(&self) -> String {
-            self.0.borrow().clone()
+            self.0
+                .borrow()
+                .title
+                .clone()
+                .map(|title| title.get())
+                .unwrap_or_default()
         }
         fn present(&self) {}
-        fn close(&self) {}
-        fn request_close(&self) {}
-        fn on_close(&self, callback: Rc<dyn Fn()>) {
-            View::on_close(self, callback)
+        fn close(&self) {
+            View::close(self)
+        }
+        fn request_close(&self) {
+            View::close(self)
+        }
+        fn on_close(&self, close: Rc<dyn Fn()>) {
+            View::on_close(self, close)
         }
         fn on_close_request(&self, _: Rc<dyn Fn()>) {}
         fn downgrade(&self) -> Weak {
             Weak(Rc::downgrade(&self.0))
         }
-        fn keep(&self, _: Subscription) {}
+        fn keep(&self, token: Subscription) {
+            View::keep(self, token)
+        }
         fn visible(&self, _: &str, _: Binding<bool>) {}
         fn enabled(&self, _: &str, _: Binding<bool>) {}
         fn style_binding(&self, _: &str, _: Binding<Style>) {}
@@ -154,20 +302,20 @@ pub mod fake {
     }
 
     impl LayoutView for View {
-        fn layout(&self, parent: &Parent, id: &str, layout: Layout) -> Parent {
-            View::layout(self, parent, id, layout)
+        fn layout(&self, parent: &Parent, id: &str, value: Layout) -> Parent {
+            View::layout(self, parent, id, value)
         }
-        fn try_layout(&self, parent: &Parent, id: &str, layout: Layout) -> Result<Parent, String> {
-            View::try_layout(self, parent, id, layout)
+        fn try_layout(&self, parent: &Parent, id: &str, value: Layout) -> Result<Parent, String> {
+            View::try_layout(self, parent, id, value)
         }
         fn try_scroll(&self, _: &Parent, _: &str, _: bool) -> Result<Parent, String> {
             Ok(Parent)
         }
-        fn style(&self, id: &str, style: Style) {
-            View::style(self, id, style)
+        fn style(&self, id: &str, value: Style) {
+            View::style(self, id, value)
         }
-        fn try_style(&self, id: &str, style: Style) -> Result<(), String> {
-            View::style(self, id, style);
+        fn try_style(&self, id: &str, value: Style) -> Result<(), String> {
+            View::style(self, id, value);
             Ok(())
         }
         fn separator(&self, _: &Parent, _: &str, _: bool) {}
@@ -221,7 +369,9 @@ pub mod fake {
         fn image_update_count(&self) -> usize {
             0
         }
-        fn meter(&self, _: &Parent, _: &str, _: Binding<f64>) {}
+        fn meter(&self, parent: &Parent, id: &str, value: Binding<f64>) {
+            View::meter(self, parent, id, value)
+        }
     }
 
     impl TabView for View {
@@ -231,8 +381,8 @@ pub mod fake {
         fn navigation(&self, _: &Parent, _: &str, _: Binding<String>) -> Parent {
             Parent
         }
-        fn tab_position(&self, _: &str, _: TabPosition) -> Result<(), String> {
-            Ok(())
+        fn tab_position(&self, id: &str, position: TabPosition) -> Result<(), String> {
+            View::tab_position(self, id, position)
         }
         fn tab_page(&self, _: &Parent, _: &str, _: Binding<String>, _: &str) -> Parent {
             Parent
@@ -251,43 +401,48 @@ pub mod fake {
         }
         fn tab_items<T: Clone + 'static>(
             &self,
-            _: &Parent,
-            _: &str,
-            _: Binding<Vec<Keyed<T>>>,
-            _: Binding<String>,
-            _: Rc<dyn Fn(Store<T>) -> Binding<String>>,
-            _: Rc<dyn Fn(&View, &Parent, &str, Store<T>)>,
+            parent: &Parent,
+            id: &str,
+            items: Binding<Vec<Keyed<T>>>,
+            selected: Binding<String>,
+            title: Rc<dyn Fn(Store<T>) -> Binding<String>>,
+            template: Rc<dyn Fn(&View, &Parent, &str, Store<T>)>,
         ) -> Parent {
-            Parent
+            View::tab_items(self, parent, id, items, selected, title, template)
         }
     }
 
     impl ListView for View {
         fn repeat<T: Clone + 'static>(
             &self,
-            _: &Parent,
-            _: &str,
-            _: Binding<Vec<Keyed<T>>>,
+            parent: &Parent,
+            id: &str,
+            items: Binding<Vec<Keyed<T>>>,
             _: f32,
-            _: Rc<dyn Fn(&View, &Parent, &str, Store<T>)>,
+            template: Template<T>,
         ) {
+            for item in items.get() {
+                template(self, parent, &format!("{id}/{}", item.key), item.model);
+            }
         }
         fn items<T: Clone + 'static>(
             &self,
-            _: &Parent,
-            _: &str,
-            _: Binding<Vec<Keyed<T>>>,
-            _: Binding<Viewport>,
-            _: Rc<dyn Fn(&View, &Parent, &str, Store<T>)>,
+            parent: &Parent,
+            id: &str,
+            items: Binding<Vec<Keyed<T>>>,
+            viewport: Binding<Viewport>,
+            template: Template<T>,
         ) {
+            View::items(self, parent, id, items, viewport, template)
         }
         fn content<T: Clone + 'static>(
             &self,
-            _: &Parent,
-            _: &str,
-            _: Binding<Option<Keyed<T>>>,
-            _: Rc<dyn Fn(&View, &Parent, &str, Store<T>)>,
+            parent: &Parent,
+            id: &str,
+            item: Binding<Option<Keyed<T>>>,
+            template: Template<T>,
         ) {
+            View::content(self, parent, id, item, template)
         }
         fn item_keys(&self, _: &str) -> Vec<String> {
             Vec::new()
@@ -361,20 +516,15 @@ pub mod fake {
         fn set_open(&self, _: &str, _: bool) -> Result<(), String> {
             Err("fixture has no automation".into())
         }
-        fn text(&self, _: &str) -> Option<String> {
-            None
+        fn text(&self, id: &str) -> Option<String> {
+            self.0.borrow().texts.get(id).map(|text| text.get())
         }
     }
 
-    pub struct Host;
-    impl Executor for Host {
-        fn spawn(&self, _: Pin<Box<dyn Future<Output = ()>>>) {
-            panic!("these fixtures must not spawn tasks");
-        }
-    }
+    pub struct Host(Rc<dyn Executor>);
     impl UiHost for Host {
         fn executor(&self) -> Rc<dyn Executor> {
-            Rc::new(NoTasks)
+            self.0.clone()
         }
         fn attach(&self, _: Session) -> Result<(), String> {
             Ok(())

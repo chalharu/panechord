@@ -2667,8 +2667,8 @@ dependencies = [
  "gtk4",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
  "panechord-runtime",
+ "panechord-surface-macos",
  "raw-window-handle",
  "windows-sys 0.61.2",
 ]
@@ -2741,6 +2741,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "panechord-surface-macos"
+version = "0.1.0-dev"
+dependencies = [
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "raw-window-handle",
+]
+
+[[package]]
 name = "panechord-tao"
 version = "0.1.0-dev"
 dependencies = [
@@ -2754,6 +2763,7 @@ dependencies = [
  "objc2-app-kit 0.3.2",
  "panechord-macros",
  "panechord-runtime",
+ "panechord-surface-macos",
  "raw-window-handle",
  "rfd",
  "tao",

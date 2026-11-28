@@ -34,7 +34,7 @@ pub use session::{
     Session, ShutdownCoordinator, ShutdownFailure, ShutdownOutcome, ShutdownPhase, UiHost,
     WindowHooks, run_async,
 };
-pub use shortcut::{Shortcut, ShortcutError, ShortcutTarget};
+pub use shortcut::{CANONICAL_SPECIAL_KEYS, Shortcut, ShortcutError, ShortcutKey, ShortcutTarget};
 pub use store::{
     Binding, Command, Executor, Limits, Policy, Store, StoreOwner, Subscription, WriteError,
     ignore_write, validation,
@@ -78,8 +78,7 @@ impl<S: Clone + 'static> PartialEq for Keyed<S> {
     }
 }
 
-#[doc(hidden)]
-pub fn validate_repeat_items<T: Clone + 'static>(items: &[Keyed<T>]) -> Result<(), &'static str> {
+fn validate_repeat_items<T: Clone + 'static>(items: &[Keyed<T>]) -> Result<(), &'static str> {
     let mut keys = std::collections::HashSet::new();
     if items.len() > 256
         || items.iter().any(|item| {
@@ -124,6 +123,102 @@ impl<'a> ReconcileGuard<'a> {
 impl Drop for ReconcileGuard<'_> {
     fn drop(&mut self) {
         self.0.set(false);
+    }
+}
+
+/// Shared `Repeat` reconciler state machine for the GTK/Tao/macOS backends.
+///
+/// Backends own only the mount primitives (layout container, subscription,
+/// native evict/mount/reorder); gap validation, pending/busy coalescing,
+/// key validation, diffing and pass control flow live here exactly once.
+/// `mount_one` receives one owned row model per new key; `reorder_all`
+/// receives the source-order scopes.
+#[doc(hidden)]
+pub struct RepeatDriver<T: Clone + 'static> {
+    current: std::cell::RefCell<Vec<Keyed<T>>>,
+    pending: std::cell::RefCell<Option<Vec<Keyed<T>>>>,
+    busy: std::cell::Cell<bool>,
+}
+
+/// The backend half of [`RepeatDriver::on_items`]: lifecycle check,
+/// error sink, and the three native mount primitives. One struct keeps
+/// the driver entry within the argument-count budget.
+#[doc(hidden)]
+pub struct RepeatHooks<C, R, E, M, O> {
+    pub is_closed: C,
+    pub report_error: R,
+    pub evict_one: E,
+    pub mount_one: M,
+    pub reorder_all: O,
+}
+
+impl<T: Clone + 'static> RepeatDriver<T> {
+    pub fn on_items<C, R, E, M, O>(
+        &self,
+        items: Vec<Keyed<T>>,
+        key: &str,
+        hooks: RepeatHooks<C, R, E, M, O>,
+    ) where
+        C: Fn() -> bool,
+        R: Fn(String),
+        E: Fn(String),
+        M: Fn(String, Keyed<T>),
+        O: Fn(Vec<String>) -> bool,
+    {
+        let RepeatHooks {
+            is_closed,
+            report_error,
+            evict_one,
+            mount_one,
+            reorder_all,
+        } = hooks;
+        self.pending.replace(Some(items));
+        let Some(_guard) = ReconcileGuard::enter(&self.busy) else {
+            return;
+        };
+        loop {
+            let next = self.pending.borrow_mut().take();
+            let Some(items) = next else { break };
+            if is_closed() {
+                break;
+            }
+            if let Err(error) = validate_repeat_items(&items) {
+                report_error(error.into());
+                continue;
+            }
+            let previous = self.current.replace(items.clone());
+            for item in &previous {
+                if !items.iter().any(|candidate| candidate == item) {
+                    evict_one(format!("{key}/{}", item.key));
+                }
+            }
+            for item in &items {
+                if is_closed() {
+                    return;
+                }
+                if !previous.iter().any(|candidate| candidate == item) {
+                    mount_one(format!("{key}/{}", item.key), item.clone());
+                }
+            }
+            if !reorder_all(
+                items
+                    .iter()
+                    .map(|item| format!("{key}/{}", item.key))
+                    .collect(),
+            ) {
+                return;
+            }
+        }
+    }
+}
+
+impl<T: Clone + 'static> Default for RepeatDriver<T> {
+    fn default() -> Self {
+        Self {
+            current: std::cell::RefCell::new(Vec::new()),
+            pending: std::cell::RefCell::new(None),
+            busy: std::cell::Cell::new(false),
+        }
     }
 }
 

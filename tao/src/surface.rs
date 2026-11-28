@@ -12,9 +12,9 @@ struct Surface {
     /// Private GL drawable host (macOS): same reason as the GTK backend —
     /// binding an NSOpenGLContext to the toolkit-owned view hijacks its
     /// layer while the readback path never presents, breaking window
-    /// composition. Master presented via swap, so it never hit this.
+    /// composition.
     #[cfg(target_os = "macos")]
-    gl_host: std::cell::OnceCell<objc2::rc::Retained<objc2_app_kit::NSView>>,
+    gl_host: panechord_surface_macos::MacosGlHost,
 }
 
 impl HasDisplayHandle for Surface {
@@ -46,37 +46,7 @@ impl HasWindowHandle for Surface {
             .ok_or(HandleError::Unavailable)?;
             let ns_window = view.window().ok_or(HandleError::Unavailable)?;
             let content = ns_window.contentView().ok_or(HandleError::Unavailable)?;
-            let mtm = objc2::MainThreadMarker::new().ok_or(HandleError::Unavailable)?;
-            let host = self.gl_host.get_or_init(|| {
-                let view = objc2_app_kit::NSView::new(mtm);
-                view.setHidden(true);
-                view
-            });
-            let reparent = unsafe { host.superview() }
-                .map(|parent| {
-                    !std::ptr::eq(
-                        objc2::rc::Retained::as_ptr(&parent).cast::<std::ffi::c_void>(),
-                        objc2::rc::Retained::as_ptr(&content).cast::<std::ffi::c_void>(),
-                    )
-                })
-                .unwrap_or(true);
-            if reparent {
-                host.removeFromSuperview();
-                host.setFrame(content.bounds());
-                host.setAutoresizingMask(
-                    objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable
-                        | objc2_app_kit::NSAutoresizingMaskOptions::ViewHeightSizable,
-                );
-                content.addSubview(host);
-            }
-            let pointer =
-                std::ptr::NonNull::new(objc2::rc::Retained::as_ptr(host).cast_mut().cast())
-                    .ok_or(HandleError::Unavailable)?;
-            Ok(unsafe {
-                WindowHandle::borrow_raw(raw_window_handle::RawWindowHandle::AppKit(
-                    raw_window_handle::AppKitWindowHandle::new(pointer),
-                ))
-            })
+            self.gl_host.handle(&content)
         }
     }
 }
@@ -110,165 +80,13 @@ impl WindowHost<View> for TaoHost {
 
 impl View {
     fn key_code(code: crate::NativeKeyCode) -> KeyCode {
-        macro_rules! codes {
-            ($($code:ident),+ $(,)?) => { match code { $(crate::NativeKeyCode::$code => KeyCode::$code,)+ _ => KeyCode::Unidentified } };
-        }
-        codes!(
-            KeyA,
-            KeyB,
-            KeyC,
-            KeyD,
-            KeyE,
-            KeyF,
-            KeyG,
-            KeyH,
-            KeyI,
-            KeyJ,
-            KeyK,
-            KeyL,
-            KeyM,
-            KeyN,
-            KeyO,
-            KeyP,
-            KeyQ,
-            KeyR,
-            KeyS,
-            KeyT,
-            KeyU,
-            KeyV,
-            KeyW,
-            KeyX,
-            KeyY,
-            KeyZ,
-            Digit0,
-            Digit1,
-            Digit2,
-            Digit3,
-            Digit4,
-            Digit5,
-            Digit6,
-            Digit7,
-            Digit8,
-            Digit9,
-            F1,
-            F2,
-            F3,
-            F4,
-            F5,
-            F6,
-            F7,
-            F8,
-            F9,
-            F10,
-            F11,
-            F12,
-            F13,
-            F14,
-            F15,
-            F16,
-            F17,
-            F18,
-            F19,
-            F20,
-            F21,
-            F22,
-            F23,
-            F24,
-            F25,
-            F26,
-            F27,
-            F28,
-            F29,
-            F30,
-            F31,
-            F32,
-            F33,
-            F34,
-            F35,
-            Enter,
-            Escape,
-            Space,
-            Tab,
-            Delete,
-            Backspace,
-            Insert,
-            CapsLock,
-            Home,
-            End,
-            PageUp,
-            PageDown,
-            ArrowUp,
-            ArrowDown,
-            ArrowLeft,
-            ArrowRight,
-            Minus,
-            Equal,
-            BracketLeft,
-            BracketRight,
-            Backslash,
-            Semicolon,
-            Quote,
-            Backquote,
-            Comma,
-            Period,
-            Slash,
-            Numpad0,
-            Numpad1,
-            Numpad2,
-            Numpad3,
-            Numpad4,
-            Numpad5,
-            Numpad6,
-            Numpad7,
-            Numpad8,
-            Numpad9,
-            NumpadDecimal,
-            NumpadAdd,
-            NumpadSubtract,
-            NumpadMultiply,
-            NumpadDivide,
-            NumpadEnter,
-            NumpadEqual,
-            ControlLeft,
-            ControlRight,
-            ShiftLeft,
-            ShiftRight,
-            AltLeft,
-            AltRight,
-            SuperLeft,
-            SuperRight,
-            PrintScreen,
-            ScrollLock,
-            Pause,
-            NumLock,
-            ContextMenu,
-            AudioVolumeUp,
-            AudioVolumeDown,
-            AudioVolumeMute,
-            MediaPlayPause,
-            MediaStop,
-            MediaTrackNext,
-            MediaTrackPrevious,
-            MediaSelect,
-            BrowserBack,
-            BrowserFavorites,
-            BrowserForward,
-            BrowserHome,
-            BrowserRefresh,
-            BrowserSearch,
-            BrowserStop,
-            Convert,
-            NonConvert,
-            KanaMode,
-            IntlBackslash,
-            IntlRo,
-            IntlYen,
-            Lang1,
-            Lang2,
-            Lang3,
-            Lang4,
-            Lang5,
-        )
+        // `NativeKeyCode` (winit) and `KeyCode` (runtime) share physical
+        // variant names for every mapped code, so the canonical name table
+        // in `runtime::key` is the single source of truth: derive through
+        // it instead of duplicating the ~155-variant list here. Unmapped
+        // codes (including `Unidentified(..)`) fall through to
+        // `KeyCode::Unidentified`, exactly like the old `_` arm.
+        KeyCode::from_name(&format!("{code:?}"))
     }
 
     pub fn on_surface_ready(
@@ -279,7 +97,7 @@ impl View {
             callback(Rc::new(Surface {
                 window,
                 #[cfg(target_os = "macos")]
-                gl_host: std::cell::OnceCell::new(),
+                gl_host: panechord_surface_macos::MacosGlHost::default(),
             }))
         })
     }
@@ -361,6 +179,13 @@ mod input_tests {
             (crate::NativeKeyCode::ShiftRight, KeyCode::ShiftRight),
             (crate::NativeKeyCode::F35, KeyCode::F35),
             (crate::NativeKeyCode::IntlYen, KeyCode::IntlYen),
+            // Dropped by the old hand list, now mapped through the runtime table.
+            (crate::NativeKeyCode::Fn, KeyCode::Fn),
+            // Still unmapped names fall through to Unidentified.
+            (
+                crate::NativeKeyCode::Unidentified(tao::keyboard::NativeKeyCode::Unidentified),
+                KeyCode::Unidentified,
+            ),
         ] {
             assert_eq!(View::key_code(native), common);
         }
